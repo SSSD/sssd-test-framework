@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling", "hatch-requirements-txt", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sssd-test-framework"
+authors = [
+  { name="SSSD Team", email="sssd-maintainers@lists.fedoraproject.org" },
+]
+description = "Test framework for SSSD system tests"
+readme = "readme.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+]
+dynamic = ["dependencies", "version"]
+
+[project.urls]
+"Homepage" = "https://github.com/SSSD/sssd-test-framework"
+"Bug Tracker" = "https://github.com/SSSD/sssd-test-framework/issues"
+
+[tool.hatch.build]
+include = [
+  "/sssd_test_framework",
+  "/sssd_test_framework/py.typed",
+  "requirements.txt",
+]
+
+[tool.hatch.metadata.hooks.requirements_txt]
+files = ["requirements.txt"]
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.mypy]
+exclude = "docs"
+
+[[tool.mypy.overrides]]
+module = ["jc.*", "ldap.*"]
+ignore_missing_imports = true
+
+[tool.isort]
+line_length = 119
+profile = "black"
+add_imports = "from __future__ import annotations"
+
+[tool.black]
+line-length = 119

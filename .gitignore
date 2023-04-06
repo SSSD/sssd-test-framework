@@ -1,0 +1,9 @@
+__pycache__
+.pytest_cache
+.tox
+.venv
+.vscode
+*.py[cod]
+dist
+docs/_build
+docs/api
