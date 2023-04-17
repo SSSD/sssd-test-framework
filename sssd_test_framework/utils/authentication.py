@@ -7,6 +7,7 @@ from typing import Any
 
 from pytest_mh import MultihostHost, MultihostUtility
 from pytest_mh.ssh import SSHClient, SSHProcessResult
+from pytest_mh.utils.fs import LinuxFileSystem
 
 from ..misc.errors import ExpectScriptError
 
@@ -45,14 +46,16 @@ class AuthenticationUtils(MultihostUtility[MultihostHost]):
                 assert client.auth.parametrize(method).password('tuser', 'Secret123')
     """
 
-    def __init__(self, host: MultihostHost) -> None:
+    def __init__(self, host: MultihostHost, fs: LinuxFileSystem) -> None:
         """
         :param host: Remote host.
         :type host: MultihostHost
+        :param fs: File system utils.
+        :type fs: LinuxFileSystem
         """
         super().__init__(host)
 
-        self.su: SUAuthenticationUtils = SUAuthenticationUtils(host)
+        self.su: SUAuthenticationUtils = SUAuthenticationUtils(host, fs)
         """
         Test authentication and authorization via su.
 
@@ -150,6 +153,17 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
     """
     Methods for testing authentication and authorization via su.
     """
+
+    def __init__(self, host: MultihostHost, fs: LinuxFileSystem) -> None:
+        """
+        :param host: Multihost host.
+        :type host: MultihostHost
+        :param fs: Linux File system.
+        :type fs: LinuxFileSystem.
+        """
+
+        super().__init__(host)
+        self.fs: LinuxFileSystem = fs
 
     def password(self, username: str, password: str) -> bool:
         """
@@ -257,6 +271,94 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
             puts "expect result: Unexpected code path"
             exit 203
         """
+        )
+
+        if result.rc > 200:
+            raise ExpectScriptError(result.rc)
+
+        return result.rc == 0
+
+    def passkey(self, username: str, *, pin: str | int, device: str, ioctl: str, script: str) -> bool:
+        """
+        Call ``su - $username`` and authenticate the user with passkey.
+
+        :param username: User name
+        :type username: str
+        :param pin: Passkey PIN.
+        :type pin: str | int
+        :param device: Path to local umockdev device file.
+        :type device: str
+        :param ioctl: Path to local umockdev ioctl file.
+        :type ioctl: str
+        :param script: Path to local umockdev script file
+        :type script: str
+        :return: Generated passkey mapping string.
+        :rtype: str
+        :return: True if authentication was successful, False otherwise.
+        :rtype: bool
+        """
+        self.fs.backup("/etc/sysconfig/sssd")
+        device_path = self.fs.upload_to_tmp(device, mode="a=r")
+        ioctl_path = self.fs.upload_to_tmp(ioctl, mode="a=r")
+        script_path = self.fs.upload_to_tmp(script, mode="a=r")
+
+        run_su = self.fs.mktmp(
+            rf"""
+            #!/bin/bash
+            set -ex
+            env | grep ^UMOCKDEV_ > /etc/sysconfig/sssd
+            printf "LD_PRELOAD=$LD_PRELOAD" >> /etc/sysconfig/sssd
+            systemctl restart sssd
+            chmod -R a+rwx $UMOCKDEV_DIR
+
+            su --shell /bin/sh nobody -c "su - '{username}'"
+            """,
+            mode="a=rx",
+        )
+
+        playback_umockdev = self.fs.mktmp(
+            rf"""
+            #!/bin/bash
+
+            LD_PRELOAD=/opt/random.so umockdev-run \
+                --device '{device_path}' \
+                --ioctl '/dev/hidraw1={ioctl_path}' \
+                --script '/dev/hidraw1={script_path}' \
+                -- '{run_su}'
+            """,
+            mode="a=rx",
+        )
+
+        result = self.host.ssh.expect(
+            rf"""
+            # It takes some time to get authentication failure
+            set timeout 10
+            set prompt "\n.*\[#\$>\] $"
+
+            spawn "{playback_umockdev}"
+
+            expect {{
+                "Insert your passkey device, then press ENTER*" {{send -- "\r"}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
+            }}
+
+            expect {{
+                "Enter PIN:*" {{send -- "{pin}\r"}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
+            }}
+
+            expect {{
+                -re $prompt {{puts "expect result: Password authentication successful"; exit 0}}
+                "Authentication failure" {{puts "expect result: Authentication failure"; exit 1}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
+            }}
+
+            puts "expect result: Unexpected code path"
+            exit 203
+            """
         )
 
         if result.rc > 200:
