@@ -6,6 +6,7 @@ from ..hosts.base import BaseHost
 from ..topology import SSSDTopologyMark
 from ..utils.automount import AutomountUtils
 from ..utils.local_users import LocalUsersUtils
+from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
 from .base import BaseLinuxRole
 
@@ -40,6 +41,11 @@ class Client(BaseLinuxRole[BaseHost]):
         self.sssd: SSSDUtils = SSSDUtils(self.host, self.fs, self.svc, self.authselect, load_config=False)
         """
         Managing and configuring SSSD.
+        """
+
+        self.sssctl: SSSCTLUtils = SSSCTLUtils(self.host, self.fs)
+        """
+        Call commands from sssctl.
         """
 
         self.automount: AutomountUtils = AutomountUtils(self.host, self.svc)
