@@ -121,7 +121,7 @@ class BaseLinuxRole(BaseRole[HostType]):
         Standard tools interface.
         """
 
-        self.auth: AuthenticationUtils = AuthenticationUtils(self.host)
+        self.auth: AuthenticationUtils = AuthenticationUtils(self.host, self.fs)
         """
         Authentication helpers.
         """
