@@ -9,6 +9,7 @@ from pytest_mh.ssh import SSHProcessResult
 
 from ..hosts.ipa import IPAHost
 from ..misc import attrs_include_value, attrs_parse, to_list, to_list_of_strings
+from ..utils.sssd import SSSDUtils
 from .base import BaseLinuxRole, BaseObject
 from .nfs import NFSExport
 
@@ -49,6 +50,11 @@ class IPA(BaseLinuxRole[IPAHost]):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+
+        self.sssd: SSSDUtils = SSSDUtils(self.host, self.fs, self.svc, self.authselect, load_config=True)
+        """
+        Managing and configuring SSSD.
+        """
 
         self.automount: IPAAutomount = IPAAutomount(self)
         """
