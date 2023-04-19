@@ -9,4 +9,6 @@ How to guides
    testing-autofs
    testing-identity
    testing-ldap-krb5
+   testing-passkey
    local-users
+
