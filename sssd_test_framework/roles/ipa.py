@@ -420,6 +420,71 @@ class IPAUser(IPAObject):
         self._exec("add-passkey", [passkey_mapping])
         return self
 
+    def passkey_add_register(
+        self,
+        *,
+        pin: str | int | None,
+        device: str,
+        ioctl: str,
+        script: str,
+    ) -> str:
+        """
+        Register passkey with the user (run ipa user-add-passkey --register).
+
+        :param pin: Passkey PIN.
+        :type pin: str | int | None
+        :param device: Path to local umockdev device file.
+        :type device: str
+        :param ioctl: Path to local umockdev ioctl file.
+        :type ioctl: str
+        :param script: Path to local umockdev script file
+        :type script: str
+        :return: Generated passkey mapping string.
+        :rtype: str
+        """
+        device_path = self.role.fs.upload_to_tmp(device, mode="a=r")
+        ioctl_path = self.role.fs.upload_to_tmp(ioctl, mode="a=r")
+        script_path = self.role.fs.upload_to_tmp(script, mode="a=r")
+        verify = pin is not None
+
+        command = self.role.fs.mktmp(
+            rf"""
+            #!/bin/bash
+
+            LD_PRELOAD=/opt/random.so umockdev-run \
+                --device '{device_path}'                \
+                --ioctl '/dev/hidraw1={ioctl_path}'     \
+                --script '/dev/hidraw1={script_path}'   \
+                -- ipa user-add-passkey '{self.name}' --register --cose-type=es256 --require-user-verification={verify}
+            """,
+            mode="a=rx",
+        )
+
+        if pin is not None:
+            result = self.host.ssh.expect(
+                f"""
+                spawn {command}
+                expect {{
+                    "Enter PIN:*" {{send -- "{pin}\r"}}
+                    timeout {{puts "expect result: Unexpected output"; exit 201}}
+                    eof {{puts "expect result: Unexpected end of file"; exit 202}}
+                }}
+
+                expect eof
+                """,
+                raise_on_error=True,
+            )
+        else:
+            result = self.host.ssh.expect(
+                f"""
+                spawn {command}
+                expect eof
+                """,
+                raise_on_error=True,
+            )
+
+        return result.stdout_lines[-1].strip()
+
     def passkey_remove(self, passkey_mapping: str) -> IPAUser:
         """
         Add passkey mapping from the user.
