@@ -6,6 +6,7 @@ API Reference
    :nosignatures:
    :recursive:
 
+   sssd_test_framework.fixtures
    sssd_test_framework.hosts
    sssd_test_framework.misc
    sssd_test_framework.roles
