@@ -43,6 +43,7 @@ class SSSDMultihostDomain(MultihostDomain[SSSDMultihostConfig]):
         from .hosts.client import ClientHost
         from .hosts.ipa import IPAHost
         from .hosts.kdc import KDCHost
+        from .hosts.keycloak import KeycloakHost
         from .hosts.ldap import LDAPHost
         from .hosts.nfs import NFSHost
         from .hosts.samba import SambaHost
@@ -55,6 +56,7 @@ class SSSDMultihostDomain(MultihostDomain[SSSDMultihostConfig]):
             "samba": SambaHost,
             "nfs": NFSHost,
             "kdc": KDCHost,
+            "keycloak": KeycloakHost,
         }
 
     @property
@@ -68,6 +70,7 @@ class SSSDMultihostDomain(MultihostDomain[SSSDMultihostConfig]):
         from .roles.client import Client
         from .roles.ipa import IPA
         from .roles.kdc import KDC
+        from .roles.keycloak import Keycloak
         from .roles.ldap import LDAP
         from .roles.nfs import NFS
         from .roles.samba import Samba
@@ -80,4 +83,5 @@ class SSSDMultihostDomain(MultihostDomain[SSSDMultihostConfig]):
             "samba": Samba,
             "nfs": NFS,
             "kdc": KDC,
+            "keycloak": Keycloak,
         }

@@ -35,6 +35,7 @@ There are multiple roles available.
 * ``ipa`` -- IPA server
 * ``ldap`` -- 389ds server
 * ``samba`` -- Samba Domain Controller
+* ``keycloak`` -- Keycloak server
 * ``client`` -- SSSD client
 
 Each role is accessible through pytest fixture.
@@ -43,8 +44,8 @@ Using provider roles
 ********************
 
 Provider roles, that is those that represents identity management service (ad,
-samba, ipa, ldap), provide interface to manipulate the service. For example
-managing users and groups. These roles implements a generic interface
+samba, ipa, ldap, keycloak), provide interface to manipulate the service. For
+example managing users and groups. These roles implements a generic interface
 :class:`~sssd_test_framework.roles.generic.GenericProvider` and further extends
 this interface with service specifics.
 :class:`~sssd_test_framework.roles.generic.GenericProvider` can be used when
@@ -118,7 +119,8 @@ different containers). Group management works in the same way but
     :class:`~sssd_test_framework.roles.ad.AD`,
     :class:`~sssd_test_framework.roles.ipa.IPA`,
     :class:`~sssd_test_framework.roles.ldap.LDAP`,
-    :class:`~sssd_test_framework.roles.samba.Samba`
+    :class:`~sssd_test_framework.roles.samba.Samba`,
+    :class:`~sssd_test_framework.roles.keycloak.Keycloak`
 
 Using the client role
 *********************
