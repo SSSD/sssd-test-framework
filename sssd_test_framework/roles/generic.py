@@ -5,6 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 from pytest_mh import MultihostRole
+from pytest_mh.utils.firewall import GenericFirewall
 
 from ..hosts.base import BaseHost
 from .base import BaseObject
@@ -32,6 +33,11 @@ class GenericProvider(ABC, MultihostRole[BaseHost]):
         for type hinting only on parametrized tests that runs on multiple
         topologies.
     """
+
+    @property
+    @abstractmethod
+    def firewall(self) -> GenericFirewall:
+        pass
 
     @abstractmethod
     def user(self, name: str) -> GenericUser:
@@ -187,7 +193,10 @@ class GenericADProvider(GenericProvider):
         that runs on both Samba and Active Directory.
     """
 
-    pass
+    @property
+    @abstractmethod
+    def firewall(self) -> GenericFirewall:
+        pass
 
 
 class GenericUser(ABC, BaseObject):

@@ -7,6 +7,7 @@ from typing import Any, Generic, TypeGuard, TypeVar
 
 from pytest_mh import MultihostRole
 from pytest_mh.cli import CLIBuilder
+from pytest_mh.utils.firewall import LinuxFirewalld, WindowsFirewall
 from pytest_mh.utils.fs import LinuxFileSystem
 from pytest_mh.utils.services import SystemdServices
 
@@ -116,6 +117,11 @@ class BaseLinuxRole(BaseRole[HostType]):
         Systemd service management.
         """
 
+        self.firewall: LinuxFirewalld = LinuxFirewalld(self.host)
+        """
+        Configure firewall using firewalld.
+        """
+
         self.tools: LinuxToolsUtils = LinuxToolsUtils(self.host, self.fs)
         """
         Standard tools interface.
@@ -151,4 +157,10 @@ class BaseWindowsRole(BaseRole[HostType]):
     Base Windows role.
     """
 
-    pass
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.firewall: WindowsFirewall = WindowsFirewall(self.host)
+        """
+        Configure Windows firewall.
+        """
