@@ -1,6 +1,7 @@
 """Miscellaneous functions."""
 from __future__ import annotations
 
+import itertools
 from typing import Any
 
 
@@ -97,3 +98,23 @@ def to_list_without_none(r_list: list[Any]) -> list[Any]:
     :rtype: list[Any]
     """
     return [x for x in r_list if x is not None]
+
+
+def parse_ldif(ldif: str) -> dict[str, dict[str, list[str]]]:
+    """
+    Convert given LDIF to dictionary.
+
+    :param ldif: Output of ldbsearch.
+    :type ldif: str
+    :return: Data of given ldif in format: dict[dn, dict[attribute, list[attrvalue]]].
+    :rtype: dict[str, dict[str, list[str]]
+    """
+    output = {}
+    uncommented = [x for x in ldif.split("\n") if not x.startswith("#")]
+    parsed = [list(group) for k, group in itertools.groupby(uncommented, lambda x: x == "") if not k]
+
+    for record in parsed:
+        result = attrs_parse(record)
+        output[result["dn"][0]] = result
+
+    return output
