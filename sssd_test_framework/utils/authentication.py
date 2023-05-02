@@ -8,6 +8,8 @@ from typing import Any
 from pytest_mh import MultihostHost, MultihostUtility
 from pytest_mh.ssh import SSHClient, SSHProcessResult
 
+from ..misc.errors import ExpectScriptError
+
 __all__ = [
     "AuthenticationUtils",
     "KerberosAuthenticationUtils",
@@ -171,21 +173,24 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
 
             expect {{
                 "Password:" {{send "{password}\n"}}
-                timeout {{puts "expect result: Unexpected output"; exit 1}}
-                eof {{puts "expect result: Unexpected end of file"; exit 2}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
             }}
 
             expect {{
                 -re $prompt {{puts "expect result: Password authentication successful"; exit 0}}
-                "Authentication failure" {{puts "expect result: Authentication failure"; exit 4}}
-                timeout {{puts "expect result: Unexpected output"; exit 1}}
-                eof {{puts "expect result: Unexpected end of file"; exit 2}}
+                "Authentication failure" {{puts "expect result: Authentication failure"; exit 1}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
             }}
 
             puts "expect result: Unexpected code path"
-            exit 3
+            exit 203
         """
         )
+
+        if result.rc > 200:
+            raise ExpectScriptError(result.rc)
 
         return result.rc == 0
 
@@ -213,46 +218,49 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
 
             expect {{
                 "Password:" {{send "{password}\n"}}
-                timeout {{puts "expect result: Unexpected output"; exit 1}}
-                eof {{puts "expect result: Unexpected end of file"; exit 2}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
             }}
 
             expect {{
                 "Password expired. Change your password now." {{ }}
-                -re $prompt {{puts "expect result: Authentication succeeded without password change"; exit 3}}
-                "Authentication failure" {{puts "expect result: Authentication failure"; exit 4}}
-                timeout {{puts "expect result: Unexpected output"; exit 1}}
-                eof {{puts "expect result: Unexpected end of file"; exit 2}}
+                -re $prompt {{puts "expect result: Authentication succeeded without password change"; exit 2}}
+                "Authentication failure" {{puts "expect result: Authentication failure"; exit 1}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
             }}
 
             expect {{
                 "Current Password:" {{send "{password}\n"}}
-                timeout {{puts "expect result: Unexpected output"; exit 1}}
-                eof {{puts "expect result: Unexpected end of file"; exit 2}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
             }}
 
             expect {{
                 "New password:" {{send "{new_password}\n"}}
-                timeout {{puts "expect result: Unexpected output"; exit 1}}
-                eof {{puts "expect result: Unexpected end of file"; exit 2}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
             }}
 
             expect {{
                 "Retype new password:" {{send "{new_password}\n"}}
-                timeout {{puts "expect result: Unexpected output"; exit 1}}
-                eof {{puts "expect result: Unexpected end of file"; exit 2}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
             }}
 
             expect {{
                 -re $prompt {{puts "expect result: Password change was successful"; exit 0}}
-                timeout {{puts "expect result: Unexpected output"; exit 1}}
-                eof {{puts "expect result: Unexpected end of file"; exit 2}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
             }}
 
             puts "expect result: Unexpected code path"
-            exit 3
+            exit 203
         """
         )
+
+        if result.rc > 200:
+            raise ExpectScriptError(result.rc)
 
         return result.rc == 0
 
@@ -297,21 +305,24 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
 
             expect {{
                 "password:" {{send "{password}\n"}}
-                timeout {{puts "expect result: Unexpected output"; exit 1}}
-                eof {{puts "expect result: Unexpected end of file"; exit 2}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
             }}
 
             expect {{
                 -re $prompt {{puts "expect result: Password authentication successful"; exit 0}}
-                "{username}@localhost: Permission denied" {{puts "expect result: Authentication failure"; exit 4}}
-                timeout {{puts "expect result: Unexpected output"; exit 1}}
-                eof {{puts "expect result: Unexpected end of file"; exit 2}}
+                "{username}@localhost: Permission denied" {{puts "expect result: Authentication failure"; exit 1}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
             }}
 
             puts "expect result: Unexpected code path"
-            exit 3
+            exit 203
         """
         )
+
+        if result.rc > 200:
+            raise ExpectScriptError(result.rc)
 
         return result.rc == 0
 
@@ -342,51 +353,54 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
 
             expect {{
                 "password:" {{send "{password}\n"}}
-                timeout {{puts "expect result: Unexpected output"; exit 1}}
-                eof {{puts "expect result: Unexpected end of file"; exit 2}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
             }}
 
             expect {{
                 "Password expired. Change your password now." {{ }}
-                -re $prompt {{puts "expect result: Authentication succeeded without password change"; exit 3}}
-                "{username}@localhost: Permission denied" {{puts "expect result: Authentication failure"; exit 4}}
-                timeout {{puts "expect result: Unexpected output"; exit 1}}
-                eof {{puts "expect result: Unexpected end of file"; exit 2}}
+                -re $prompt {{puts "expect result: Authentication succeeded without password change"; exit 2}}
+                "{username}@localhost: Permission denied" {{puts "expect result: Authentication failure"; exit 1}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
             }}
 
             expect {{
                 "Current Password:" {{send "{password}\n"}}
-                timeout {{puts "expect result: Unexpected output"; exit 1}}
-                eof {{puts "expect result: Unexpected end of file"; exit 2}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
             }}
 
             expect {{
                 "New password:" {{send "{new_password}\n"}}
-                timeout {{puts "expect result: Unexpected output"; exit 1}}
-                eof {{puts "expect result: Unexpected end of file"; exit 2}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
             }}
 
             expect {{
                 "Retype new password:" {{send "{new_password}\n"}}
-                timeout {{puts "expect result: Unexpected output"; exit 1}}
-                eof {{puts "expect result: Unexpected end of file"; exit 2}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
             }}
 
             expect {{
                 "passwd: all authentication tokens updated successfully." {{ }}
-                timeout {{puts "expect result: Unexpected output"; exit 1}}
-                eof {{puts "expect result: Unexpected end of file"; exit 2}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
             }}
 
             expect {{
-                timeout {{puts "expect result: Unexpected output"; exit 1}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
                 eof {{puts "expect result: Password change was successful"; exit 0}}
             }}
 
             puts "expect result: Unexpected code path"
-            exit 3
+            exit 203
         """
         )
+
+        if result.rc > 200:
+            raise ExpectScriptError(result.rc)
 
         return result.rc == 0
 
