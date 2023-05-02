@@ -5,6 +5,7 @@ from __future__ import annotations
 from ..hosts.client import ClientHost
 from ..topology import SSSDTopologyMark
 from ..utils.automount import AutomountUtils
+from ..utils.ldb import LDBUtils
 from ..utils.local_users import LocalUsersUtils
 from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
@@ -46,6 +47,11 @@ class Client(BaseLinuxRole[ClientHost]):
         self.sssctl: SSSCTLUtils = SSSCTLUtils(self.host, self.fs)
         """
         Call commands from sssctl.
+        """
+
+        self.ldb: LDBUtils = LDBUtils(self.host)
+        """
+        Utility for ldb functions.
         """
 
         self.automount: AutomountUtils = AutomountUtils(self.host, self.svc)
