@@ -297,7 +297,7 @@ class LinuxToolsUtils(MultihostUtility[MultihostHost]):
         self.__fs: LinuxFileSystem = fs
         self.__rollback: list[str] = []
 
-    def id(self, name: str) -> IdEntry | None:
+    def id(self, name: str | int) -> IdEntry | None:
         """
         Run ``id`` command.
 
