@@ -389,6 +389,20 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         if check_config:
             self.host.ssh.run("sssctl config-check")
 
+    def genconf(self, section: str | None = None) -> SSHProcessResult:
+        """
+        Exec ``sssd --genconf`` or ``sssd --genconf-section=section`` if ``section`` is not ``None``.
+
+        :param section: Section that will be refreshed. Defaults to ``None``.
+        :type path: str | None, optional
+        :return: Result of the ran command.
+        :rtype: SSHProcessResult
+        """
+        if section is None:
+            return self.host.ssh.exec(["/usr/sbin/sssd", "--genconf"])
+
+        return self.host.ssh.exec(["/usr/sbin/sssd", f"--genconf-section={section}"])
+
     def section(self, name: str) -> configparser.SectionProxy:
         """
         Get sssd.conf section.
