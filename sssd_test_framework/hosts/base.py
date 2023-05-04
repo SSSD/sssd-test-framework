@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 import ldap
-import ldap.ldapobject
+from ldap.ldapobject import ReconnectLDAPObject
 from pytest_mh import MultihostHost
 from pytest_mh.ssh import SSHPowerShellProcess
 
@@ -175,18 +175,18 @@ class BaseLDAPDomainHost(BaseDomainHost):
         """Bind password ``config.bindpw``, defaults to ``Secret123``"""
 
         # Lazy properties.
-        self.__conn: ldap.ldapobject.LDAPObject | None = None
+        self.__conn: ReconnectLDAPObject | None = None
         self.__naming_context: str | None = None
 
     @property
-    def conn(self) -> ldap.ldapobject.LDAPObject:
+    def conn(self) -> ReconnectLDAPObject:
         """
         LDAP connection (``python-ldap`` library).
 
-        :rtype: ldap.ldapobject.LDAPObject
+        :rtype: ReconnectLDAPObject
         """
         if not self.__conn:
-            newconn = ldap.initialize(f"ldap://{self.ssh_host}")
+            newconn = ReconnectLDAPObject(f"ldap://{self.ssh_host}")
             newconn.protocol_version = ldap.VERSION3
             newconn.set_option(ldap.OPT_REFERRALS, 0)
 
