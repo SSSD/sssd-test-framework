@@ -45,7 +45,7 @@ class SambaHost(BaseLDAPDomainHost):
             systemctl start samba
 
             # systemctl finishes before samba is fully started, wait for it to start listening on ldap port
-            timeout 5s bash -c 'until netstat -ltp 2> /dev/null | grep :ldap &> /dev/null; do :; done'
+            timeout 60s bash -c 'until netstat -ltp 2> /dev/null | grep :ldap &> /dev/null; do :; done'
         """
         )
         self._backup_location = "/var/lib/samba.bak"
