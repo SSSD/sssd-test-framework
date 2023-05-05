@@ -20,6 +20,10 @@ __all__ = [
 ]
 
 
+DEFAULT_AUTHENTICATION_TIMEOUT: int = 10
+"""Default timeout for authentication failure."""
+
+
 class AuthenticationUtils(MultihostUtility[MultihostHost]):
     """
     Methods for testing various authentication and authorization mechanisms.
@@ -180,7 +184,7 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
         result = self.host.ssh.expect_nobody(
             rf"""
             # It takes some time to get authentication failure
-            set timeout 10
+            set timeout {DEFAULT_AUTHENTICATION_TIMEOUT}
             set prompt "\n.*\[#\$>\] $"
 
             spawn su - "{username}"
@@ -225,7 +229,7 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
         result = self.host.ssh.expect_nobody(
             rf"""
             # It takes some time to get authentication failure
-            set timeout 10
+            set timeout {DEFAULT_AUTHENTICATION_TIMEOUT}
             set prompt "\n.*\[#\$>\] $"
 
             spawn su - "{username}"
@@ -332,7 +336,7 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
         result = self.host.ssh.expect(
             rf"""
             # It takes some time to get authentication failure
-            set timeout 10
+            set timeout {DEFAULT_AUTHENTICATION_TIMEOUT}
             set prompt "\n.*\[#\$>\] $"
 
             spawn "{playback_umockdev}"
@@ -397,7 +401,7 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
         result = self.host.ssh.expect_nobody(
             rf"""
             # It takes some time to get authentication failure
-            set timeout 10
+            set timeout {DEFAULT_AUTHENTICATION_TIMEOUT}
             set prompt "\n.*\[#\$>\] $"
 
             spawn ssh {self.opts} \
@@ -445,7 +449,7 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
         result = self.host.ssh.expect_nobody(
             rf"""
             # It takes some time to get authentication failure
-            set timeout 10
+            set timeout {DEFAULT_AUTHENTICATION_TIMEOUT}
             set prompt "\n.*\[#\$>\] $"
 
             spawn ssh {self.opts} \
