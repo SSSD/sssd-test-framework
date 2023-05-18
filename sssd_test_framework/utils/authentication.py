@@ -108,6 +108,25 @@ class AuthenticationUtils(MultihostUtility[MultihostHost]):
                 assert client.auth.ssh.password('tuser', 'Secret123')
         """
 
+        self.passwd: PasswdUtils = PasswdUtils(host)
+        """
+        Change authentication tokens with passwd tool
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.LDAP)
+            def test_example(client: Client, ldap: LDAP):
+                ldap.user('tuser').add(password='Secret123')
+                # Change the ACI record so that users can change their password
+                ldap.aci.add(
+                    '(targetattr="userpassword")(version 3.0; acl "pwp test"; allow (all) userdn="ldap:///self";)'
+                )
+
+                client.sssd.start()
+                assert client.auth.passwd.password('tuser', 'Secret123', 'New_password123')
+        """
+
     def parametrize(self, method: str) -> SUAuthenticationUtils | SSHAuthenticationUtils:
         """
         Return authentication tool based on the method. The method can be
@@ -910,3 +929,68 @@ class KerberosAuthenticationUtils(MultihostUtility[MultihostHost]):
         Disconnect.
         """
         self.kdestroy(all=True)
+
+
+class PasswdUtils(MultihostUtility[MultihostHost]):
+    """
+    Change authentication tokens with passwd tool.
+    """
+
+    def __init__(self, host: MultihostHost):
+        super().__init__(host)
+
+    def password(self, user: str, password: str, new_password: str) -> bool:
+        """
+        Changing password as a given user.
+
+        :param user: Username.
+        :type name: str
+        :param password: Current password of user.
+        :type password: str
+        :param new_password: New password of user.
+        :type new_password: str
+        :return: True if password change was successful, False otherwise.
+        :rtype: bool
+        """
+        result = self.host.ssh.expect(
+            rf"""
+            set timeout {DEFAULT_AUTHENTICATION_TIMEOUT}
+            set prompt "\n.*\[#\$>\] $"
+
+            spawn su - {user} -c passwd
+
+            expect {{
+                -nocase "Changing password for user {user}.\r\nCurrent Password: " {{send "{password}\n"}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
+            }}
+
+            expect {{
+                -nocase "New password:" {{send "{new_password}\n"}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
+            }}
+
+            expect {{
+                -nocase "Retype new password:" {{send "{new_password}\n"}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
+            }}
+
+            expect {{
+                "passwd: all authentication tokens updated successfully." {{exit 0}}
+                "Password change failed." {{exit 200}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
+            }}
+
+            puts "expect result: Unexpected code path"
+            exit 203
+            """
+        )
+
+        if result.rc > 200:
+            assert result.stderr == result.stdout
+            raise ExpectScriptError(result.rc)
+
+        return result.rc == 0
