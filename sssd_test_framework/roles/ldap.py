@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 from enum import Enum
-from typing import Any, Generic, Protocol, TypeVar
+from typing import Any, Generic, TypeVar
 
 import ldap
 import ldap.ldapobject
@@ -13,10 +13,10 @@ from ..hosts.ldap import LDAPHost
 from ..misc import attrs_include_value, to_list_without_none
 from ..utils.ldap import LDAPRecordAttributes, LDAPUtils
 from .base import BaseLinuxLDAPRole, BaseObject, DeleteAttribute, HostType
+from .generic import GenericNetgroupMember, ProtocolName
 from .nfs import NFSExport
 
 __all__ = [
-    "ProtocolName",
     "LDAPRoleType",
     "LDAPUserType",
     "LDAPGroupType",
@@ -33,17 +33,10 @@ __all__ = [
 ]
 
 
-class ProtocolName(Protocol):
-    """
-    Used to hint that the type must contain name attribute.
-    """
-
-    name: str
-
-
 LDAPRoleType = TypeVar("LDAPRoleType", bound=BaseLinuxLDAPRole)
 LDAPUserType = TypeVar("LDAPUserType", bound=ProtocolName)
 LDAPGroupType = TypeVar("LDAPGroupType", bound=ProtocolName)
+LDAPNetgroupType = TypeVar("LDAPNetgroupType", bound=ProtocolName)
 
 
 class LDAP(BaseLinuxLDAPRole[LDAPHost]):
@@ -255,6 +248,49 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
         :rtype: LDAPGroup
         """
         return LDAPGroup(self, name, basedn, rfc2307bis=rfc2307bis)
+
+    def netgroup(self, name: str, basedn: LDAPObject | str | None = "ou=netgroups") -> LDAPNetgroup:
+        """
+        Get netgroup object.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.LDAP)
+            def test_example_netgroup(client: Client, ldap: LDAP):
+                # Create user
+                user = ldap.user("user-1").add()
+
+                # Create two netgroups
+                ng1 = ldap.netgroup("ng-1").add()
+                ng2 = ldap.netgroup("ng-2").add()
+
+                # Add user and ng2 as members to ng1
+                ng1.add_member(user=user)
+                ng1.add_member(ng=ng2)
+
+                # Add host as member to ng2
+                ng2.add_member(host="client")
+
+                # Start SSSD
+                client.sssd.start()
+
+                # Call `getent netgroup ng-1` and assert the results
+                result = client.tools.getent.netgroup("ng-1")
+                assert result is not None
+                assert result.name == "ng-1"
+                assert len(result.members) == 2
+                assert "(-,user-1,)" in result.members
+                assert "(client,-,)" in result.members
+
+        :param name: Netgroup name.
+        :type name: str
+        :param basedn: Base dn, defaults to ``ou=netgroups``
+        :type basedn: LDAPObject | str | None, optional
+        :return: New netgroup object.
+        :rtype: LDAPNetgroup
+        """
+        return LDAPNetgroup[LDAPHost, LDAP, LDAPUser](self, name, basedn)
 
     def sudorule(
         self, name: str, basedn: LDAPObject | str | None = "ou=sudoers"
@@ -906,6 +942,191 @@ class LDAPGroup(LDAPObject[LDAPHost, LDAP]):
         """
         self._modify(delete={self.member_attr: self.__members(members)})
         return self
+
+
+class LDAPNetgroup(Generic[HostType, LDAPRoleType, LDAPUserType], LDAPObject[HostType, LDAPRoleType]):
+    """
+    LDAP netgroup management.
+    """
+
+    def __init__(self, role: LDAPRoleType, name: str, basedn: LDAPObject | str | None = "ou=netgroups") -> None:
+        """
+        :param role: LDAP role object.
+        :type role: LDAPRoleType
+        :param name: Netgroup name.
+        :type name: str
+        :param basedn: Base dn, defaults to ``ou=netgroups``
+        :type basedn: LDAPObject | str | None, optional
+        """
+        super().__init__(role, name, f"cn={name}", basedn, default_ou="netgroups")
+
+    def add(self) -> LDAPNetgroup[HostType, LDAPRoleType, LDAPUserType]:
+        """
+        Create new LDAP netgroup.
+
+        :return: Self.
+        :rtype: LDAPNetgroup[HostType, LDAPRoleType, LDAPUserType]
+        """
+        attrs: LDAPRecordAttributes = {
+            "objectClass": "nisNetgroup",
+            "cn": self.name,
+        }
+
+        self._add(attrs)
+        return self
+
+    def add_member(
+        self,
+        *,
+        host: str | None = None,
+        user: LDAPUser | str | None = None,
+        domain: str | None = None,
+        ng: LDAPNetgroup | str | None = None,
+    ) -> LDAPNetgroup[HostType, LDAPRoleType, LDAPUserType]:
+        """
+        Add netgroup member.
+
+        :param host: Host, defaults to None
+        :type host: str | None, optional
+        :param user: User, defaults to None
+        :type user: LDAPUser | str | None, optional
+        :param domain: Domain, defaults to None
+        :type domain: str | None, optional
+        :param ng: Netgroup, defaults to None
+        :type ng: LDAPNetgroup | str | None, optional
+        :return: Self.
+        :rtype: LDAPNetgroup[HostType, LDAPRoleType, LDAPUserType]
+        """
+        return self.add_members([LDAPNetgroupMember(host=host, user=user, domain=domain, ng=ng)])
+
+    def add_members(self, members: list[LDAPNetgroupMember]) -> LDAPNetgroup[HostType, LDAPRoleType, LDAPUserType]:
+        """
+        Add multiple netgroup members.
+
+        :param members: Netgroup members.
+        :type members: list[LDAPNetgroupMember]
+        :return: Self.
+        :rtype: LDAPNetgroup[HostType, LDAPRoleType, LDAPUserType]
+        """
+        triples, netgroups = self.__members(members)
+
+        attrs: LDAPRecordAttributes = {}
+        if triples:
+            attrs["nisNetgroupTriple"] = triples
+
+        if netgroups:
+            attrs["memberNisNetgroup"] = netgroups
+
+        self._modify(add=attrs)
+        return self
+
+    def remove_member(
+        self,
+        *,
+        host: str | None = None,
+        user: LDAPUser | str | None = None,
+        domain: str | None = None,
+        ng: LDAPNetgroup | str | None = None,
+    ) -> LDAPNetgroup[HostType, LDAPRoleType, LDAPUserType]:
+        """
+        Remove netgroup member.
+
+        :param host: Host, defaults to None
+        :type host: str | None, optional
+        :param user: User, defaults to None
+        :type user: LDAPUser | str | None, optional
+        :param domain: Domain, defaults to None
+        :type domain: str | None, optional
+        :param ng: Netgroup, defaults to None
+        :type ng: LDAPNetgroup | str | None, optional
+        :return: Self.
+        :rtype: LDAPNetgroup[HostType, LDAPRoleType, LDAPUserType]
+        """
+        return self.remove_members([LDAPNetgroupMember(host=host, user=user, domain=domain, ng=ng)])
+
+    def remove_members(self, members: list[LDAPNetgroupMember]) -> LDAPNetgroup[HostType, LDAPRoleType, LDAPUserType]:
+        """
+        Remove multiple netgroup members.
+
+        :param members: Netgroup members.
+        :type members: list[LDAPNetgroupMember]
+        :return: Self.
+        :rtype: LDAPNetgroup[HostType, LDAPRoleType, LDAPUserType]
+        """
+        triples, netgroups = self.__members(members)
+
+        attrs: LDAPRecordAttributes = {}
+        if triples:
+            attrs["nisNetgroupTriple"] = triples
+
+        if netgroups:
+            attrs["memberNisNetgroup"] = netgroups
+
+        self._modify(delete=attrs)
+        return self
+
+    def __members(self, members: list[LDAPNetgroupMember]) -> tuple[list[str], list[str]]:
+        """
+        Split members into triples and netgroups
+
+        :param members: Netgroup members.
+        :type members: list[LDAPNetgroupMember]
+        :return: (triples, netgroups)
+        :rtype: tuple[list[str], list[str]]
+        """
+        triples = []
+        netgroups = []
+
+        for member in members:
+            if member.netgroup is not None:
+                netgroups.append(member.netgroup)
+
+            triple = member.triple()
+            if triple is not None:
+                triples.append(triple)
+
+        return (triples, netgroups)
+
+
+class LDAPNetgroupMember(Generic[LDAPUserType, LDAPNetgroupType], GenericNetgroupMember):
+    """
+    LDAP NIS Netgroup Triple.
+    """
+
+    def __init__(
+        self,
+        *,
+        host: str | None = None,
+        user: LDAPUserType | str | None = None,
+        domain: str | None = None,
+        ng: LDAPNetgroupType | str | None = None,
+    ) -> None:
+        """
+        :param host: Host, defaults to None
+        :type host: str | None, optional
+        :param user: User, defaults to None
+        :type user: LDAPUserType | str | None, optional
+        :param domain: Domain, defaults to None
+        :type domain: str | None, optional
+        :param ng: Netgroup, defaults to None
+        :type ng: LDAPNetgroupType | str | None, optional
+        """
+        super().__init__(host=host, user=user, ng=ng)
+
+        self.domain: str | None = domain
+        """Netgroup domain."""
+
+    def triple(self) -> str | None:
+        def _value(item: str | None, empty: str = "-") -> str:
+            if item is None:
+                return empty
+
+            return item
+
+        if self.host is None and self.user is None and self.domain is None:
+            return None
+
+        return f"({_value(self.host)}, {_value(self.user)}, {_value(self.domain, '')})"
 
 
 class LDAPSudoRule(Generic[HostType, LDAPRoleType, LDAPUserType, LDAPGroupType], LDAPObject[HostType, LDAPRoleType]):

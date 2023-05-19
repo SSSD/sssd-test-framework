@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypeAlias
 
 from pytest_mh.cli import CLIBuilderArgs
 from pytest_mh.ssh import SSHClient, SSHPowerShellProcess, SSHProcessResult
@@ -10,6 +10,7 @@ from pytest_mh.ssh import SSHClient, SSHPowerShellProcess, SSHProcessResult
 from ..hosts.ad import ADHost
 from ..misc import attrs_include_value, attrs_parse
 from .base import BaseObject, BaseWindowsRole, DeleteAttribute
+from .ldap import LDAPNetgroupMember
 from .nfs import NFSExport
 
 __all__ = [
@@ -186,6 +187,49 @@ class AD(BaseWindowsRole[ADHost]):
         :rtype: ADGroup
         """
         return ADGroup(self, name, basedn)
+
+    def netgroup(self, name: str, basedn: ADObject | str | None = "ou=netgroups") -> ADNetgroup:
+        """
+        Get netgroup object.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.AD)
+            def test_example_netgroup(client: Client, ad: AD):
+                # Create user
+                user = ad.user("user-1").add()
+
+                # Create two netgroups
+                ng1 = ad.netgroup("ng-1").add()
+                ng2 = ad.netgroup("ng-2").add()
+
+                # Add user and ng2 as members to ng1
+                ng1.add_member(user=user)
+                ng1.add_member(ng=ng2)
+
+                # Add host as member to ng2
+                ng2.add_member(host="client")
+
+                # Start SSSD
+                client.sssd.start()
+
+                # Call `getent netgroup ng-1` and assert the results
+                result = client.tools.getent.netgroup("ng-1")
+                assert result is not None
+                assert result.name == "ng-1"
+                assert len(result.members) == 2
+                assert "(-,user-1,)" in result.members
+                assert "(client,-,)" in result.members
+
+        :param name: Netgroup name.
+        :type name: str
+        :param basedn: Base dn, defaults to ``ou=netgroups``
+        :type basedn: ADObject | str | None, optional
+        :return: New netgroup object.
+        :rtype: ADNetgroup
+        """
+        return ADNetgroup(self, name, basedn)
 
     def ou(self, name: str, basedn: ADObject | str | None = None) -> ADOrganizationalUnit:
         """
@@ -812,6 +856,167 @@ class ADGroup(ADObject):
         return ",".join([f'"{x.dn}"' for x in members])
 
 
+class ADNetgroup(ADObject):
+    """
+    AD netgroup management.
+    """
+
+    def __init__(self, role: AD, name: str, basedn: ADObject | str | None = "ou=netgroups") -> None:
+        """
+        :param role: AD role object.
+        :type role: AD
+        :param name: Netgroup name.
+        :type name: str
+        :param basedn: Base dn, defaults to ``ou=netgroups``
+        :type basedn: ADObject | str | None, optional
+        """
+        super().__init__(role, "Object", name, f"cn={name}", basedn, default_ou="netgroups")
+
+    def add(self) -> ADNetgroup:
+        """
+        Create new AD netgroup.
+
+        :return: Self.
+        :rtype: ADNetgroup
+        """
+        attrs = {
+            "objectClass": "nisNetgroup",
+            "cn": self.name,
+        }
+
+        args: CLIBuilderArgs = {
+            "Name": (self.cli.option.VALUE, self.name),
+            "Type": (self.cli.option.VALUE, "nisNetgroup"),
+            "OtherAttributes": (self.cli.option.PLAIN, self._attrs_to_hash(attrs)),
+            "Path": (self.cli.option.VALUE, self.path),
+        }
+
+        self._add(args)
+        return self
+
+    def add_member(
+        self,
+        *,
+        host: str | None = None,
+        user: ADUser | str | None = None,
+        domain: str | None = None,
+        ng: ADNetgroup | str | None = None,
+    ) -> ADNetgroup:
+        """
+        Add netgroup member.
+
+        :param host: Host, defaults to None
+        :type host: str | None, optional
+        :param user: User, defaults to None
+        :type user: ADUser | str | None, optional
+        :param domain: Domain, defaults to None
+        :type domain: str | None, optional
+        :param ng: Netgroup, defaults to None
+        :type ng: ADNetgroup | str | None, optional
+        :return: Self.
+        :rtype: ADNetgroup
+        """
+        return self.add_members([ADNetgroupMember(host=host, user=user, domain=domain, ng=ng)])
+
+    def add_members(self, members: list[ADNetgroupMember]) -> ADNetgroup:
+        """
+        Add multiple netgroup members.
+
+        :param members: Netgroup members.
+        :type members: list[ADNetgroupMember]
+        :return: Self.
+        :rtype: ADNetgroup
+        """
+        triples, netgroups = self.__members(members)
+
+        attrs = {}
+        if triples:
+            attrs["nisNetgroupTriple"] = triples
+
+        if netgroups:
+            attrs["memberNisNetgroup"] = netgroups
+
+        args: CLIBuilderArgs = {
+            **self._identity,
+            "Add": (self.cli.option.PLAIN, self._attrs_to_hash(attrs)),
+        }
+
+        self._modify(args)
+        return self
+
+    def remove_member(
+        self,
+        *,
+        host: str | None = None,
+        user: ADUser | str | None = None,
+        domain: str | None = None,
+        ng: ADNetgroup | str | None = None,
+    ) -> ADNetgroup:
+        """
+        Remove netgroup member.
+
+        :param host: Host, defaults to None
+        :type host: str | None, optional
+        :param user: User, defaults to None
+        :type user: ADUser | str | None, optional
+        :param domain: Domain, defaults to None
+        :type domain: str | None, optional
+        :param ng: Netgroup, defaults to None
+        :type ng: ADNetgroup | str | None, optional
+        :return: Self.
+        :rtype: ADNetgroup
+        """
+        return self.remove_members([ADNetgroupMember(host=host, user=user, domain=domain, ng=ng)])
+
+    def remove_members(self, members: list[ADNetgroupMember]) -> ADNetgroup:
+        """
+        Remove multiple netgroup members.
+
+        :param members: Netgroup members.
+        :type members: list[LDAPNetgroupMember]
+        :return: Self.
+        :rtype: LDAPNetgroup[HostType, LDAPRoleType, LDAPUserType]
+        """
+        triples, netgroups = self.__members(members)
+
+        attrs = {}
+        if triples:
+            attrs["nisNetgroupTriple"] = triples
+
+        if netgroups:
+            attrs["memberNisNetgroup"] = netgroups
+
+        args: CLIBuilderArgs = {
+            **self._identity,
+            "Remove": (self.cli.option.PLAIN, self._attrs_to_hash(attrs)),
+        }
+
+        self._modify(args)
+        return self
+
+    def __members(self, members: list[ADNetgroupMember]) -> tuple[list[str], list[str]]:
+        """
+        Split members into triples and netgroups
+
+        :param members: Netgroup members.
+        :type members: list[LDAPNetgroupMember]
+        :return: (triples, netgroups)
+        :rtype: tuple[list[str], list[str]]
+        """
+        triples = []
+        netgroups = []
+
+        for member in members:
+            if member.netgroup is not None:
+                netgroups.append(member.netgroup)
+
+            triple = member.triple()
+            if triple is not None:
+                triples.append(triple)
+
+        return (triples, netgroups)
+
+
 class ADSudoRule(ADObject):
     """
     AD sudo rule management.
@@ -1263,3 +1468,6 @@ class ADAutomountKey(ADObject):
             return info.name
 
         return info
+
+
+ADNetgroupMember: TypeAlias = LDAPNetgroupMember[ADUser, ADNetgroup]
