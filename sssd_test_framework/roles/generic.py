@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Protocol
 
 from pytest_mh import MultihostRole
 from pytest_mh.utils.firewall import GenericFirewall
@@ -12,15 +13,26 @@ from .base import BaseObject
 from .nfs import NFSExport
 
 __all__ = [
+    "ProtocolName",
     "GenericProvider",
     "GenericADProvider",
     "GenericUser",
     "GenericGroup",
+    "GenericNetgroup",
+    "GenericNetgroupMember",
     "GenericSudoRule",
     "GenericAutomount",
     "GenericAutomountMap",
     "GenericAutomountKey",
 ]
+
+
+class ProtocolName(Protocol):
+    """
+    Used to hint that the type must contain name attribute.
+    """
+
+    name: str
 
 
 class GenericProvider(ABC, MultihostRole[BaseHost]):
@@ -427,6 +439,143 @@ class GenericGroup(ABC, BaseObject):
         :rtype: GenericGroup
         """
         pass
+
+
+class GenericNetgroup(ABC, BaseObject):
+    """
+    Generic netgroup management.
+    """
+
+    @abstractmethod
+    def add(self) -> GenericNetgroup:
+        """
+        Create a new netgroup.
+
+        :return: Self.
+        :rtype: GenericNetroup
+        """
+        pass
+
+    @abstractmethod
+    def delete(self) -> None:
+        """
+        Delete the netgroup.
+        """
+        pass
+
+    @abstractmethod
+    def get(self, attrs: list[str] | None = None) -> dict[str, list[str]]:
+        """
+        Get netgroup attributes.
+
+        :param attrs: If set, only requested attributes are returned, defaults to None
+        :type attrs: list[str] | None, optional
+        :return: Dictionary with attribute name as a key.
+        :rtype: dict[str, list[str]]
+        """
+        pass
+
+    @abstractmethod
+    def add_member(
+        self, *, host: str | None = None, user: ProtocolName | str | None = None, ng: ProtocolName | str | None = None
+    ) -> GenericNetgroup:
+        """
+        Add netgroup member.
+
+        :param host: Host, defaults to None
+        :type host: str | None, optional
+        :param user: User, defaults to None
+        :type user: ProtocolName | str | None, optional
+        :param ng: Netgroup, defaults to None
+        :type ng: ProtocolName | str | None, optional
+        :return: Self.
+        :rtype: GenericNetgroup
+        """
+        pass
+
+    @abstractmethod
+    def add_members(self, members: list[GenericNetgroupMember]) -> GenericNetgroup:
+        """
+        Add multiple netgroup members at once.
+
+        :param member: List of netgroup members to add.
+        :type member: list[GenericNetgroupMember]
+        :return: Self.
+        :rtype: GenericNetgroup
+        """
+        pass
+
+    @abstractmethod
+    def remove_member(
+        self, *, host: str | None = None, user: ProtocolName | str | None = None, ng: ProtocolName | str | None = None
+    ) -> GenericNetgroup:
+        """
+        Remove group member.
+
+        :param host: Host, defaults to None
+        :type host: str | None, optional
+        :param user: User, defaults to None
+        :type user: ProtocolName | str | None, optional
+        :param ng: Netgroup, defaults to None
+        :type ng: ProtocolName | str | None, optional
+        :return: Self.
+        :rtype: GenericNetroup
+        """
+        pass
+
+    @abstractmethod
+    def remove_members(self, members: list[GenericNetgroupMember]) -> GenericNetgroup:
+        """
+        Remove multiple group members.
+
+        :param member: List of netgroup members to add.
+        :type member: list[GenericNetgroupMember]
+        :return: Self.
+        :rtype: GenericNetroup
+        """
+        pass
+
+
+class GenericNetgroupMember(object):
+    """
+    Generic netgroup member.
+
+    .. note::
+
+        This is a essentially a NIS Netgroup Triple, but we have to omit the
+        domain part as it is not supported by FreeIPA. In addition to the
+        triple, it can also hold a netgroup as a member.
+
+    """
+
+    def __init__(
+        self, *, host: str | None = None, user: ProtocolName | str | None = None, ng: ProtocolName | str | None = None
+    ) -> None:
+        """
+        :param host: Host, defaults to None
+        :type host: str | None, optional
+        :param user: User, defaults to None
+        :type user: ProtocolName | str | None, optional
+        :param ng: Netgroup, defaults to None
+        :type ng: ProtocolName | str | None, optional
+        """
+        self.host: str | None = host
+        """Member host."""
+
+        self.user: str | None = self._get_name(user)
+        """Member user."""
+
+        self.netgroup: str | None = self._get_name(ng)
+        """Member netgroup."""
+
+    def _get_name(self, item: ProtocolName | str | None = None) -> str | None:
+        if item is None:
+            return None
+
+        if hasattr(item, "name"):
+            return item.name
+
+        return item
 
 
 class GenericSudoRule(ABC, BaseObject):

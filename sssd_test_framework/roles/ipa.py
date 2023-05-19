@@ -12,6 +12,7 @@ from ..misc import attrs_include_value, attrs_parse, to_list, to_list_of_strings
 from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
 from .base import BaseLinuxRole, BaseObject
+from .generic import GenericNetgroupMember
 from .nfs import NFSExport
 
 __all__ = [
@@ -184,6 +185,47 @@ class IPA(BaseLinuxRole[IPAHost]):
         :rtype: IPAGroup
         """
         return IPAGroup(self, name)
+
+    def netgroup(self, name: str) -> IPANetgroup:
+        """
+        Get netgroup object.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.IPA)
+            def test_example_netgroup(client: Client, ipa: IPA):
+                # Create user
+                user = ipa.user("user-1").add()
+
+                # Create two netgroups
+                ng1 = ipa.netgroup("ng-1").add()
+                ng2 = ipa.netgroup("ng-2").add()
+
+                # Add user and ng2 as members to ng1
+                ng1.add_member(user=user)
+                ng1.add_member(ng=ng2)
+
+                # Add host as member to ng2
+                ng2.add_member(host="client")
+
+                # Start SSSD
+                client.sssd.start()
+
+                # Call `getent netgroup ng-1` and assert the results
+                result = client.tools.getent.netgroup("ng-1")
+                assert result is not None
+                assert result.name == "ng-1"
+                assert len(result.members) == 2
+                assert "(-,user-1,ipa.test)" in result.members
+                assert "(client.test,-,ipa.test)" in result.members
+
+        :param name: Netgroup name.
+        :type name: str
+        :return: New netgroup object.
+        :rtype: IPANetgroup
+        """
+        return IPANetgroup(self, name)
 
     def sudorule(self, name: str) -> IPASudoRule:
         """
@@ -622,6 +664,153 @@ class IPAGroup(IPAObject):
         users = [x for item in members if isinstance(item, IPAUser) for x in ("--users", item.name)]
         groups = [x for item in members if isinstance(item, IPAGroup) for x in ("--groups", item.name)]
         return [*users, *groups]
+
+
+class IPANetgroup(IPAObject):
+    """
+    IPA netgroup management.
+    """
+
+    def __init__(self, role: IPA, name: str) -> None:
+        """
+        :param role: IPA role object.
+        :type role: IPA
+        :param name: Netgroup name.
+        :type name: str
+        """
+        super().__init__(role, name, command_group="netgroup")
+
+    def add(self) -> IPANetgroup:
+        """
+        Create new IPA netgroup.
+
+        :return: Self.
+        :rtype: IPANetgroup
+        """
+        self._add()
+        return self
+
+    def add_member(
+        self,
+        *,
+        host: str | None = None,
+        user: IPAUser | str | None = None,
+        group: IPAGroup | str | None = None,
+        hostgroup: str | None = None,
+        ng: IPANetgroup | str | None = None,
+    ) -> IPANetgroup:
+        """
+        Add netgroup member.
+
+        :param host: Host, defaults to None
+        :type host: str | None, optional
+        :param user: User, defaults to None
+        :type user: IPAUser | str | None, optional
+        :param group: Group, defaults to None
+        :type group: IPAGroup | str | None, optional
+        :param hostgroup: Hostgroup, defaults to None
+        :type hostgroup: str | None, optional
+        :param ng: Netgroup, defaults to None
+        :type ng: IPANetgroup | str | None, optional
+        :return: Self.
+        :rtype: IPANetgroup
+        """
+        return self.add_members([IPANetgroupMember(host=host, user=user, group=group, hostgroup=hostgroup, ng=ng)])
+
+    def add_members(self, members: list[IPANetgroupMember]) -> IPANetgroup:
+        """
+        Add multiple netgroup members.
+
+        :param members: Netgroup members.
+        :type members: list[IPANetgroupMember]
+        :return: Self.
+        :rtype: IPANetgroup
+        """
+        self._exec("add-member", self.__get_member_args(members))
+        return self
+
+    def remove_member(
+        self,
+        *,
+        host: str | None = None,
+        user: IPAUser | str | None = None,
+        group: IPAGroup | str | None = None,
+        hostgroup: str | None = None,
+        ng: IPANetgroup | str | None = None,
+    ) -> IPANetgroup:
+        """
+        Remove netgroup member.
+
+        :param host: Host, defaults to None
+        :type host: str | None, optional
+        :param user: User, defaults to None
+        :type user: IPAUser | str | None, optional
+        :param group: Group, defaults to None
+        :type group: IPAGroup | str | None, optional
+        :param hostgroup: Hostgroup, defaults to None
+        :type hostgroup: str | None, optional
+        :param ng: Netgroup, defaults to None
+        :type ng: IPANetgroup | str | None, optional
+        :return: Self.
+        :rtype: IPANetgroup
+        """
+        return self.remove_members([IPANetgroupMember(host=host, user=user, group=group, hostgroup=hostgroup, ng=ng)])
+
+    def remove_members(self, members: list[IPANetgroupMember]) -> IPANetgroup:
+        """
+        Remove multiple metgroup members.
+
+        :param members: Netgroup members.
+        :type members: list[IPANetgroupMember]
+        :return: Self.
+        :rtype: IPANetgroup
+        """
+        self._exec("remove-member", self.__get_member_args(members))
+        return self
+
+    def __get_member_args(self, members: list[IPANetgroupMember]) -> list[str]:
+        users = [x for item in members if item.user is not None for x in ("--users", item.user)]
+        groups = [x for item in members if item.group is not None for x in ("--groups", item.group)]
+        hosts = [x for item in members if item.host is not None for x in ("--hosts", item.host)]
+        hostgroups = [x for item in members if item.hostgroup is not None for x in ("--hostgroups", item.hostgroup)]
+        netgroups = [x for item in members if item.netgroup is not None for x in ("--netgroups", item.netgroup)]
+
+        return [*users, *groups, *hosts, *hostgroups, *netgroups]
+
+
+class IPANetgroupMember(GenericNetgroupMember):
+    """
+    IPA netgroup member.
+    """
+
+    def __init__(
+        self,
+        *,
+        host: str | None = None,
+        user: IPAUser | str | None = None,
+        group: IPAGroup | str | None = None,
+        hostgroup: str | None = None,
+        ng: IPANetgroup | str | None = None,
+    ) -> None:
+        """
+        :param host: Host, defaults to None
+        :type host: str | None, optional
+        :param user: User, defaults to None
+        :type user: IPAUser | str | None, optional
+        :param group: Group, defaults to None
+        :type group: IPAGroup | str | None, optional
+        :param hostgroup: Hostgroup, defaults to None
+        :type hostgroup: str | None, optional
+        :param ng: Netgroup, defaults to None
+        :type ng: IPANetgroup | str | None, optional
+        """
+        super().__init__(host=host, user=user, ng=ng)
+
+        self.group: str | None = self._get_name(group)
+        """Netgroup group."""
+
+        self.hostgroup: str | None = hostgroup
+        """Netgroup hostgroup."""
 
 
 class IPASudoRule(IPAObject):

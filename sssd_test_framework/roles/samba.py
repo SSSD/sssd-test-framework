@@ -13,7 +13,7 @@ from sssd_test_framework.utils.ldap import LDAPRecordAttributes
 from ..hosts.samba import SambaHost
 from ..misc import attrs_parse, to_list_of_strings
 from .base import BaseLinuxLDAPRole, BaseObject, DeleteAttribute
-from .ldap import LDAPAutomount, LDAPObject, LDAPOrganizationalUnit, LDAPSudoRule
+from .ldap import LDAPAutomount, LDAPNetgroup, LDAPNetgroupMember, LDAPObject, LDAPOrganizationalUnit, LDAPSudoRule
 
 __all__ = [
     "Samba",
@@ -165,6 +165,49 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
         :rtype: SambaGroup
         """
         return SambaGroup(self, name)
+
+    def netgroup(self, name: str, basedn: LDAPObject | str | None = "ou=netgroups") -> SambaNetgroup:
+        """
+        Get netgroup object.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.Samba)
+            def test_example_netgroup(client: Client, samba: Samba):
+                # Create user
+                user = samba.user("user-1").add()
+
+                # Create two netgroups
+                ng1 = samba.netgroup("ng-1").add()
+                ng2 = samba.netgroup("ng-2").add()
+
+                # Add user and ng2 as members to ng1
+                ng1.add_member(user=user)
+                ng1.add_member(ng=ng2)
+
+                # Add host as member to ng2
+                ng2.add_member(host="client")
+
+                # Start SSSD
+                client.sssd.start()
+
+                # Call `getent netgroup ng-1` and assert the results
+                result = client.tools.getent.netgroup("ng-1")
+                assert result is not None
+                assert result.name == "ng-1"
+                assert len(result.members) == 2
+                assert "(-,user-1,)" in result.members
+                assert "(client,-,)" in result.members
+
+        :param name: Netgroup name.
+        :type name: str
+        :param basedn: Base dn, defaults to ``ou=netgroups``
+        :type basedn: LDAPObject | str | None, optional
+        :return: New netgroup object.
+        :rtype: SambaNetgroup
+        """
+        return SambaNetgroup(self, name, basedn)
 
     def ou(self, name: str, basedn: LDAPObject | str | None = None) -> SambaOrganizationalUnit:
         """
@@ -604,3 +647,5 @@ class SambaGroup(SambaObject):
 SambaOrganizationalUnit: TypeAlias = LDAPOrganizationalUnit[SambaHost, Samba]
 SambaAutomount: TypeAlias = LDAPAutomount[SambaHost, Samba]
 SambaSudoRule: TypeAlias = LDAPSudoRule[SambaHost, Samba, SambaUser, SambaGroup]
+SambaNetgroup: TypeAlias = LDAPNetgroup[SambaHost, Samba, SambaUser]
+SambaNetgroupMember: TypeAlias = LDAPNetgroupMember[SambaUser, SambaNetgroup]
