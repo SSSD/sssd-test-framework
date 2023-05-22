@@ -277,6 +277,130 @@ class GroupEntry(object):
         return cls.FromDict(result[0])
 
 
+class NetgroupEntry(object):
+    """
+    Result of ``getent netgroup``
+
+    You can use string or tuple to assert netgroups members. Optionally, you
+    can omit the domain part in which case the domain is not checked at all.
+    This is useful for topology parametrization due to differences in the IPA
+    provider which automatically adds IPA domain and it can not be set manually.
+
+    .. code-block:: python
+        :caption: Example usage
+
+        result = client.tools.getent.netgroup("ng-1")
+        assert result is not None
+        assert result.name == "ng-1"
+        assert len(result.members) == 1
+
+        # The following line two lines means: assert "(host,user,domain)" in result.members
+        assert "(-,user-1,)" in result.members
+        assert ("-", "user-1", "") in  result.members
+
+        # The following line two lines ignore the domain part: assert "(host,user)" in result.members
+        assert "(-,user-1)" in result.members
+        assert ("-", "user-1") in  result.members
+
+    You probably want to use plain string in most scenarios as it is more
+    readable and easier to write. But it may be nicer to use tuples if you use
+    variables for the values instead of hard coded string.
+    """
+
+    class NetgroupTriple(object):
+        def __init__(self, host: str, user: str, domain: str) -> None:
+            self.host: str = host
+            self.user: str = user
+            self.domain: str = domain
+
+        def __str__(self) -> str:
+            return f"({self.host},{self.user},{self.domain})"
+
+        def __eq__(self, other: object) -> bool:
+            if isinstance(other, type(self)):
+                return self.host == other.host and self.user == other.user and self.domain == other.domain
+
+            if isinstance(other, str):
+                host, user, domain = self.Parse(other)
+                if domain is None:
+                    return self.host == host and self.user == user
+
+                return self.host == host and self.user == user and self.domain == domain
+
+            if isinstance(other, tuple):
+                if list(map(type, other)) == [str, str]:
+                    return self.host == other[0] and self.user == other[1]
+
+                if list(map(type, other)) == [str, str, str]:
+                    return self.host == other[0] and self.user == other[1] and self.domain == other[2]
+
+                raise TypeError(f"Unable to compare NetgroupTriple with tuple{list(map(type, other))}")
+
+            return NotImplemented
+
+        def __ne__(self, other: object) -> bool:
+            return not self == other
+
+        @staticmethod
+        def Parse(triple: str) -> tuple[str, str, str | None]:
+            if not triple.startswith("(") or not triple.endswith(")"):
+                raise ValueError(f"Not a valid netgroup triple: {triple}")
+
+            parsed = [x.strip() for x in triple[1:-1].split(",")]
+            if len(parsed) not in [2, 3]:
+                raise ValueError(f"Not a valid netgroup triple: {triple}")
+
+            return (parsed[0], parsed[1], parsed[2] if len(parsed) == 3 else None)
+
+    def __init__(self, name: str, members: list[NetgroupEntry.NetgroupTriple]) -> None:
+        self.name: str = name
+        """
+        Netgroup name.
+        """
+
+        self.members: list[NetgroupEntry.NetgroupTriple] = members
+        """
+        Netgroup members.
+        """
+
+    def __str__(self) -> str:
+        return f'{self.name} {" ".join(map(str, self.members))})'
+
+    def __repr__(self) -> str:
+        return str(self)
+
+    @classmethod
+    def FromDict(cls, d: dict[str, Any]) -> NetgroupEntry:
+        members: list[NetgroupEntry.NetgroupTriple] = []
+        for m in d.get("members", []):
+            members.append(NetgroupEntry.NetgroupTriple(**m))
+
+        return cls(
+            name=d["name"],
+            members=members,
+        )
+
+    @classmethod
+    def FromOutput(cls, stdout: str) -> NetgroupEntry:
+        # jc does not support netgroups output
+        result = [x.strip() for x in stdout.split(" ") if x]
+
+        if not result:
+            raise ValueError("No entry was returned")
+
+        members: list[dict[str, str]] = []
+        for m in result[1:]:
+            host, user, domain = NetgroupEntry.NetgroupTriple.Parse(m)
+
+            # None is not allowed in constructor
+            if domain is None:
+                domain = ""
+
+            members.append({"host": host, "user": user, "domain": domain})
+
+        return cls.FromDict({"name": result[0], "members": members})
+
+
 class LinuxToolsUtils(MultihostUtility[MultihostHost]):
     """
     Run various standard commands on remote host.
@@ -438,6 +562,17 @@ class GetentUtils(MultihostUtility[MultihostHost]):
         :rtype: PasswdEntry | None
         """
         return self.__exec(GroupEntry, "group", name)
+
+    def netgroup(self, name: str) -> NetgroupEntry | None:
+        """
+        Call ``getent netgroup $name``
+
+        :param name: Netgroup name.
+        :type name: str
+        :return: Netgroup data, None if not found
+        :rtype: NetgroupEntry | None
+        """
+        return self.__exec(NetgroupEntry, "netgroup", name)
 
     def __exec(self, cls, cmd: str, name: str | int) -> Any:
         command = self.host.ssh.exec(["getent", cmd, name], raise_on_error=False)
