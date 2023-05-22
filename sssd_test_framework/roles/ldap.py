@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from enum import Enum
 from typing import Any, Generic, Protocol, TypeVar
 
@@ -483,8 +484,18 @@ class LDAPObject(BaseObject[HostType, LDAPRoleType]):
             raise ValueError(f"Multiple objects returned on base search for {self.dn}")
 
         (_, result_attrs) = result[0]
+        out: dict[str, list[str]] = {}
+        for key, values in result_attrs.items():
+            out[key] = []
+            for value in values:
+                try:
+                    decoded = value.decode("utf-8")
+                except UnicodeDecodeError:
+                    decoded = base64.b64encode(value).decode("utf-8")
 
-        return {k: [i.decode("utf-8") for i in v] for k, v in result_attrs.items()}
+                out[key].append(decoded)
+
+        return out
 
 
 class LDAPACI(object):
