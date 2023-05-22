@@ -369,7 +369,9 @@ class ADObject(BaseObject[ADHost, AD]):
 
         return f"{basedn},{self.role.host.naming_context}"
 
-    def _exec(self, op: str, args: list[str] | str | None = None, **kwargs) -> SSHProcessResult:
+    def _exec(
+        self, op: str, args: list[str] | str | None = None, *, format_with: str | None = None, **kwargs
+    ) -> SSHProcessResult:
         """
         Execute AD command.
 
@@ -382,6 +384,9 @@ class ADObject(BaseObject[ADHost, AD]):
         :type op: str
         :param args: List of additional command arguments, defaults to None
         :type args: list[str] | None, optional
+        :param format_with: Command that will be used to format the output (e.g.
+            Format-List), defaults to None (default format of executed command)
+        :type format_with: str | None
         :return: SSH process result.
         :rtype: SSHProcessResult
         """
@@ -393,10 +398,12 @@ class ADObject(BaseObject[ADHost, AD]):
         elif args is None:
             args = ""
 
+        format = "" if format_with is None else f"| {format_with}"
+
         return self.role.host.ssh.run(
             f"""
             Import-Module ActiveDirectory
-            {op}-AD{self.command_group} {args}
+            {op}-AD{self.command_group} {args} {format}
         """,
             **kwargs,
         )
@@ -438,7 +445,7 @@ class ADObject(BaseObject[ADHost, AD]):
         :return: Dictionary with attribute name as a key.
         :rtype: dict[str, list[str]]
         """
-        cmd = self._exec("Get", self.cli.args(self._identity, quote_value=True))
+        cmd = self._exec("Get", self.cli.args(self._identity, quote_value=True), format_with="Format-List")
         return attrs_parse(cmd.stdout_lines, attrs)
 
     def _attrs_to_hash(self, attrs: dict[str, Any]) -> str | None:
