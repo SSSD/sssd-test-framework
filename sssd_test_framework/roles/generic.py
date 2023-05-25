@@ -258,6 +258,14 @@ class GenericUser(ABC, BaseObject):
     Generic user management.
     """
 
+    @property
+    @abstractmethod
+    def name(self):
+        """
+        User name.
+        """
+        pass
+
     @abstractmethod
     def add(
         self,
@@ -373,6 +381,14 @@ class GenericGroup(ABC, BaseObject):
     Generic group management.
     """
 
+    @property
+    @abstractmethod
+    def name(self):
+        """
+        Group name.
+        """
+        pass
+
     @abstractmethod
     def add(
         self,
@@ -487,6 +503,14 @@ class GenericNetgroup(ABC, BaseObject):
     """
     Generic netgroup management.
     """
+
+    @property
+    @abstractmethod
+    def name(self):
+        """
+        Netgroup name.
+        """
+        pass
 
     @abstractmethod
     def add(self) -> GenericNetgroup:
@@ -633,6 +657,14 @@ class GenericSudoRule(ABC, BaseObject):
     Generic sudo rule management.
     """
 
+    @property
+    @abstractmethod
+    def name(self):
+        """
+        Sudo rule name.
+        """
+        pass
+
     @abstractmethod
     def add(
         self,
@@ -764,6 +796,14 @@ class GenericAutomountMap(ABC, BaseObject):
     Generic automount map management.
     """
 
+    @property
+    @abstractmethod
+    def name(self):
+        """
+        Automount map name.
+        """
+        pass
+
     @abstractmethod
     def add(self) -> GenericAutomountMap:
         """
@@ -810,6 +850,14 @@ class GenericAutomountKey(ABC, BaseObject):
     """
     Generic automount key management.
     """
+
+    @property
+    @abstractmethod
+    def name(self):
+        """
+        Automoutn key name.
+        """
+        pass
 
     @abstractmethod
     def add(self, *, info: str | NFSExport | GenericAutomountMap) -> GenericAutomountKey:
