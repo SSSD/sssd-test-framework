@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pytest_mh import MultihostHost, MultihostUtility
+from pytest_mh.cli import CLIBuilder, CLIBuilderArgs
 from pytest_mh.utils.fs import LinuxFileSystem
 
 __all__ = [
@@ -18,8 +19,88 @@ class SSSCTLUtils(MultihostUtility[MultihostHost]):
     def __init__(self, host: MultihostHost, fs: LinuxFileSystem) -> None:
         super().__init__(host)
 
+        self.cli: CLIBuilder = self.host.cli
+        """Command line builder."""
+
         self.fs: LinuxFileSystem = fs
         """Filesystem utils."""
+
+    def cache_expire(
+        self,
+        *,
+        everything: bool = False,
+        user: str | None = None,
+        users: bool = False,
+        group: str | None = None,
+        groups: bool = False,
+        netgroup: str | None = None,
+        netgroups: bool = False,
+        service: str | None = None,
+        services: bool = False,
+        autofs_map: str | None = None,
+        autofs_maps: bool = False,
+        ssh_host: str | None = None,
+        ssh_hosts: bool = False,
+        sudorule: str | None = None,
+        sudorules: bool = False,
+        domain: str | None = None,
+    ) -> None:
+        """
+        Call ``sssctl cache-expire`` with given arguments.
+
+        :param everything: Invalidate all cached entries, defaults to False
+        :type everything: bool, optional
+        :param user: Invalidate particular user, defaults to None
+        :type user: str | None, optional
+        :param users: Invalidate all users, defaults to False
+        :type users: bool, optional
+        :param group: Invalidate particular group, defaults to None
+        :type group: str | None, optional
+        :param groups: Invalidate all groups, defaults to False
+        :type groups: bool, optional
+        :param netgroup: Invalidate particular netgroup, defaults to None
+        :type netgroup: str | None, optional
+        :param netgroups: Invalidate all netgroups, defaults to False
+        :type netgroups: bool, optional
+        :param service: Invalidate particular service, defaults to None
+        :type service: str | None, optional
+        :param services: Invalidate all services, defaults to False
+        :type services: bool, optional
+        :param autofs_map: Invalidate particular autofs map, defaults to None
+        :type autofs_map: str | None, optional
+        :param autofs_maps: Invalidate all autofs maps, defaults to False
+        :type autofs_maps: bool, optional
+        :param ssh_host: Invalidate particular SSH host, defaults to None
+        :type ssh_host: str | None, optional
+        :param ssh_hosts: Invalidate all SSH hosts, defaults to False
+        :type ssh_hosts: bool, optional
+        :param sudorule: Invalidate particular sudo rule, defaults to None
+        :type sudorule: str | None, optional
+        :param sudorules: Invalidate all cached sudo rules, defaults to False
+        :type sudorules: bool, optional
+        :param domain: Only invalidate entries from a particular domain, defaults to None
+        :type domain: str | None, optional
+        """
+        args: CLIBuilderArgs = {
+            "everything": (self.cli.option.SWITCH, everything),
+            "user": (self.cli.option.VALUE, user),
+            "users": (self.cli.option.SWITCH, users),
+            "group": (self.cli.option.VALUE, group),
+            "groups": (self.cli.option.SWITCH, groups),
+            "netgroup": (self.cli.option.VALUE, netgroup),
+            "netgroups": (self.cli.option.SWITCH, netgroups),
+            "service": (self.cli.option.VALUE, service),
+            "services": (self.cli.option.SWITCH, services),
+            "autofs-map": (self.cli.option.VALUE, autofs_map),
+            "autofs-maps": (self.cli.option.SWITCH, autofs_maps),
+            "ssh-host": (self.cli.option.VALUE, ssh_host),
+            "ssh-hosts": (self.cli.option.SWITCH, ssh_hosts),
+            "sudo-rule": (self.cli.option.VALUE, sudorule),
+            "sudo-rules": (self.cli.option.SWITCH, sudorules),
+            "domain": (self.cli.option.VALUE, domain),
+        }
+
+        self.host.ssh.exec(["sssctl", "cache-expire"] + self.cli.args(args))
 
     def passkey_register(
         self,
