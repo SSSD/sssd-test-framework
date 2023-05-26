@@ -277,6 +277,64 @@ class GroupEntry(object):
         return cls.FromDict(result[0])
 
 
+class InitgroupsEntry(object):
+    """
+    Result of ``getent initgroups``
+
+    If user does not exist or does not have any supplementary groups then ``self.groups`` is empty.
+    """
+
+    def __init__(self, name: str, groups: list[int]) -> None:
+        self.name: str = name
+        """
+        Exact username for which ``initgroups`` was called
+        """
+
+        self.groups: list[int] = groups
+        """
+        Group ids that ``name`` is member of.
+        """
+
+    def __str__(self) -> str:
+        return f'({self.name}:{",".join([str(i) for i in self.groups])})'
+
+    def __repr__(self) -> str:
+        return str(self)
+
+    def memberof(self, groups: list[int]) -> bool:
+        """
+        Check if the user is member of given groups.
+
+        This method checks only supplementary groups not the primary group.
+
+        :param groups: List of group ids
+        :type groups: list[int]
+        :return: If user is member of all given groups True, otherwise False.
+        :rtype: bool
+        """
+
+        return all(x in self.groups for x in groups)
+
+    @classmethod
+    def FromDict(cls, d: dict[str, Any]) -> InitgroupsEntry:
+        return cls(
+            name=d["name"],
+            groups=d.get("groups", []),
+        )
+
+    @classmethod
+    def FromOutput(cls, stdout: str) -> InitgroupsEntry:
+        result: list[str] = stdout.split()
+
+        dictionary: dict[str, str | list[int]] = {}
+        dictionary["name"] = result[0]
+
+        if len(result) > 1:
+            dictionary["groups"] = [int(x) for x in result[1:]]
+
+        return cls.FromDict(dictionary)
+
+
 class NetgroupEntry(object):
     """
     Result of ``getent netgroup``
@@ -562,6 +620,19 @@ class GetentUtils(MultihostUtility[MultihostHost]):
         :rtype: PasswdEntry | None
         """
         return self.__exec(GroupEntry, "group", name)
+
+    def initgroups(self, name: str) -> InitgroupsEntry:
+        """
+        Call ``getent initgroups $name``
+
+        If ``name`` does not exist, group list is empty. This is standard behavior of ``getent initgroups``
+
+        :param name: User name.
+        :type name: str
+        :return: Initgroups data
+        :rtype: InitgroupsEntry
+        """
+        return self.__exec(InitgroupsEntry, "initgroups", name)
 
     def netgroup(self, name: str) -> NetgroupEntry | None:
         """

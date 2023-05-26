@@ -61,3 +61,18 @@ accessed from the ``client`` fixture as ``client.tools``.
         assert result.name == 'group-1'
         assert result.gid == 20001
         assert result.members == ['user-1']
+
+        # Call `getent initgroups user-1` and assert the result
+        result = client.tools.getent.initgroups('user-1')
+        assert result is not None
+        assert result.name == 'user-1'
+        assert result.memberof([20001])
+
+.. note::
+
+    Calling ``getent initgroups name`` when ``name`` does not exist or does not have any supplementary groups returns the
+    same result - an empty string. Therefore, ``getent.initgroups(name)`` never returns None, making following line redundant:
+
+    .. code-block:: python
+
+        assert result is not None
