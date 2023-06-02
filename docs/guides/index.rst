@@ -11,5 +11,6 @@ How to guides
    testing-ldap-krb5
    testing-netgroups
    testing-passkey
+   sss_override
    local-users
 
