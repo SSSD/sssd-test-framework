@@ -7,6 +7,7 @@ from ..topology import SSSDTopologyMark
 from ..utils.automount import AutomountUtils
 from ..utils.ldb import LDBUtils
 from ..utils.local_users import LocalUsersUtils
+from ..utils.sss_override import SSSOverrideUtils
 from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
 from .base import BaseLinuxRole
@@ -62,6 +63,11 @@ class Client(BaseLinuxRole[ClientHost]):
         self.local: LocalUsersUtils = LocalUsersUtils(self.host)
         """
         Managing local users and groups.
+        """
+
+        self.sss_override: SSSOverrideUtils = SSSOverrideUtils(self.host, self.fs)
+        """
+        Managing local overrides users and groups.
         """
 
     def setup(self) -> None:
