@@ -93,6 +93,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         - override systemd unit to disable burst limiting, otherwise we will be
           unable to restart the service frequently
         - reload systemd to apply change to the unit file
+        - backup existing configuration and data
         - load configuration from the host (if requested in constructor) or set
           default configuration otherwise
 
@@ -110,6 +111,12 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         )
         self.svc.reload_daemon()
 
+        # Backup existing SSSD data
+        self.fs.backup("/etc/sssd")
+        self.fs.backup("/var/lib/sss")
+        self.fs.backup("/var/log/sssd")
+
+        # Load existing configuration if requested
         if self.__load_config:
             self.config_load()
             return
