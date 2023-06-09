@@ -654,42 +654,42 @@ class SSSDLogsPath(object):
     @property
     def autofs(self) -> str:
         """Return path to SSSD autofs logs."""
-        return "/var/lib/sssd/sssd_autofs.log"
+        return "/var/log/sssd/sssd_autofs.log"
 
     @property
     def ifp(self) -> str:
         """Return path to SSSD ifp logs."""
-        return "/var/lib/sssd/sssd_ifp.log"
+        return "/var/log/sssd/sssd_ifp.log"
 
     @property
     def kcm(self) -> str:
         """Return path to SSSD kcm logs."""
-        return "/var/lib/sssd/sssd_kcm.log"
+        return "/var/log/sssd/sssd_kcm.log"
 
     @property
     def nss(self) -> str:
         """Return path to SSSD nss logs."""
-        return "/var/lib/sssd/sssd_nss.log"
+        return "/var/log/sssd/sssd_nss.log"
 
     @property
     def pac(self) -> str:
         """Return path to SSSD pac logs."""
-        return "/var/lib/sssd/sssd_pac.log"
+        return "/var/log/sssd/sssd_pac.log"
 
     @property
     def pam(self) -> str:
         """Return path to SSSD pam logs."""
-        return "/var/lib/sssd/sssd_pam.log"
+        return "/var/log/sssd/sssd_pam.log"
 
     @property
     def ssh(self) -> str:
         """Return path to SSSD ssh logs."""
-        return "/var/lib/sssd/sssd_ssh.log"
+        return "/var/log/sssd/sssd_ssh.log"
 
     @property
     def sudo(self) -> str:
         """Return path to SSSD sudo logs."""
-        return "/var/lib/sssd/sssd_sudo.log"
+        return "/var/log/sssd/sssd_sudo.log"
 
     def domain(self, name: str | None = None) -> str:
         """
