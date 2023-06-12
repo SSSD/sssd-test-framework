@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..hosts.base import BaseHost
+from ..hosts.client import ClientHost
 from ..topology import SSSDTopologyMark
 from ..utils.automount import AutomountUtils
 from ..utils.local_users import LocalUsersUtils
@@ -15,7 +15,7 @@ __all__ = [
 ]
 
 
-class Client(BaseLinuxRole[BaseHost]):
+class Client(BaseLinuxRole[ClientHost]):
     """
     SSSD Client role.
 

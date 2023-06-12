@@ -86,36 +86,15 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         Shortcuts to SSSD log paths.
         """
 
-    def setup(self) -> None:
+    def setup_when_used(self) -> None:
         """
         Setup SSSD on the host.
 
-        - override systemd unit to disable burst limiting, otherwise we will be
-          unable to restart the service frequently
-        - reload systemd to apply change to the unit file
-        - backup existing configuration and data
         - load configuration from the host (if requested in constructor) or set
           default configuration otherwise
 
         :meta private:
         """
-        # Disable burst limiting to allow often sssd restarts for tests
-        self.fs.mkdir("/etc/systemd/system/sssd.service.d")
-        self.fs.write(
-            "/etc/systemd/system/sssd.service.d/override.conf",
-            """
-            [Unit]
-            StartLimitIntervalSec=0
-            StartLimitBurst=0
-        """,
-        )
-        self.svc.reload_daemon()
-
-        # Backup existing SSSD data
-        self.fs.backup("/etc/sssd")
-        self.fs.backup("/var/lib/sss")
-        self.fs.backup("/var/log/sssd")
-
         # Load existing configuration if requested
         if self.__load_config:
             self.config_load()
@@ -127,7 +106,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
             [sssd]
             config_file_version = 2
             services = nss, pam
-        """
+            """
         )
 
     def async_start(

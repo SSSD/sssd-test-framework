@@ -62,7 +62,7 @@ class BaseBackupHost(BaseHost, ABC):
             else:
                 self.ssh.exec(["rm", "-fr", self._backup_location])
 
-        super().teardown()
+        super().pytest_teardown()
 
     def setup(self) -> None:
         """
