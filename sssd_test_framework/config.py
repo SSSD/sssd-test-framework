@@ -40,6 +40,7 @@ class SSSDMultihostDomain(MultihostDomain[SSSDMultihostConfig]):
         :rtype: Class name.
         """
         from .hosts.ad import ADHost
+        from .hosts.client import ClientHost
         from .hosts.ipa import IPAHost
         from .hosts.kdc import KDCHost
         from .hosts.ldap import LDAPHost
@@ -48,6 +49,7 @@ class SSSDMultihostDomain(MultihostDomain[SSSDMultihostConfig]):
 
         return {
             "ad": ADHost,
+            "client": ClientHost,
             "ldap": LDAPHost,
             "ipa": IPAHost,
             "samba": SambaHost,
