@@ -599,29 +599,33 @@ class GetentUtils(MultihostUtility[MultihostHost]):
         """
         super().__init__(host)
 
-    def passwd(self, name: str | int) -> PasswdEntry | None:
+    def passwd(self, name: str | int, *, service: str | None = None) -> PasswdEntry | None:
         """
         Call ``getent passwd $name``
 
         :param name: User name or id.
         :type name: str | int
+        :param service: Service used, defaults to None
+        :type service: str | None
         :return: passwd data, None if not found
         :rtype: PasswdEntry | None
         """
-        return self.__exec(PasswdEntry, "passwd", name)
+        return self.__exec(PasswdEntry, "passwd", name, service)
 
-    def group(self, name: str | int) -> GroupEntry | None:
+    def group(self, name: str | int, *, service: str | None = None) -> GroupEntry | None:
         """
         Call ``getent group $name``
 
         :param name: Group name or id.
         :type name: str | int
+        :param service: Service used, defaults to None
+        :type service: str | None
         :return: group data, None if not found
         :rtype: PasswdEntry | None
         """
-        return self.__exec(GroupEntry, "group", name)
+        return self.__exec(GroupEntry, "group", name, service)
 
-    def initgroups(self, name: str) -> InitgroupsEntry:
+    def initgroups(self, name: str, *, service: str | None = None) -> InitgroupsEntry:
         """
         Call ``getent initgroups $name``
 
@@ -629,24 +633,32 @@ class GetentUtils(MultihostUtility[MultihostHost]):
 
         :param name: User name.
         :type name: str
+        :param service: Service used, defaults to None
+        :type service: str | None
         :return: Initgroups data
         :rtype: InitgroupsEntry
         """
-        return self.__exec(InitgroupsEntry, "initgroups", name)
+        return self.__exec(InitgroupsEntry, "initgroups", name, service)
 
-    def netgroup(self, name: str) -> NetgroupEntry | None:
+    def netgroup(self, name: str, *, service: str | None = None) -> NetgroupEntry | None:
         """
         Call ``getent netgroup $name``
 
         :param name: Netgroup name.
         :type name: str
+        :param service: Service used, defaults to None
+        :type service: str | None
         :return: Netgroup data, None if not found
         :rtype: NetgroupEntry | None
         """
-        return self.__exec(NetgroupEntry, "netgroup", name)
+        return self.__exec(NetgroupEntry, "netgroup", name, service)
 
-    def __exec(self, cls, cmd: str, name: str | int) -> Any:
-        command = self.host.ssh.exec(["getent", cmd, name], raise_on_error=False)
+    def __exec(self, cls, cmd: str, name: str | int, service: str | None = None) -> Any:
+        args = []
+        if service is not None:
+            args = ["-s", service]
+
+        command = self.host.ssh.exec(["getent", *args, cmd, name], raise_on_error=False)
         if command.rc != 0:
             return None
 

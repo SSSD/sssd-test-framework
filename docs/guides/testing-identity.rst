@@ -55,8 +55,8 @@ accessed from the ``client`` fixture as ``client.tools``.
         assert result.shell == '/bin/sh'
         assert result.gecos is None
 
-        # Call `getent group group-1` and assert the result
-        result = client.tools.getent.group('group-1')
+        # Call `getent group group-1` with the sss service and assert the result
+        result = client.tools.getent.group('group-1', service="sss")
         assert result is not None
         assert result.name == 'group-1'
         assert result.gid == 20001
