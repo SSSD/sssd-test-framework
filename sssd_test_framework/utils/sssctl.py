@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pytest_mh import MultihostHost, MultihostUtility
 from pytest_mh.cli import CLIBuilder, CLIBuilderArgs
+from pytest_mh.ssh import SSHProcessResult
 from pytest_mh.utils.fs import LinuxFileSystem
 
 __all__ = [
@@ -171,3 +172,18 @@ class SSSCTLUtils(MultihostUtility[MultihostHost]):
             )
 
         return result.stdout_lines[-1].strip()
+
+    def user_checks(self, username: str, action: str = "acct", service: str = "system-auth") -> SSHProcessResult:
+        """
+        Print information about a user and check authentication
+
+        :param username: User that will be checked
+        :type username: str
+        :param action: PAM action, defaults to "acct"
+        :type action: str
+        :param service: PAM service, defaults to "system-auth"
+        :type service: str
+        :return: Result of called command
+        :rtype: SSHProcessResult
+        """
+        return self.host.ssh.exec(["sssctl", "user-checks", username, "-a", action, "-s", service])
