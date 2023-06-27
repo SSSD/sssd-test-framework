@@ -187,3 +187,21 @@ class SSSCTLUtils(MultihostUtility[MultihostHost]):
         :rtype: SSHProcessResult
         """
         return self.host.ssh.exec(["sssctl", "user-checks", username, "-a", action, "-s", service])
+
+    def config_check(self, config: str | None = None, snippet: str | None = None) -> SSHProcessResult:
+        """
+        Call ``sssctl config-check`` with additional arguments
+
+        :param config: Non default config file, defaults to None
+        :type config: str
+        :param snippet: Non default snippet dir, defaults to None
+        :type snippet: str
+        :return: Result of called command
+        :rtype: SSHProcessResult
+        """
+        args: CLIBuilderArgs = {
+            "config": (self.cli.option.VALUE, config),
+            "snippet": (self.cli.option.VALUE, snippet),
+        }
+
+        return self.host.ssh.exec(["sssctl", "config-check"] + self.cli.args(args), raise_on_error=False)
