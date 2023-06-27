@@ -205,7 +205,7 @@ class PasswdEntry(object):
             password=d.get("password", None),
             uid=d.get("uid", None),
             gid=d.get("gid", None),
-            gecos=d.get("gecos", None),
+            gecos=d.get("comment", None),
             home=d.get("home", None),
             shell=d.get("shell", None),
         )
