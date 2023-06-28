@@ -599,16 +599,23 @@ class GetentUtils(MultihostUtility[MultihostHost]):
         """
         super().__init__(host)
 
-    def passwd(self, name: str | int) -> PasswdEntry | None:
+    def passwd(self, name: str | int, no_idn: bool = False, service: str | None = None) -> PasswdEntry | None:
         """
         Call ``getent passwd $name``
 
         :param name: User name or id.
         :type name: str | int
+        :param no_idn: --no-idn flag. Disables IDN encoding in lookups. Defaults to False.
+        :type no_idn: bool
+        :param service: Override all databases with the specified service. Defaults to None.
+        :type service: str | None
         :return: passwd data, None if not found
         :rtype: PasswdEntry | None
         """
-        return self.__exec(PasswdEntry, "passwd", name)
+        args = ['--service', service] if service is not None else []
+        args = args + ['--no-idn'] if no_idn else args
+
+        return self.__exec(PasswdEntry, "passwd", name, args)
 
     def group(self, name: str | int) -> GroupEntry | None:
         """
@@ -645,8 +652,8 @@ class GetentUtils(MultihostUtility[MultihostHost]):
         """
         return self.__exec(NetgroupEntry, "netgroup", name)
 
-    def __exec(self, cls, cmd: str, name: str | int) -> Any:
-        command = self.host.ssh.exec(["getent", cmd, name], raise_on_error=False)
+    def __exec(self, cls, cmd: str, name: str | int, args: list[str] = []) -> Any:
+        command = self.host.ssh.exec(["getent", *args, cmd, name], raise_on_error=False)
         if command.rc != 0:
             return None
 
