@@ -8,6 +8,7 @@ from ..utils.automount import AutomountUtils
 from ..utils.local_users import LocalUsersUtils
 from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
+from ..utils.sbus import SBUSUtils
 from .base import BaseLinuxRole
 
 __all__ = [
@@ -82,3 +83,14 @@ class Client(BaseLinuxRole[ClientHost]):
                     raise ValueError("List is not expected")
 
                 self.sssd.import_domain(domain, role)
+
+    def sbus(self, user: str, password: str) -> SBUSUtils:
+        """
+        Run an sbus operation on the client using an ssh connection.
+
+        :param user: Username.
+        :type user: str
+        :param password: User password.
+        :type password: str
+        """
+        return SBUSUtils(self.ssh(user, password))
