@@ -564,6 +564,12 @@ class SambaGroup(SambaObject):
             "group-type": (self.cli.option.VALUE, category),
         }
 
+        # NIS Domain is required by samba-tool if gid number is set.
+        # It is stored in msSFU30NisDomain attribute of the group which is not
+        # used by SSSD so we can just provide hard coded value.
+        if gid is not None:
+            attrs["nis-domain"] = (self.cli.option.VALUE, "samba")
+
         self._add(attrs)
         return self
 
