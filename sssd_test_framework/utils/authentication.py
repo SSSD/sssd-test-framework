@@ -152,6 +152,16 @@ class AuthenticationUtils(MultihostUtility[MultihostHost]):
         """
         return KerberosAuthenticationUtils(self.host, ssh)
 
+    def passwd(self, ssh: SSHClient) -> PasswdUtils:
+        """Return object for password management connected to given ssh client.
+
+        :param ssh: SSH connection for the target user.
+        :type ssh: SSHClient
+        :return: PasswdUtils object.
+        :rtype: PasswdUtils
+        """
+        return PasswdUtils(self.host, ssh)
+
 
 class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
     """
@@ -910,3 +920,80 @@ class KerberosAuthenticationUtils(MultihostUtility[MultihostHost]):
         Disconnect.
         """
         self.kdestroy(all=True)
+
+
+class PasswdUtils(MultihostUtility[MultihostHost]):
+    """
+    Utility for password management.
+    """
+
+    def __init__(self, host: MultihostHost, ssh: SSHClient | None = None):
+        super().__init__(host)
+        self.ssh: SSHClient = ssh if ssh is not None else host.ssh
+        """SSH client for the target user."""
+
+    def password(self, user: str, password: str, new_password: str) -> bool:
+        """
+        Changing password as a given user.
+
+        :param user: Username.
+        :type name: str
+        :param password: Current password of user.
+        :type password: str
+        :param new_password: New password of user.
+        :type new_password: str
+        :return: True if password change was successful, False otherwise.
+        :rtype: bool
+        """
+        result = self.ssh.expect(
+            rf"""
+            set timeout {DEFAULT_AUTHENTICATION_TIMEOUT}
+            set prompt "\n.*\[#\$>\] $"
+
+            spawn passwd
+
+            expect {{
+                -nocase "Changing password for user {user}.\r\nCurrent Password: " {{send "{password}\n"}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
+            }}
+
+            expect {{
+                -nocase "New password:" {{send "{new_password}\n"}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
+            }}
+
+            expect {{
+                -nocase "Retype new password:" {{send "{new_password}\n"}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
+            }}
+
+            expect {{
+                "passwd: all authentication tokens updated successfully." {{exit 0}}
+                "Password change failed." {{exit 200}}
+                timeout {{puts "expect result: Unexpected output"; exit 201}}
+                eof {{puts "expect result: Unexpected end of file"; exit 202}}
+            }}
+
+            puts "expect result: Unexpected code path"
+            exit 203
+            """
+        )
+
+        if result.rc > 200:
+            assert result.stderr == result.stdout
+            raise ExpectScriptError(result.rc)
+
+        return result.rc == 0
+
+    def __enter__(self) -> PasswdUtils:
+        """
+        Connect to the host over ssh if not already connected.
+
+        :return: Self..
+        :rtype: PasswdUtils
+        """
+        self.ssh.connect()
+        return self
