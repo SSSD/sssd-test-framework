@@ -7,6 +7,7 @@ from ..topology import SSSDTopologyMark
 from ..utils.automount import AutomountUtils
 from ..utils.ldb import LDBUtils
 from ..utils.local_users import LocalUsersUtils
+from ..utils.sbus import SBUSUtils
 from ..utils.sss_override import SSSOverrideUtils
 from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
@@ -94,3 +95,13 @@ class Client(BaseLinuxRole[ClientHost]):
                     raise ValueError("List is not expected")
 
                 self.sssd.import_domain(domain, role)
+
+    def sbus(self) -> SBUSUtils:
+        """
+        Run an sbus operation from the client.
+        """
+
+        if "_sbus" not in self.__dict__:
+            self._sbus: SBUSUtils = SBUSUtils(self.host)
+
+        return self._sbus
