@@ -9,6 +9,7 @@ It implements functionality such as:
 * NFS shares management
 * SSSD configuration and management
 * Automatic backup and restore of all hosts
+* D-Bus communication
 
 This framework can be used by other projects as well.
 

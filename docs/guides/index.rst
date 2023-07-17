@@ -10,6 +10,7 @@ How to guides
    pam
    testing-authentication
    testing-autofs
+   testing-dbus
    testing-gpo
    testing-identity
    testing-ldap-krb5
