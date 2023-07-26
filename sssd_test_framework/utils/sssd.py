@@ -389,6 +389,21 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
 
         return self.host.ssh.exec(["/usr/sbin/sssd", f"--genconf-section={section}"])
 
+    def bring_offline(self) -> None:
+        """
+        Send SIGUSR1 to SSSD process in order to bring it offline and terminate
+        existing connections.
+        """
+        self.logger.info(f"Bringing SSSD offline on {self.host.hostname}")
+        self.host.ssh.run("pkill --signal SIGUSR1 sssd", log_level=SSHLog.Error)
+
+    def bring_online(self) -> None:
+        """
+        Send SIGUSR2 to SSSD process in order to bring it back online.
+        """
+        self.logger.info(f"Bringing SSSD online on {self.host.hostname}")
+        self.host.ssh.run("pkill --signal SIGUSR2 sssd", log_level=SSHLog.Error)
+
     def section(self, name: str) -> configparser.SectionProxy:
         """
         Get sssd.conf section.
