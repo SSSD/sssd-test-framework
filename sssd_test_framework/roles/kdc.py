@@ -235,7 +235,7 @@ class KDCPrincipal(BaseObject[KDCHost, KDC]):
 
     def get_string(self, key: str) -> str | None:
         """
-        Set principal's string attribute.
+        Get principal's string attribute.
 
         :param key: Attribute name.
         :type key: str
