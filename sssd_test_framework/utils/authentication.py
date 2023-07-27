@@ -20,7 +20,7 @@ __all__ = [
 ]
 
 
-DEFAULT_AUTHENTICATION_TIMEOUT: int = 10
+DEFAULT_AUTHENTICATION_TIMEOUT: int = 20
 """Default timeout for authentication failure."""
 
 
