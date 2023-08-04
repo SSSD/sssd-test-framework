@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import configparser
 from io import StringIO
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from pytest_mh import MultihostHost, MultihostRole, MultihostUtility
 from pytest_mh.ssh import SSHLog, SSHProcess, SSHProcessResult
 
 from ..hosts.base import BaseDomainHost
+from ..misc import to_list
 
 if TYPE_CHECKING:
     from pytest_mh.utils.fs import LinuxFileSystem
@@ -782,3 +783,78 @@ class SSSDCommonConfiguration(object):
         """
         self.sssd.authselect.select("sssd")
         self.sssd.enable_responder("autofs")
+
+    def proxy(
+        self,
+        proxy: Literal["files", "ldap"] = "files",
+        provider: str | list[str] = "id",
+        proxy_pam_target: str | None = None,
+        proxy_pam_stack: str | None = None,
+        server_hostname: str | None = None,
+        domain: str | None = None,
+    ):
+        """
+        Configure files or ldap proxy domain.
+
+        :param proxy: ``ldap`` or ``files``, defaults to ``files``
+        :type proxy: Literal["files", "ldap"]
+        :param provider: SSSD providers (``id``, ``auth``, ``chpass``, ...), defaults to ``id``
+        :type provider: str | list[str]
+        :param proxy_pam_target: SSSD option proxy_pam_target, defaults to
+            ``None`` (= ``system-auth`` (files), ``sssdproxyldap`` (ldap))
+        :type proxy_pam_target: str | None
+        :param proxy_pam_stack: Custom PAM stack written to
+            /etc/pam.d/@proxy_pam_target, defaults to ``None`` (= ignored (files), pam_ldap.so (ldap))
+        :type proxy_pam_stack: str | None
+        :param server_hostname: LDAP server hostname for ldap proxy (ldap), ignored (files), defaults to ``None``
+        :type server_hostname: str | None
+        :param domain: Proxy domain name, defaults to None (= default domain)
+        :type domain: str | None, optional
+        """
+        if domain is None:
+            domain = self.sssd.default_domain
+
+        if domain is None:
+            raise ValueError("No domain specified and default domain is not set!")
+
+        if domain is not None and self.sssd.default_domain is None:
+            self.sssd.default_domain = domain
+
+        match proxy:
+            case "ldap":
+                if proxy_pam_target is None:
+                    proxy_pam_target = "sssdproxyldap"
+
+                if proxy_pam_stack is None:
+                    proxy_pam_stack = """
+                        auth     required pam_ldap.so
+                        account  required pam_ldap.so
+                        password required pam_ldap.so
+                        session  required pam_ldap.so
+                    """
+
+                if server_hostname is None:
+                    raise ValueError("No server_hostname specified!")
+
+                self.sssd.fs.write(
+                    "/etc/nslcd.conf", f"uid nslcd\ngid ldap\nuri ldap://{server_hostname}\n", dedent=False
+                )
+                self.sssd.svc.restart("nslcd")
+            case "files":
+                if proxy_pam_target is None:
+                    proxy_pam_target = "system-auth"
+            case _:
+                raise ValueError(f"Unknown proxy type: {proxy}")
+
+        if proxy_pam_stack is not None:
+            self.sssd.fs.write(f"/etc/pam.d/{proxy_pam_target}", proxy_pam_stack)
+
+        options = {
+            "enabled": "true",
+            "proxy_lib_name": proxy,
+            "proxy_pam_target": proxy_pam_target,
+            **{f"{x}_provider": "proxy" for x in to_list(provider)},
+        }
+
+        self.sssd.dom(domain).clear()
+        self.sssd.dom(domain).update(options)
