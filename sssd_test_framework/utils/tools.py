@@ -552,6 +552,28 @@ class LinuxToolsUtils(MultihostUtility[MultihostHost]):
 
         return self.host.ssh.exec(["tshark", *args])
 
+    def dnf(self, args: list[Any] | None = None) -> SSHProcessResult:
+        """
+        Execute dnf commands with given arguments.
+
+        :param args: Arguments to ``dnf``, defaults to None
+        :type args: list[Any] | None, optional
+        :return: SSH Process result
+        :rtype: SSHProcessResult
+        """
+        if args is None:
+            args = []
+
+        dnf_id_before = self.host.ssh.exec(["dnf", "history"]).stdout.split("\n")[2].split("|")[0].strip()
+
+        command = self.host.ssh.exec(["dnf", "-y", *args])
+        dnf_id_after = self.host.ssh.exec(["dnf", "history"]).stdout.split("\n")[2].split("|")[0].strip()
+
+        if int(dnf_id_before) < int(dnf_id_after):
+            self.__rollback.append(f"dnf history -y undo {dnf_id_after}")
+
+        return command
+
     def teardown(self):
         """
         Revert all changes.
