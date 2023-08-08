@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Protocol
+from typing import Any, Protocol
 
 from pytest_mh import MultihostRole
 from pytest_mh.utils.firewall import GenericFirewall
@@ -45,6 +45,11 @@ class GenericProvider(ABC, MultihostRole[BaseHost]):
         for type hinting only on parametrized tests that runs on multiple
         topologies.
     """
+
+    @property
+    @abstractmethod
+    def features(self) -> dict[str, Any]:
+        pass
 
     @property
     @abstractmethod

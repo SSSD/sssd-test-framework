@@ -4,6 +4,7 @@ How to guides
 .. toctree::
 
    using-roles
+   check-sssd-functionality
    ssh-client
    sss_override
    testing-authentication
