@@ -22,6 +22,40 @@ class ClientHost(BaseBackupHost):
         Full backup and restore of SSSD state is supported.
     """
 
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+        self._features: dict[str, bool] | None = None
+
+    @property
+    def features(self) -> dict[str, bool]:
+        """
+        Features supported by the host.
+        """
+        if self._features is not None:
+            return self._features
+
+        self.logger.info(f"Detecting SSSD's features on {self.hostname}")
+
+        result = self.ssh.run(
+            """
+            set -ex
+
+            [ -f "/usr/lib64/sssd/libsss_files.so" ] && echo "files-provider"
+            """,
+            log_level=SSHLog.Error,
+        )
+
+        # Set default values
+        self._features = {
+            "files-provider": False,
+        }
+
+        self._features.update({k: True for k in result.stdout_lines})
+        self.logger.info("Detected features:", extra={"data": {"Features": self._features}})
+
+        return self._features
+
     def pytest_setup(self) -> None:
         """
         Called once before execution of any tests.

@@ -25,7 +25,12 @@ class BaseHost(MultihostHost[SSSDMultihostDomain]):
     Base class for all SSSD hosts.
     """
 
-    pass
+    @property
+    def features(self) -> dict[str, bool]:
+        """
+        Features supported by the host.
+        """
+        return {}
 
 
 class BaseBackupHost(BaseHost, ABC):
