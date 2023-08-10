@@ -151,9 +151,9 @@ installation.
 .. note::
 
     It is not required to have the Active Directory machine running in order to
-    run the tests. If you run the tests with ``--mh-lazy-ssh`` (as shown in the
-    example below) and the AD host is not running, pytest will simply skip the
-    tests that requires Active Directory.
+    run the tests. If you run the tests with ``--mh-lazy-ssh -k "not ad"``
+    and the AD host is not running, pytest will simply skip the tests
+    that require Active Directory.
 
 Multihost configuration
 =======================
