@@ -93,13 +93,6 @@ class BaseRole(MultihostRole[HostType]):
         """
         return isinstance(value, DeleteAttribute)
 
-    @property
-    def features(self) -> dict[str, bool]:
-        """
-        Features supported by the role.
-        """
-        return self.host.features
-
 
 class BaseLinuxRole(BaseRole[HostType]):
     """
