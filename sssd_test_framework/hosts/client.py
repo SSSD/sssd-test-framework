@@ -39,6 +39,14 @@ class ClientHost(BaseBackupHost):
 
         result = self.ssh.run(
             """
+            ls -l /usr/lib64/
+            ls -l /usr/
+            """,
+            log_level=SSHLog.Error,
+        )
+
+        result = self.ssh.run(
+            """
             set -ex
 
             [ -f "/usr/lib64/sssd/libsss_files.so" ] && echo "files-provider"
