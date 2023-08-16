@@ -41,7 +41,7 @@ class ClientHost(BaseBackupHost):
             """
             set -ex
 
-            [ -f "/usr/lib64/sssd/libsss_files.so" ] && echo "files-provider"
+            [ -f "/usr/lib64/sssd/libsss_files.so" ] && echo "files-provider" || :
             """,
             log_level=SSHLog.Error,
         )
