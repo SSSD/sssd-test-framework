@@ -50,7 +50,7 @@ class AuthselectUtils(MultihostUtility[MultihostHost]):
         """
         Select an authselect profile.
 
-        :param profile: Autheselect profile name.
+        :param profile: Authselect profile name.
         :type profile: str
         :param features: Authselect features to enable, defaults to []
         :type features: list[str], optional
@@ -61,3 +61,29 @@ class AuthselectUtils(MultihostUtility[MultihostHost]):
             backup = [f"--backup={self.__backup}"]
 
         self.host.ssh.exec(["authselect", "select", profile, *features, "--force", *backup])
+
+    def current(self) -> str:
+        """
+        List current Authselect configuration.
+        :return: Authselect configuration
+        :rtype: str
+        """
+        result = self.host.ssh.exec(["authselect", "current"]).stdout
+
+        return result
+
+    def disable_feature(self, features: list[str]) -> None:
+        """
+        Disable Authselect feature.
+        :param features: Authselect features to enable
+        :type: list[str], required
+        """
+        self.host.ssh.exec(["authselect", "disable-feature", *features])
+
+    def enable_feature(self, features: list[str]) -> None:
+        """
+        Enable Authselect feature.
+        :param features:  Authselect features to enable
+        :type: list[str], required
+        """
+        self.host.ssh.exec(["authselect", "enable-feature", *features])
