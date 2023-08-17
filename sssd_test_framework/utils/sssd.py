@@ -251,7 +251,15 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
 
         return self.svc.restart(service, raise_on_error=raise_on_error)
 
-    def clear(self, *, db: bool = True, memcache: bool = True, config: bool = False, logs: bool = False):
+    def clear(
+        self,
+        *,
+        db: bool = True,
+        memcache: bool = True,
+        config: bool = False,
+        logs: bool = False,
+        homedirs: bool = True,
+    ):
         """
         Clear SSSD data.
 
@@ -263,6 +271,8 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         :type config: bool, optional
         :param logs: Remove logs, defaults to False
         :type logs: bool, optional
+        :param homedirs: Remove user home directories, defaults to False
+        :type homedirs: bool, optional
         """
         cmd = "rm -fr"
 
@@ -277,6 +287,9 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
 
         if logs:
             cmd += " /var/log/sssd/*"
+
+        if homedirs:
+            cmd += " /home/!(ci)"
 
         self.host.ssh.run(cmd)
 
