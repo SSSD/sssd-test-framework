@@ -7,6 +7,7 @@ How to guides
    check-sssd-functionality
    ssh-client
    sss_override
+   pam
    testing-authentication
    testing-autofs
    testing-identity

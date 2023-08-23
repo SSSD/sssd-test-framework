@@ -864,3 +864,19 @@ class SSSDCommonConfiguration(object):
 
         self.sssd.dom(domain).clear()
         self.sssd.dom(domain).update(options)
+
+    def pam(self, features: list[str] | None = None) -> None:
+        """
+        Configure SSSD with pam.
+
+        #. Select authselect sssd profile
+        #. Enable pam responder in sssd profile
+
+        :param features: list of authselect features
+        :type features: list[str], optional
+        """
+        if features is None:
+            features = []
+
+        self.sssd.authselect.select("sssd", features)
+        self.sssd.enable_responder("pam")

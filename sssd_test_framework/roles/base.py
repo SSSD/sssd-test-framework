@@ -16,6 +16,7 @@ from ..hosts.base import BaseHost, BaseLDAPDomainHost
 from ..utils.authentication import AuthenticationUtils
 from ..utils.authselect import AuthselectUtils
 from ..utils.ldap import LDAPUtils
+from ..utils.pam import PAMUtils
 from ..utils.tools import LinuxToolsUtils
 
 HostType = TypeVar("HostType", bound=BaseHost)
@@ -143,6 +144,11 @@ class BaseLinuxRole(BaseRole[HostType]):
         self.auth: AuthenticationUtils = AuthenticationUtils(self.host, self.fs)
         """
         Authentication helpers.
+        """
+
+        self.pam: PAMUtils = PAMUtils(self.host, self.fs)
+        """
+        Configuring various PAM modules.
         """
 
 

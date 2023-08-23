@@ -574,6 +574,19 @@ class LinuxToolsUtils(MultihostUtility[MultihostHost]):
 
         return command
 
+    def faillock(self, args: list[Any]) -> SSHProcessResult:
+        """
+        Execute faillock command.
+        :param args: Arguments to ``faillock``
+        :type args: list[Any]
+        :return: SSH Process result
+        :rtype: SSHProcessResult
+        """
+        if args is None:
+            args = []
+
+        return self.host.ssh.exec(["faillock", *args])
+
     def teardown(self):
         """
         Revert all changes.
