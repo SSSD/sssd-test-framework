@@ -437,6 +437,7 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
             expect {{
                 -re $prompt {{puts "expect result: Password authentication successful"; exit 0}}
                 "{username}@localhost: Permission denied" {{puts "expect result: Authentication failure"; exit 1}}
+                "Connection closed by UNKNOWN port 65535" {{puts "expect result: Connection closed"; exit 2}}
                 timeout {{puts "expect result: Unexpected output"; exit 201}}
                 eof {{puts "expect result: Unexpected end of file"; exit 202}}
             }}
