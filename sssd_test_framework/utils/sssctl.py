@@ -188,6 +188,29 @@ class SSSCTLUtils(MultihostUtility[MultihostHost]):
         """
         return self.host.ssh.exec(["sssctl", "user-checks", username, "-a", action, "-s", service])
 
+    def user_show(self, user: str | None = None, sid: str | None = None, uid: int | None = None) -> SSHProcessResult:
+        """
+        Information about cached user
+
+        :param user: User that will be showed, defaults to None
+        :type user: str | None
+        :param sid: Search by SID, defaults to None
+        :type sid: str | None
+        :param uid: Search by user ID, defaults to None
+        :type uid: int | None
+        :return: Result of called command
+        :rtype: SSHProcessResult
+        """
+        options = []
+        if user is not None:
+            options += [user]
+        if sid is not None:
+            options += ["-s", sid]
+        if uid is not None:
+            options += ["-u", str(uid)]
+
+        return self.host.ssh.exec(["sssctl", "user-show", *options])
+
     def config_check(self, config: str | None = None, snippet: str | None = None) -> SSHProcessResult:
         """
         Call ``sssctl config-check`` with additional arguments
