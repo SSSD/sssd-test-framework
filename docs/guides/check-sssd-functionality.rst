@@ -36,3 +36,41 @@ Supported features
 ==================
 
 * ``files-provider`` - SSSD is built with files provider support
+
+Checking supported functionality in other roles
+###############################################
+
+Even though the main purpose and default setting of the
+``@pytest.mark.builtwith`` marker is to check built functionality of SSSD on the
+client machine, it is also possible to use this marker in a more generic way to
+check functionality on other hosts as well by adding keyword arguments to the
+marker. Each key is one of the test role fixture.
+
+.. code-block:: python
+
+    @pytest.mark.topology(KnownTopology.IPA)
+    @pytest.mark.builtwith(ipa="passkey")
+    def test_passkey_ipa__example(client: Client, ipa: IPA):
+        pass
+
+It is also possible to check for multiple features at once. In this case,
+features must be supported by all hosts, otherwise the test is skipped.
+
+.. code-block:: python
+
+    @pytest.mark.topology(KnownTopology.IPA)
+    @pytest.mark.builtwith(client="passkey", ipa="passkey")
+    def test_passkey_client_and_ipa__example(client: Client, ipa: IPA):
+        pass
+
+.. note::
+
+    It is also possible to specify multiple features at once as a list for more
+    complex requirements.
+
+    .. code-block:: python
+
+        @pytest.mark.topology(KnownTopology.IPA)
+        @pytest.mark.builtwith(client=["client-feature-1", "client-feature-2"], ipa=["ipa-feature-1", "ipa-feature-2"])
+        def test_example(client: Client, ipa: IPA):
+            pass
