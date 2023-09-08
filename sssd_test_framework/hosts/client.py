@@ -42,6 +42,7 @@ class ClientHost(BaseBackupHost):
             set -ex
 
             [ -f "/usr/lib64/sssd/libsss_files.so" ] && echo "files-provider" || :
+            [ -f "/usr/libexec/sssd/passkey_child" ] && echo "passkey" || :
             """,
             log_level=SSHLog.Error,
         )
@@ -49,6 +50,7 @@ class ClientHost(BaseBackupHost):
         # Set default values
         self._features = {
             "files-provider": False,
+            "passkey": False,
         }
 
         self._features.update({k: True for k in result.stdout_lines})
