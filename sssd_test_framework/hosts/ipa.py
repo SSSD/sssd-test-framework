@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pytest_mh.ssh import SSHLog
+
 from .base import BaseDomainHost
 
 __all__ = [
@@ -45,11 +47,46 @@ class IPAHost(BaseDomainHost):
         self.adminpw: str = self.config.get("adminpw", "Secret123")
         """Password of the admin user, defaults to ``Secret123``."""
 
+        self._features: dict[str, bool] | None = None
+
         # Additional client configuration
         self.client.setdefault("id_provider", "ipa")
         self.client.setdefault("access_provider", "ipa")
         self.client.setdefault("ipa_server", self.hostname)
         self.client.setdefault("dyndns_update", False)
+
+    @property
+    def features(self) -> dict[str, bool]:
+        """
+        Features supported by the host.
+        """
+        self.kinit()
+
+        if self._features is not None:
+            return self._features
+
+        self.logger.info(f"Detecting features on {self.hostname}")
+
+        result = self.ssh.run(
+            """
+            set -ex
+
+            [ -f "/usr/libexec/sssd/passkey_child" ] && \
+                ipa help user | grep user-add-passkey 1> /dev/null && \
+                echo "passkey" || :
+            """,
+            log_level=SSHLog.Error,
+        )
+
+        # Set default values
+        self._features = {
+            "passkey": False,
+        }
+
+        self._features.update({k: True for k in result.stdout_lines})
+        self.logger.info("Detected features:", extra={"data": {"Features": self._features}})
+
+        return self._features
 
     def kinit(self) -> None:
         """
