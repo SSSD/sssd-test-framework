@@ -113,42 +113,84 @@ You can then run tests that are relevant only to the selected ticket:
     cd src/tests/system
     pytest --mh-config=mhc.yaml --mh-lazy-ssh -v --ticket=gh#3433
 
-@pytest.mark.tier
-=================
+@pytest.mark.importance
+=======================
 
-The `tier mark <https://github.com/next-actions/pytest-tier>`__ can
-associate a test with a specific tier.
+The `importance mark <https://github.com/next-actions/pytest-importance>`__ can
+associate a test with a level of importance. This is used by quality engineers to
+prioritize the test determined by the level of impact to the customer.
 
-The ``@pytest.mark.tier`` takes single number as an argument.
+The ``@pytest.mark.importance`` takes a string as an argument. The values used
+are "critical", "high", "medium" and "low". If no marker is defined, the importance
+defaults to medium.
 
 .. code-block:: python
     :caption: Examples
 
-    @pytest.mark.tier(0)
-    def test_tier0()
+    @pytest.mark.importance("critical")
+    def test_importance_critical()
         pass
 
-    @pytest.mark.tier(1)
-    def test_tier1()
+    @pytest.mark.importance("high")
+    def test_importance_high()
         pass
 
-You can then run tests that are relevant only to the selected ticket:
+You can then run the tests by importance:
 
 .. code-block:: text
 
     cd src/tests/system
-    pytest --mh-config=mhc.yaml --mh-lazy-ssh -v --tier=1
+    pytest --mh-config=mhc.yaml --mh-lazy-ssh -v --importance="critical"
 
-Tier definition
-===============
+Importance definition
+---------------------
 
-.. list-table:: Tier definition
-    :align: center
-    :widths: 10 90
-    :header-rows: 1
-    :stub-columns: 1
+* **critical:**
+  Core subset of tests that covers most important operational features.
+  This is used in pipelines where it maybe ran multiple times a day in downstream CI.
+  The execution time should be kept as short as possible.
 
-    * - Tier
-      - Description
-    * - @TODO
-      -
+* **high:** The comprehensive set of tests, that covers all operational features.
+  This is used for gating where it maybe ran several times a day in downstream CI.
+  To manage resources, the execution time should be kept under an hour.
+
+* **medium:** Extended set that covers tests that do not impact operational functionality,
+  like the CLI commands included in sss-tools package. Tests that cover negative
+  scenarios and misconfigured environment fit here as well.
+
+* **low:** Tests that may have a long execution time, edge cases or complex scenarios that
+  demand a lot of resources. Consider performance and stress tests as part of this set.
+
+@pytest.mark.custom
+===================
+
+The use of `custom markers <https://docs.pytest.org/en/latest/how-to/mark.html>`__
+help group tests into categories; identity, authentication, authorization are
+some examples. This is predominately used by quality engineers to organize tests by features.
+
+.. code-block:: python
+    :caption: Examples
+
+    @pytest.mark.authentication
+    def test_authenticate_user()
+        pass
+
+You can run tests by custom markers:
+
+.. code-block:: text
+
+    cd src/tests/system
+    pytest --mh-config-mhc=mhc.yaml --mh-lazy-ssh -v -m authentication
+
+Custom Marker definitions
+-------------------------
+
+* **authentication:** Tests checking user and password policies and anything to do with the login prompt.
+* **authorization:** Tests checking user access after login like sudo and credential delegation.
+* **cache:** Tests checking the local cache like timeout, negative cache and refresh.
+* **config:** Tests for SSSD configuration file, editing and tooling. 
+* **contains_workaround:** Test requires workaround for an existing bug. (gh=...,bz=...)
+* **identity:** Tests checking user identity lookups, group memberships, domain priority and id mapping.
+* **schema:** Tests checking ldap schemas, rfc2307, rfc2307bis, AD and directory attributes.
+* **slow:** Tests that are slow. (deselect with '-m "not slow"')
+* **tools:** Tests for all SSSD CLI commands; sssctl, sss_cache, sss_override, etc.
