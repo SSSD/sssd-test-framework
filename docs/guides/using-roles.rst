@@ -281,7 +281,6 @@ accessed by ``client.sssd.domain``.
         # Outputs:
         #
         # [sssd]
-        # config_file_version = 2
         # services = nss, pam
         # domains = test
         #
@@ -312,7 +311,6 @@ import the domain manually.
         # Outputs:
         #
         # [sssd]
-        # config_file_version = 2
         # services = nss, pam
         # domains = test
         #
