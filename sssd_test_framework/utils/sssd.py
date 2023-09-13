@@ -104,7 +104,6 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         self.config.read_string(
             """
             [sssd]
-            config_file_version = 2
             services = nss, pam
             """
         )
