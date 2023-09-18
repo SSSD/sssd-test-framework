@@ -277,26 +277,33 @@ class IPAObject(BaseObject[IPAHost, IPA]):
         self.name: str = name
         """Object name."""
 
-    def _exec(self, op: str, args: list[str] | None = None, **kwargs) -> SSHProcessResult:
+    def _exec(
+        self, op: str, args: list[str] | None = None, ipaargs: list[str] | None = None, **kwargs
+    ) -> SSHProcessResult:
         """
         Execute IPA command.
 
         .. code-block:: console
 
-            $ ipa $command_group-$op $name $args
+            $ ipa $ipaargs $command_group-$op $name $args
             for example >>> ipa user-add tuser
 
         :param op: Command group operation (usually add, mod, del, show)
         :type op: str
         :param args: List of additional command arguments, defaults to None
         :type args: list[str] | None, optional
+        :param ipaargs: List of additional command arguments to the ipa main command, defaults to None
+        :type ipaargs: list[str] | None, optional
         :return: SSH process result.
         :rtype: SSHProcessResult
         """
         if args is None:
             args = []
 
-        return self.role.host.ssh.exec(["ipa", f"{self.command_group}-{op}", self.name, *args], **kwargs)
+        if ipaargs is None:
+            ipaargs = []
+
+        return self.role.host.ssh.exec(["ipa", *ipaargs, f"{self.command_group}-{op}", self.name, *args], **kwargs)
 
     def _add(self, attrs: CLIBuilderArgs | None = None, input: str | None = None):
         """
@@ -614,56 +621,69 @@ class IPAGroup(IPAObject):
         self._modify(attrs)
         return self
 
-    def add_member(self, member: IPAUser | IPAGroup) -> IPAGroup:
+    def add_member(self, member: IPAUser | IPAGroup | str) -> IPAGroup:
         """
         Add group member.
 
+        Member can be either IPAUser, IPAGroup or a string in which case it
+        is added as an external member.
+
         :param member: User or group to add as a member.
-        :type member: IPAUser | IPAGroup
+        :type member: IPAUser | IPAGroup | str
         :return: Self.
         :rtype: IPAGroup
         """
         return self.add_members([member])
 
-    def add_members(self, members: list[IPAUser | IPAGroup]) -> IPAGroup:
+    def add_members(self, members: list[IPAUser | IPAGroup | str]) -> IPAGroup:
         """
         Add multiple group members.
 
+        Member can be either IPAUser, IPAGroup or a string in which case it
+        is added as an external member.
+
         :param member: List of users or groups to add as members.
-        :type member: list[IPAUser | IPAGroup]
+        :type member: list[IPAUser | IPAGroup | str]
         :return: Self.
         :rtype: IPAGroup
         """
-        self._exec("add-member", self.__get_member_args(members))
+        self._exec("add-member", ipaargs=["--no-prompt"], args=self.__get_member_args(members))
         return self
 
-    def remove_member(self, member: IPAUser | IPAGroup) -> IPAGroup:
+    def remove_member(self, member: IPAUser | IPAGroup | str) -> IPAGroup:
         """
         Remove group member.
 
+        Member can be either IPAUser, IPAGroup or a string in which case
+        an external member is removed.
+
         :param member: User or group to remove from the group.
-        :type member: IPAUser | IPAGroup
+        :type member: IPAUser | IPAGroup | str
         :return: Self.
         :rtype: IPAGroup
         """
         return self.remove_members([member])
 
-    def remove_members(self, members: list[IPAUser | IPAGroup]) -> IPAGroup:
+    def remove_members(self, members: list[IPAUser | IPAGroup | str]) -> IPAGroup:
         """
         Remove multiple group members.
 
+        Member can be either IPAUser, IPAGroup or a string in which case
+        an external member is removed.
+
         :param member: List of users or groups to remove from the group.
-        :type member: list[IPAUser | IPAGroup]
+        :type member: list[IPAUser | IPAGroup | str]
         :return: Self.
         :rtype: IPAGroup
         """
-        self._exec("remove-member", self.__get_member_args(members))
+        self._exec("remove-member", ipaargs=["--no-prompt"], args=self.__get_member_args(members))
         return self
 
-    def __get_member_args(self, members: list[IPAUser | IPAGroup]) -> list[str]:
+    def __get_member_args(self, members: list[IPAUser | IPAGroup | str]) -> list[str]:
         users = [x for item in members if isinstance(item, IPAUser) for x in ("--users", item.name)]
         groups = [x for item in members if isinstance(item, IPAGroup) for x in ("--groups", item.name)]
-        return [*users, *groups]
+        external = [x for item in members if isinstance(item, str) for x in ("--external", item)]
+        return [*users, *groups, *external]
 
 
 class IPANetgroup(IPAObject):
@@ -1220,24 +1240,31 @@ class IPAAutomountMap(IPAObject):
         else:
             raise ValueError(f"Unexepected location type: {type(location)}")
 
-    def _exec(self, op: str, args: list[str] | None = None, **kwargs) -> SSHProcessResult:
+    def _exec(
+        self, op: str, args: list[str] | None = None, ipaargs: list[str] | None = None, **kwargs
+    ) -> SSHProcessResult:
         """
         Execute automoutmap IPA command.
 
         .. code-block:: console
 
-            $ ipa automountmap-$op $location $mapname $args
+            $ ipa $ipaargs automountmap-$op $location $mapname $args
             for example >>> ipa automountmap-add default-location newmap
 
         :param op: Command group operation (usually add, mod, del, show)
         :type op: str
         :param args: List of additional command arguments, defaults to None
         :type args: list[str] | None, optional
+        :param ipaargs: List of additional command arguments to the ipa main command, defaults to None
+        :type ipaargs: list[str] | None, optional
         :return: SSH process result.
         :rtype: SSHProcessResult
         """
         if args is None:
             args = []
+
+        if ipaargs is None:
+            ipaargs = []
 
         defargs = self.cli.args(
             {
@@ -1245,7 +1272,7 @@ class IPAAutomountMap(IPAObject):
                 "mapname": (self.cli.option.POSITIONAL, self.name),
             }
         )
-        return self.role.host.ssh.exec(["ipa", f"{self.command_group}-{op}", *defargs, *args], **kwargs)
+        return self.role.host.ssh.exec(["ipa", *ipaargs, f"{self.command_group}-{op}", *defargs, *args], **kwargs)
 
     def add(
         self,
@@ -1294,13 +1321,15 @@ class IPAAutomountKey(IPAObject):
         self.map: IPAAutomountMap = map
         self.info: str | None = None
 
-    def _exec(self, op: str, args: list[str] | None = None, **kwargs) -> SSHProcessResult:
+    def _exec(
+        self, op: str, args: list[str] | None = None, ipaargs: list[str] | None = None, **kwargs
+    ) -> SSHProcessResult:
         """
         Execute automoutkey IPA command.
 
         .. code-block:: console
 
-            $ ipa automountkey-$op $location $mapname $keyname $args
+            $ ipa $ipaargs automountkey-$op $location $mapname $keyname $args
             for example >>> ipa automountkey-add default-location newmap newkey --info=autofsinfo
 
         :param op: Command group operation (usually add, mod, del, show)
@@ -1313,6 +1342,9 @@ class IPAAutomountKey(IPAObject):
         if args is None:
             args = []
 
+        if ipaargs is None:
+            ipaargs = []
+
         defargs = self.cli.args(
             {
                 "location": (self.cli.option.POSITIONAL, self.map.location.name),
@@ -1320,7 +1352,7 @@ class IPAAutomountKey(IPAObject):
                 "key": (self.cli.option.VALUE, self.name),
             }
         )
-        return self.role.host.ssh.exec(["ipa", f"{self.command_group}-{op}", *defargs, *args], **kwargs)
+        return self.role.host.ssh.exec(["ipa", *ipaargs, f"{self.command_group}-{op}", *defargs, *args], **kwargs)
 
     def add(self, *, info: str | NFSExport | IPAAutomountMap) -> IPAAutomountKey:
         """
