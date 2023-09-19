@@ -14,4 +14,5 @@ How to guides
    testing-netgroups
    testing-offline
    testing-passkey
+   testing-ipa-trust
    local-users

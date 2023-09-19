@@ -33,6 +33,11 @@ class ADHost(BaseDomainHost):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
+        self.ad_domain: str = self.client["ad_domain"]
+        """
+        Active Directory domain name.
+        """
+
         # Additional client configuration
         self.client.setdefault("id_provider", "ad")
         self.client.setdefault("access_provider", "ad")

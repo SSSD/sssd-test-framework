@@ -51,6 +51,11 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
+        self.domain: str = self.host.ad_domain
+        """
+        Active Directory domain name.
+        """
+
         self.automount: SambaAutomount = SambaAutomount(self)
         """
         Manage automount maps and keys.
@@ -105,6 +110,12 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
 
         # Set AD schema for automount
         self.automount.set_schema(self.automount.Schema.AD)
+
+    def fqn(self, name: str) -> str:
+        """
+        Return fully qualified name in form name@domain.
+        """
+        return f"{name}@{self.domain}"
 
     def user(self, name: str) -> SambaUser:
         """
