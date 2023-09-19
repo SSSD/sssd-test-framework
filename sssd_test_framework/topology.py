@@ -187,6 +187,26 @@ class KnownTopology(KnownTopologyBase):
     .. topology-mark:: KnownTopology.Samba
     """
 
+    IPATrustAD = SSSDTopologyMark(
+        name="ipa-trust-ad",
+        topology=Topology(TopologyDomain("sssd", client=1, ipa=1, ad=1)),
+        domains=dict(test="sssd.ipa[0]"),
+        fixtures=dict(client="sssd.client[0]", ipa="sssd.ipa[0]", ad="sssd.ad[0]", trusted="sssd.ad[0]"),
+    )
+    """
+    .. topology-mark:: KnownTopology.IPATrustAD
+    """
+
+    IPATrustSamba = SSSDTopologyMark(
+        name="ipa-trust-samba",
+        topology=Topology(TopologyDomain("sssd", client=1, ipa=1, samba=1)),
+        domains=dict(test="sssd.ipa[0]"),
+        fixtures=dict(client="sssd.client[0]", ipa="sssd.ipa[0]", samba="sssd.samba[0]", trusted="sssd.samba[0]"),
+    )
+    """
+    .. topology-mark:: KnownTopology.IPATrustSamba
+    """
+
 
 class KnownTopologyGroup(KnownTopologyGroupBase):
     """
@@ -212,4 +232,9 @@ class KnownTopologyGroup(KnownTopologyGroupBase):
     AnyAD = [KnownTopology.AD, KnownTopology.Samba]
     """
     .. topology-mark:: KnownTopologyGroup.AnyAD
+    """
+
+    IPATrust = [KnownTopology.IPATrustAD, KnownTopology.IPATrustSamba]
+    """
+    .. topology-mark:: KnownTopologyGroup.IPATrust
     """

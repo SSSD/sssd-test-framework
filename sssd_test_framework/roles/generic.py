@@ -254,6 +254,21 @@ class GenericADProvider(GenericProvider):
 
     @property
     @abstractmethod
+    def domain(self) -> str:
+        """
+        Active Directory domain name.
+        """
+        pass
+
+    @abstractmethod
+    def fqn(self, name: str) -> str:
+        """
+        Return fully qualified name in form name@domain.
+        """
+        pass
+
+    @property
+    @abstractmethod
     def firewall(self) -> GenericFirewall:
         pass
 

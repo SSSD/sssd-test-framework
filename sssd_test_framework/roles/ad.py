@@ -54,6 +54,12 @@ class AD(BaseWindowsRole[ADHost]):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+
+        self.domain: str = self.host.ad_domain
+        """
+        Active Directory domain name.
+        """
+
         self.auto_ou: dict[str, bool] = {}
         """Organizational units that were automatically created."""
 
@@ -123,6 +129,12 @@ class AD(BaseWindowsRole[ADHost]):
         :rtype: SSHClient
         """
         return super().ssh(user, password, shell=shell)
+
+    def fqn(self, name: str) -> str:
+        """
+        Return fully qualified name in form name@domain.
+        """
+        return f"{name}@{self.domain}"
 
     def user(self, name: str, basedn: ADObject | str | None = "cn=users") -> ADUser:
         """

@@ -119,7 +119,8 @@ Additional configuration (host/config section)
 ipa
 ===
 
-Fresh installation of FreeIPA server with no additional data.
+Fresh installation of FreeIPA server with no additional data. Trust to single
+Active Directory and Samba domain is created.
 
 .. code-block:: yaml
     :caption: IPA role example
