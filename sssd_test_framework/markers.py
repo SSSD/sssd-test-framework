@@ -5,6 +5,9 @@ from __future__ import annotations
 from functools import partial
 
 import pytest
+from pytest_mh import MultihostItemData, Topology
+
+from sssd_test_framework.topology import KnownTopology, KnownTopologyGroup
 
 from .misc import to_list_of_strings
 from .roles.base import BaseRole
@@ -56,6 +59,8 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
     if not isinstance(item, pytest.Function):
         raise TypeError(f"Unexpected item type: {type(item)}")
 
+    topology: list[Topology] = []
+    mh_item_data: MultihostItemData | None = MultihostItemData.GetData(item)
     for mark in item.iter_markers("builtwith"):
         requirements: dict[str, str] = {}
 
@@ -63,11 +68,34 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
             # @pytest.mark.builtwith("files-provider")
             #  -> check if "files-provider" is supported by client
             requirements["client"] = mark.args[0]
+            topology = []
         elif not mark.args and mark.kwargs:
             # @pytest.mark.builtwith(client="passkey", ipa="passkey") ->
             # -> check if "passkey" is supported by both client and ipa
             requirements = dict(mark.kwargs)
+            topology = []
+        elif (
+            len(mark.args) == 1
+            and isinstance(mark.args[0], (Topology, KnownTopology, KnownTopologyGroup))
+            and mark.kwargs
+        ):
+            # @pytest.mark.builtwith(KnownTopology.IPA, ipa="passkey") ->
+            # -> check if "passkey" is supported by ipa only if the test runs on IPA topology
+            requirements = dict(mark.kwargs)
+            if isinstance(mark.args[0], Topology):
+                topology = [mark.args[0]]
+            elif isinstance(mark.args[0], KnownTopology):
+                topology = [mark.args[0].value.topology]
+            elif isinstance(mark.args[0], KnownTopologyGroup):
+                topology = [x.value.topology for x in mark.args[0].value]
         else:
             raise ValueError(f"{item.nodeid}::{item.originalname}: invalid arguments for @pytest.mark.builtwith")
 
-        item.add_marker(pytest.mark.require(partial(builtwith, item=item, requirements=requirements)))
+        if mh_item_data is None:
+            raise ValueError(f"{item.nodeid}::{item.originalname}: multihost item data is not set")
+
+        if mh_item_data.topology_mark is None:
+            raise ValueError(f"{item.nodeid}::{item.originalname}: multihost topology mark is not set")
+
+        if not topology or mh_item_data.topology_mark.topology in topology:
+            item.add_marker(pytest.mark.require(partial(builtwith, item=item, requirements=requirements)))
