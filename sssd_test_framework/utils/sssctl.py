@@ -228,3 +228,38 @@ class SSSCTLUtils(MultihostUtility[MultihostHost]):
         }
 
         return self.host.ssh.exec(["sssctl", "config-check"] + self.cli.args(args), raise_on_error=False)
+
+    def domain_status(
+        self,
+        domain: str,
+        *,
+        online: bool = False,
+        active: bool = False,
+        servers: bool = False,
+        start: bool = False,
+    ) -> SSHProcessResult:
+        """
+        Call ``sssctl domain-status @domain`` with additional arguments.
+
+        :param domain: Domain name.
+        :type domain: str
+        :param online: Show online status, defaults to False
+        :type online: bool, optional
+        :param active: Show information about active server, defaults to False
+        :type active: bool, optional
+        :param servers: Show list of discovered servers, defaults to False
+        :type servers: bool, optional
+        :param start: Start SSSD if it is not running, defaults to False
+        :type start: bool, optional
+        :return: Result of called command.
+        :rtype: SSHProcessResult
+        """
+        args: CLIBuilderArgs = {
+            "online": (self.cli.option.SWITCH, online),
+            "active-server": (self.cli.option.SWITCH, active),
+            "servers": (self.cli.option.SWITCH, servers),
+            "start": (self.cli.option.SWITCH, start),
+            "domain": (self.cli.option.POSITIONAL, domain),
+        }
+
+        return self.host.ssh.exec(["sssctl", "domain-status"] + self.cli.args(args), raise_on_error=False)
