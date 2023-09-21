@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ldap
+from pytest_mh.ssh import SSHLog
 
 from .base import BaseLDAPDomainHost
 
@@ -25,12 +26,43 @@ class LDAPHost(BaseLDAPDomainHost):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
+        self._features: dict[str, bool] | None = None
+
         # Additional client configuration
         self.client.setdefault("id_provider", "ldap")
         self.client.setdefault("ldap_uri", f"ldap://{self.hostname}")
 
         # Backup of original data
         self.__backup: dict[str, dict[str, list[bytes]]] = {}
+
+    @property
+    def features(self) -> dict[str, bool]:
+        """
+        Features supported by the host.
+        """
+        if self._features is not None:
+            return self._features
+
+        self.logger.info(f"Detecting features on {self.hostname}")
+
+        result = self.ssh.run(
+            """
+            set -ex
+
+            grep -r "passkey" /etc/dirsrv/ &> /dev/null && echo "passkey" || :
+            """,
+            log_level=SSHLog.Error,
+        )
+
+        # Set default values
+        self._features = {
+            "passkey": False,
+        }
+
+        self._features.update({k: True for k in result.stdout_lines})
+        self.logger.info("Detected features:", extra={"data": {"Features": self._features}})
+
+        return self._features
 
     def backup(self) -> None:
         """
