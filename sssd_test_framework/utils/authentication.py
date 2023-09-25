@@ -940,9 +940,11 @@ class PasswdUtils(MultihostUtility[MultihostHost]):
     def __init__(self, host: MultihostHost):
         super().__init__(host)
 
-    def password(self, user: str, password: str, new_password: str) -> bool:
+    def password(self, user: str, password: str, new_password: str, retyped: str | None = None) -> bool:
         """
         Changing password as a given user.
+
+        @retyped is only used if the test needs to fail because the passwords don't match, otherwise it is redundant
 
         :param user: Username.
         :type name: str
@@ -950,9 +952,15 @@ class PasswdUtils(MultihostUtility[MultihostHost]):
         :type password: str
         :param new_password: New password of user.
         :type new_password: str
+        :param retyped: Retyped new password of user.
+        :type retyped: str | None, optional
+        :raises ExpectScriptError: If EOF or timeout occured.
         :return: True if password change was successful, False otherwise.
         :rtype: bool
         """
+        if retyped is None:
+            retyped = new_password
+
         result = self.host.ssh.expect(
             rf"""
             set timeout {DEFAULT_AUTHENTICATION_TIMEOUT}
@@ -968,19 +976,21 @@ class PasswdUtils(MultihostUtility[MultihostHost]):
 
             expect {{
                 -nocase "New password:" {{send "{new_password}\n"}}
+                "Password change failed. Server message: Old password not accepted." {{exit 1}}
                 timeout {{puts "expect result: Unexpected output"; exit 201}}
                 eof {{puts "expect result: Unexpected end of file"; exit 202}}
             }}
 
             expect {{
-                -nocase "Retype new password:" {{send "{new_password}\n"}}
+                -nocase "Retype new password:" {{send "{retyped}\n"}}
                 timeout {{puts "expect result: Unexpected output"; exit 201}}
                 eof {{puts "expect result: Unexpected end of file"; exit 202}}
             }}
 
             expect {{
                 "passwd: all authentication tokens updated successfully." {{exit 0}}
-                "Password change failed." {{exit 200}}
+                "Sorry, passwords do not match." {{exit 1}}
+                "Password change failed." {{exit 1}}
                 timeout {{puts "expect result: Unexpected output"; exit 201}}
                 eof {{puts "expect result: Unexpected end of file"; exit 202}}
             }}
@@ -991,7 +1001,6 @@ class PasswdUtils(MultihostUtility[MultihostHost]):
         )
 
         if result.rc > 200:
-            assert result.stderr == result.stdout
             raise ExpectScriptError(result.rc)
 
         return result.rc == 0
