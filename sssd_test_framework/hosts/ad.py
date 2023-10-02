@@ -33,6 +33,8 @@ class ADHost(BaseDomainHost):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
+        self._features: dict[str, bool] | None = None
+
         self.ad_domain: str = self.client["ad_domain"]
         """
         Active Directory domain name.
@@ -46,6 +48,25 @@ class ADHost(BaseDomainHost):
 
         # Lazy properties
         self.__naming_context: str | None = None
+
+    @property
+    def features(self) -> dict[str, bool]:
+        """
+        Features supported by the host.
+        """
+        if self._features is not None:
+            return self._features
+
+        self.logger.info(f"Detecting features on {self.hostname}")
+
+        # Set default values
+        self._features = {
+            "passkey": True,
+        }
+
+        self.logger.info("Detected features:", extra={"data": {"Features": self._features}})
+
+        return self._features
 
     @property
     def naming_context(self) -> str:
