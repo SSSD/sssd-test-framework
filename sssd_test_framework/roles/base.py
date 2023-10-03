@@ -10,6 +10,7 @@ from pytest_mh.cli import CLIBuilder
 from pytest_mh.utils.firewall import LinuxFirewalld, WindowsFirewall
 from pytest_mh.utils.fs import LinuxFileSystem
 from pytest_mh.utils.services import SystemdServices
+from pytest_mh.utils.tc import LinuxTrafficControl
 
 from ..hosts.base import BaseHost, BaseLDAPDomainHost
 from ..utils.authentication import AuthenticationUtils
@@ -127,6 +128,11 @@ class BaseLinuxRole(BaseRole[HostType]):
         self.firewall: LinuxFirewalld = LinuxFirewalld(self.host)
         """
         Configure firewall using firewalld.
+        """
+
+        self.tc: LinuxTrafficControl = LinuxTrafficControl(self.host)
+        """
+        Traffic control manipulation.
         """
 
         self.tools: LinuxToolsUtils = LinuxToolsUtils(self.host, self.fs)
