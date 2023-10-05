@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import subprocess
+
 from ..hosts.client import ClientHost
 from ..topology import SSSDTopologyMark
 from ..utils.automount import AutomountUtils
 from ..utils.ldb import LDBUtils
 from ..utils.local_users import LocalUsersUtils
+from ..utils.samba import SambaUtils
 from ..utils.sss_override import SSSOverrideUtils
 from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
@@ -70,6 +73,11 @@ class Client(BaseLinuxRole[ClientHost]):
         Managing local overrides users and groups.
         """
 
+        self.samba: SambaUtils = SambaUtils(self.host, self.fs, self.svc, self.authselect, load_config=False)
+        """
+        Managing and configuring Samba standalone server.
+        """
+
     def setup(self) -> None:
         """
         Called before execution of each test.
@@ -78,11 +86,20 @@ class Client(BaseLinuxRole[ClientHost]):
 
         #. stop sssd
         #. clear sssd cache, logs and configuration
+        #. stop samba
+        #. clear samba cache, logs and configuration
         #. import implicit domains from topology marker
         """
         super().setup()
         self.sssd.stop()
         self.sssd.clear(db=True, memcache=True, logs=True, config=True)
+
+        # If samba isn't installed on the client, don't need to stop it
+        try:
+            self.samba.stop(service="smb")
+            self.samba.clear(db=True, logs=True, config=True)
+        except subprocess.CalledProcessError:
+            pass
 
         if self.mh.data.topology_mark is not None:
             if not isinstance(self.mh.data.topology_mark, SSSDTopologyMark):

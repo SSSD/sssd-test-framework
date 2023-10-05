@@ -135,6 +135,7 @@ and test SSSD. You can see the whole API here:
     * creating directories and files: :class:`pytest_mh.utils.fs.LinuxFileSystem`
     * starting and stopping systemd services: :class:`pytest_mh.utils.services.SystemdServices`
     * working with SSSD: :class:`sssd_test_framework.utils.sssd.SSSDUtils`
+    * working with Samba Standalone Server: :class:`sssd_test_framework.utils.samba.SambaUtils`
     * running standard tools such as ``id`` or ``getent``: :class:`sssd_test_framework.utils.tools.LinuxToolsUtils`
 
     .. code-block:: python
@@ -349,6 +350,31 @@ calling :meth:`~sssd_test_framework.utils.sssd.SSSDUtils.start` and
             client.sssd.stop()
             client.sssd.clear()
             client.sssd.start()
+
+
+Managing Samba Standalone Server
+================================
+
+Samba Standalone Server utility behaves in a similar way as SSSD utility.
+For details see section `Managing SSSD`_. You can
+access the :class:`~sssd_test_framework.utils.samba.SambaUtils` through
+``client.samba`` attribute.
+
+:class:`~sssd_test_framework.utils.samba.SambaUtils` allows you to start, stop and
+restart Samba Standalone Server as well as change configuration.
+
+.. code-block:: python
+
+        @pytest.mark.topology(KnownTopology.LDAP)
+        def test_client(client: Client):
+            client.samba.global_["debug_level"] = "10"
+
+            # Create samba share
+            client.samba.share(name='share_name', path='/tmp/share_path')
+
+            # Start Samba
+            client.samba.start(service='smb')
+
 
 Asserting properties
 ====================
