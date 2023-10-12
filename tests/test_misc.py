@@ -20,9 +20,8 @@ def test_attrs_parse__nofilter():
     param1: value1
     param2: value2
     param3: value3
-    """.split(
-        "\n"
-    )
+    """
+    lines = textwrap.dedent(lines).strip().split("\n")
 
     expected = {
         "param1": ["value1"],
@@ -39,16 +38,40 @@ def test_attrs_parse__filter():
     param2: value2
     param3: value3
     param4: value4
-    """.split(
-        "\n"
-    )
-
+    """
+    lines = textwrap.dedent(lines).strip().split("\n")
     expected = {
         "param2": ["value2"],
         "param3": ["value3"],
     }
 
     assert attrs_parse(lines, ["param2", "param3"]) == expected
+
+
+@pytest.mark.parametrize(
+    "input,expected",
+    [
+        (
+            ["cn: sudorules", "distinguishedName: objectSID=123,cn=id_m", " appings,cn=test,cn=sysdb"],
+            {"cn": ["sudorules"], "distinguishedName": ["objectSID=123,cn=id_mappings,cn=test,cn=sysdb"]},
+        ),
+        (
+            [
+                "description: My teacher is a good ",
+                " one but I do not like him",
+                "  very much: he wears a dirty c",
+                " oat.",
+            ],
+            {"description": ["My teacher is a good one but I do not like him very much: he wears a dirty coat."]},
+        ),
+        (
+            ["cn: sudorules", "numbers: one,", "  two,", "  three"],
+            {"cn": ["sudorules"], "numbers": ["one, two, three"]},
+        ),
+    ],
+)
+def test_attrs_parse__long_line(input, expected):
+    assert attrs_parse(input) == expected
 
 
 @pytest.mark.parametrize(
