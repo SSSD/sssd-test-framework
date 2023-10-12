@@ -17,16 +17,25 @@ def attrs_parse(lines: list[str], attrs: list[str] | None = None) -> dict[str, l
     :rtype: dict[str, list[str]]
     """
     out: dict[str, list[str]] = {}
-    for line in lines:
-        line = line.strip()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
         if not line:
+            i += 1
             continue
 
-        (key, value) = map(lambda x: x.strip(), line.split(":", 1))
+        (key, value) = map(lambda x: x.lstrip(), line.split(":", 1))
+        while i < len(lines) - 1:
+            if lines[i + 1].startswith(" "):
+                value += lines[i + 1][1:]
+                i += 1
+            else:
+                break
+
         if attrs is None or key in attrs:
             out.setdefault(key, [])
             out[key].append(value)
-
+        i += 1
     return out
 
 
