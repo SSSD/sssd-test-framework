@@ -6,6 +6,7 @@ from typing import Any
 
 import jc
 from pytest_mh import MultihostHost, MultihostUtility
+from pytest_mh.cli import CLIBuilder, CLIBuilderArgs
 from pytest_mh.ssh import SSHProcess, SSHProcessResult
 from pytest_mh.utils.fs import LinuxFileSystem
 
@@ -585,6 +586,80 @@ class LinuxToolsUtils(MultihostUtility[MultihostHost]):
             self.host.ssh.run(cmd)
 
         super().teardown()
+
+    def journalctl(
+        self,
+        *,
+        unit: str | None = None,
+        lines: int | None = None,
+        since: str | None = None,
+        reverse: bool = False,
+        no_pager: bool = False,
+        grep: str | None = None,
+        output: str | None = None,
+        identifier: str | None = None,
+        system: bool = False,
+        user: bool = False,
+    ) -> SSHProcessResult:
+        """
+        Execute journalctl with given arguments
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.LDAP)
+            def test_journalctl__example(client: Client):
+                client.sssd.domain["ldap_uri"] = "ldaps://typo"
+                client.sssd.start()
+                time.sleep(5)
+
+                res = client.tools.journalctl(grep = "Backend is offline", unit="sssd")
+                assert res.rc == 0
+                assert res.stdout != ""
+                res = client.tools.journalctl(grep = "Do not want to find this")
+                assert res.rc != 0
+
+        .. note::
+
+            The entire output of this command is stored in res.stdout.
+
+        :param unit: Show messages for the specified systemd unit, defaults to None
+        :type unit: str | None, optional
+        :param lines: Show the most recent journal events and limit the number of events shown, defaults to None
+        :type lines: int | None, optional
+        :param since: Start showing entries on or newer than the specified date, defaults to None
+        :type since: str | None, optional
+        :param reverse: Reverse output so that the newest entries are displayed first, defaults to False
+        :type reverse: bool, optional
+        :param no_pager: Do not pipe output into a pager, defaults to False
+        :type no_pager: bool, optional
+        :param grep: Filter output to entries where the MESSAGE= field matches specified regex, defaults to None
+        :type grep: str | None, optional
+        :param output: Controls the formatting of the journal entries, defaults to None
+        :type output: str | None, optional
+        :param identifier: Show messages for the specified syslog identifier SYSLOG_IDENTIFIER, defaults to None
+        :type identifier: str | None, optional
+        :param system: Show messages from system services and the kernel, defaults to False
+        :type system: bool, optional
+        :param user: Show messages from service of current user, defaults to False
+        :type user: bool, optional
+        :return: SSH process result
+        :rtype: SSHProcessResult
+        """
+        cli: CLIBuilder = CLIBuilder(self.host.ssh)
+        args: CLIBuilderArgs = {
+            "unit": (cli.option.VALUE, unit),
+            "lines": (cli.option.VALUE, lines),
+            "since": (cli.option.VALUE, since),
+            "reverse": (cli.option.SWITCH, reverse),
+            "no-pager": (cli.option.SWITCH, no_pager),
+            "grep": (cli.option.VALUE, grep),
+            "output": (cli.option.VALUE, output),
+            "identifier": (cli.option.VALUE, identifier),
+            "system": (cli.option.SWITCH, system),
+            "user": (cli.option.SWITCH, user),
+        }
+        return self.host.ssh.exec(["journalctl"] + cli.args(args), raise_on_error=False)
 
 
 class KillCommand(object):
