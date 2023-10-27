@@ -637,6 +637,8 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         shadowMax: int | None = None,
         shadowWarning: int | None = None,
         shadowLastChange: int | None = None,
+        sn: str | None = None,
+        mail: str | None = None,
     ) -> LDAPUser:
         """
         Create new LDAP user.
@@ -664,6 +666,10 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         :type shadowWarning: int | None, optional
         :param shadowLastChange: shadowlastchage LDAP attribute, defaults to None
         :type shadowLastChange: int | None, optional
+        :param sn: surname LDAP attribute, defaults to None
+        :type sn: str | None, optional
+        :param mail: mail LDAP attribute, defaults to None
+        :type mail: str | None, optional
         :return: Self.
         :rtype: LDAPUser
         """
@@ -689,10 +695,16 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
             "shadowMax": shadowMax,
             "shadowWarning": shadowWarning,
             "shadowLastChange": shadowLastChange,
+            "sn": sn,
+            "mail": mail,
         }
 
         if to_list_without_none([shadowMin, shadowMax, shadowWarning, shadowLastChange]):
             attrs["objectClass"].append("shadowAccount")
+
+        if to_list_without_none([sn, mail]):
+            attrs["sn"] = sn if sn else str(uid)
+            attrs["objectClass"].append("inetOrgPerson")
 
         self._add(attrs)
         return self
@@ -710,6 +722,8 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         shadowMax: int | DeleteAttribute | None = None,
         shadowWarning: int | DeleteAttribute | None = None,
         shadowLastChange: int | DeleteAttribute | None = None,
+        sn: str | DeleteAttribute | None = None,
+        mail: str | DeleteAttribute | None = None,
     ) -> LDAPUser:
         """
         Modify existing LDAP user.
@@ -735,6 +749,10 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         :type shadowWarning: int | DeleteAttribute | None, optional
         :param shadowLastChange: shadowlastchage LDAP attribute, defaults to None
         :type shadowLastChange: int | DeleteAttribute | None, optional
+        :param sn: surname LDAP attribute, defaults to None
+        :type sn: str | DeleteAttribute | None, optional
+        :param mail: mail LDAP attribute, defaults to None
+        :type mail: str | DeleteAttribute | None, optional
         :return: Self.
         :rtype: LDAPUser
         """
@@ -749,6 +767,8 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
             "shadowMax": shadowMax,
             "shadowWarning": shadowWarning,
             "shadowLastChange": shadowLastChange,
+            "sn": sn,
+            "mail": mail,
         }
 
         self._set(attrs)
