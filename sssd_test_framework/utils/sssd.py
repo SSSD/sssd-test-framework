@@ -647,6 +647,11 @@ class SSSDLogsPath(object):
         self.__sssd: SSSDUtils = sssd
 
     @property
+    def monitor(self) -> str:
+        """Return path to SSSD monitor logs."""
+        return "/var/log/sssd/sssd.log"
+
+    @property
     def autofs(self) -> str:
         """Return path to SSSD autofs logs."""
         return "/var/log/sssd/sssd_autofs.log"
