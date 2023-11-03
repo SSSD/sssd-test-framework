@@ -586,6 +586,41 @@ class LinuxToolsUtils(MultihostUtility[MultihostHost]):
 
         super().teardown()
 
+    def wait_for_condition(self, condition: str, body: str = "", timeout: int = 60) -> SSHProcessResult:
+        """
+        Wait at maximum ``timeout`` seconds until the ``condition`` is true. Execute ``body`` after each attempt.
+        The condition is a bash expression, usually it is a single bash command that must succeed before a test
+        can continue.
+
+        .. note::
+
+            Internally, this expands to ``timeout {time}s bash -c 'until {condition}; do : {body}; done'``.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.LDAP)
+            def test_just_condition(client: Client):
+                client.sssd.domain["ldap_uri"] = "ldap://typo"
+                client.sssd.start(debug_level=None, raise_on_error=False)
+
+                assert client.sssd.default_domain
+                r = client.tools.wait_for_condition(condition=f"sssctl domain-status {client.sssd.default_domain}")
+                assert r.rc == 0
+                assert "LDAP: not connected" in r.stdout
+
+        :param condition: Command that is awaited
+        :type condition: str
+        :param body: Body to be executed while waiting for condition, defaults to ""
+        :type body: str, optional
+        :param timeout: How long should we try the command in seconds, defaults to 60
+        :type timeout: int, optional
+        :return: Proccess result
+        :rtype: SSHProcessResult
+        """
+
+        return self.host.ssh.run(f"timeout {timeout}s bash -c 'until {condition}; do : {body}; done'")
+
 
 class KillCommand(object):
     def __init__(self, host: MultihostHost, process: SSHProcess, pid: int) -> None:
