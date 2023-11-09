@@ -263,3 +263,25 @@ class SSSCTLUtils(MultihostUtility[MultihostHost]):
         }
 
         return self.host.ssh.exec(["sssctl", "domain-status"] + self.cli.args(args), raise_on_error=False)
+
+    def analyze_request(self, command: str, source: str | None = None, logdir: str | None = None) -> SSHProcessResult:
+        """
+        Call ``sssctl analyze [arguments] request command``
+
+        :param command: request command
+        :type command: str
+        :param source: "files" or "journald", defaults to None
+        :type source: str | None, optional
+        :param logdir: SSSD Log directory to parse log files from, defaults to None
+        :type logdir: str | None, optional
+        :return: Result of called command
+        :rtype: SSHProcessResult
+        """
+        args: CLIBuilderArgs = {
+            "source": (self.cli.option.VALUE, source),
+            "logdir": (self.cli.option.VALUE, logdir),
+        }
+
+        return self.host.ssh.exec(
+            ["sssctl", "analyze"] + self.cli.args(args) + ["request"] + command.split(), raise_on_error=False
+        )
