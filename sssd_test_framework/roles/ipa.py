@@ -410,7 +410,7 @@ class IPAUser(IPAObject):
         }
 
         if not require_password_reset:
-            attrs["password-expiration"] = (self.cli.option.VALUE, "20380805120000Z")
+            attrs["password-expiration"] = (self.cli.option.VALUE, "20380101120000Z")
 
         self._add(attrs, input=password)
         return self
