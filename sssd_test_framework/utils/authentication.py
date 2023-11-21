@@ -320,22 +320,28 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
         :return: True if authentication was successful, False otherwise.
         :rtype: bool
         """
-        self.fs.backup("/etc/sysconfig/sssd")
+        self.fs.backup("/usr/libexec/sssd/passkey_child")
+        self.fs.copy("/usr/libexec/sssd/passkey_child", "/usr/libexec/sssd/passkey_child.orig")
+
         device_path = self.fs.upload_to_tmp(device, mode="a=r")
         ioctl_path = self.fs.upload_to_tmp(ioctl, mode="a=r")
         script_path = self.fs.upload_to_tmp(script, mode="a=r")
 
         run_su = self.fs.mktmp(
             rf"""
-            #!/bin/bash
-            set -ex
-            env | grep ^UMOCKDEV_ > /etc/sysconfig/sssd
-            printf "LD_PRELOAD=$LD_PRELOAD" >> /etc/sysconfig/sssd
-            systemctl restart sssd
-            chmod -R a+rwx $UMOCKDEV_DIR
+                #!/bin/bash
+                set -ex
+                echo '#!/bin/bash' > /usr/libexec/sssd/passkey_child
+                echo -n 'export ' >> /usr/libexec/sssd/passkey_child
+                env | grep ^UMOCKDEV_ >> /usr/libexec/sssd/passkey_child
+                echo -n 'export ' >> /usr/libexec/sssd/passkey_child
+                printf "LD_PRELOAD=$LD_PRELOAD\n" >> /usr/libexec/sssd/passkey_child
+                echo 'exec /usr/libexec/sssd/passkey_child.orig $@' >> /usr/libexec/sssd/passkey_child
+                chmod 755 /usr/libexec/sssd/passkey_child
+                chmod -R a+rwx $UMOCKDEV_DIR
 
-            su --shell /bin/sh nobody -c "su - '{username}'"
-            """,
+                su --shell /bin/sh nobody -c "su - '{username}'"
+                """,
             mode="a=rx",
         )
 
@@ -383,6 +389,8 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
             exit 203
             """
         )
+
+        self.fs.restore("/usr/libexec/sssd/passkey_child")
 
         if result.rc > 200:
             raise ExpectScriptError(result.rc)
