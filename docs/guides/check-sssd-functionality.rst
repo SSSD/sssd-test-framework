@@ -36,6 +36,7 @@ Supported features
 ==================
 
 * ``files-provider`` - SSSD is built with files provider support
+* ``passkey`` - SSSD is built with 'passkey' authentication support
 
 Checking supported functionality in other roles
 ###############################################
