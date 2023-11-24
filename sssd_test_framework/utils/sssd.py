@@ -370,8 +370,9 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         :type debug_level:  str | None, optional
         """
         cfg = self.__set_debug_level(debug_level)
+        service_user = self.config.get("sssd", "user", fallback="root")
         contents = self.__config_dumps(cfg)
-        self.fs.write("/etc/sssd/sssd.conf", contents, mode="0600")
+        self.fs.write("/etc/sssd/sssd.conf", contents, mode="0600", user=service_user, group=service_user)
 
         if check_config:
             self.host.ssh.run("sssctl config-check")

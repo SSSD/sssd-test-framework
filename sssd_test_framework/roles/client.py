@@ -94,3 +94,18 @@ class Client(BaseLinuxRole[ClientHost]):
                     raise ValueError("List is not expected")
 
                 self.sssd.import_domain(domain, role)
+
+    def set_sssd_user(self, user: str) -> bool:
+        """
+        Set [sssd]/user option.
+
+        :param user: Option value to set.
+        :type user: str
+        :return: True if success, false otherwise
+        :rtype: bool
+        """
+        if (user != "root") and ("non-privileged" not in self.features):
+            return False
+
+        self.sssd.sssd["user"] = user
+        return True
