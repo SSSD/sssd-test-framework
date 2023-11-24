@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Literal
 from pytest_mh import MultihostHost, MultihostRole, MultihostUtility
 from pytest_mh.ssh import SSHLog, SSHProcess, SSHProcessResult
 
-from ..hosts.base import BaseDomainHost
+from ..hosts.base import BaseDomainHost, BaseHost
 from ..misc import to_list
 
 if TYPE_CHECKING:
@@ -281,6 +281,22 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
 
         self.host.ssh.run(cmd)
 
+    def set_service_user(self, user: str) -> None:
+        """
+        Set [sssd]/user option.
+
+        :param user: Option value to set.
+        :type user: str
+        :raises ValueError: If required feature wasn't built.
+        """
+        if isinstance(self.host, BaseHost):
+            if (user != "root") and (not self.host.features["non-privileged"]):
+                raise ValueError("SSSD was built without support of running under non-root")
+        else:
+            raise ValueError("Unexpected host type")
+
+        self.sssd["user"] = user
+
     def enable_responder(self, responder: str) -> None:
         """
         Include the responder in the [sssd]/service option.
@@ -370,8 +386,9 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         :type debug_level:  str | None, optional
         """
         cfg = self.__set_debug_level(debug_level)
+        service_user = self.config.get("sssd", "user", fallback="root")
         contents = self.__config_dumps(cfg)
-        self.fs.write("/etc/sssd/sssd.conf", contents, mode="0600")
+        self.fs.write("/etc/sssd/sssd.conf", contents, mode="0600", user=service_user, group=service_user)
 
         if check_config:
             self.host.ssh.run("sssctl config-check")
