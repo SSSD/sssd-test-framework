@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Protocol
 
 from pytest_mh import MultihostRole
-from pytest_mh.utils.firewall import GenericFirewall
+from pytest_mh.utils.firewall import Firewall
 
 from ..hosts.base import BaseHost
 from .base import BaseObject
@@ -53,7 +53,7 @@ class GenericProvider(ABC, MultihostRole[BaseHost]):
 
     @property
     @abstractmethod
-    def firewall(self) -> GenericFirewall:
+    def firewall(self) -> Firewall:
         pass
 
     @abstractmethod
@@ -269,7 +269,7 @@ class GenericADProvider(GenericProvider):
 
     @property
     @abstractmethod
-    def firewall(self) -> GenericFirewall:
+    def firewall(self) -> Firewall:
         pass
 
 
