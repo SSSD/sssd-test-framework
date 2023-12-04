@@ -7,7 +7,7 @@ from typing import Any, Generic, TypeGuard, TypeVar
 
 from pytest_mh import MultihostRole
 from pytest_mh.cli import CLIBuilder
-from pytest_mh.utils.firewall import LinuxFirewalld, WindowsFirewall
+from pytest_mh.utils.firewall import Firewalld, WindowsFirewall
 from pytest_mh.utils.fs import LinuxFileSystem
 from pytest_mh.utils.services import SystemdServices
 from pytest_mh.utils.tc import LinuxTrafficControl
@@ -126,7 +126,7 @@ class BaseLinuxRole(BaseRole[HostType]):
         Systemd service management.
         """
 
-        self.firewall: LinuxFirewalld = LinuxFirewalld(self.host)
+        self.firewall: Firewalld = Firewalld(self.host)
         """
         Configure firewall using firewalld.
         """
