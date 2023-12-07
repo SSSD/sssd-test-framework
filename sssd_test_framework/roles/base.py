@@ -9,6 +9,7 @@ from pytest_mh import MultihostRole
 from pytest_mh.cli import CLIBuilder
 from pytest_mh.utils.firewall import Firewalld, WindowsFirewall
 from pytest_mh.utils.fs import LinuxFileSystem
+from pytest_mh.utils.journald import JournaldUtils
 from pytest_mh.utils.services import SystemdServices
 from pytest_mh.utils.tc import LinuxTrafficControl
 
@@ -149,6 +150,11 @@ class BaseLinuxRole(BaseRole[HostType]):
         self.pam: PAMUtils = PAMUtils(self.host, self.fs)
         """
         Configuring various PAM modules.
+        """
+
+        self.journald: JournaldUtils = JournaldUtils(self.host)
+        """
+        Journald utilities.
         """
 
 
