@@ -99,12 +99,15 @@ class ADHost(BaseDomainHost):
         """
         self.ssh.run(
             rf"""
-        Remove-Item C:\multihost_backup.txt
-        $result = Get-ADObject -SearchBase '{self.naming_context}' -Filter "*"
-        foreach ($r in $result) {{
-            $r.DistinguishedName | Add-Content -Path C:\multihost_backup.txt
-        }}
-        """
+                $backup = "C:\multihost_backup.txt"
+                if (Test-Path $backup) {{
+                    Remove-Item $backup
+                }}
+                $result = Get-ADObject -SearchBase '{self.naming_context}' -Filter "*"
+                foreach ($r in $result) {{
+                    $r.DistinguishedName | Add-Content -Path $backup
+                }}
+            """
         )
         self._backup_location = "C:\\multihost_backup.txt"
 
