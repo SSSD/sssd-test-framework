@@ -624,6 +624,9 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         """
         super().__init__(role, name, f"cn={name}", basedn, default_ou="users")
 
+        self.first_passkey_add = False
+        """Whether the 'passkeyUser' objectClass has already been added."""
+
     def add(
         self,
         *,
@@ -783,8 +786,16 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         :return: Self.
         :rtype: LDAPUser
         """
-        attrs: LDAPRecordAttributes = {"objectClass": "passkeyUser", "passkey": passkey_mapping}
-        self._modify(add=attrs)
+        attrs: LDAPRecordAttributes = {}
+
+        if not self.first_passkey_add:
+            attrs = {"objectClass": "passkeyUser", "passkey": passkey_mapping}
+            self._modify(add=attrs)
+            self.first_passkey_add = True
+        else:
+            attrs = {"passkey": passkey_mapping}
+            self._modify(add=attrs)
+
         return self
 
     def passkey_remove(self, passkey_mapping: str) -> LDAPUser:
