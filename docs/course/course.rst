@@ -20,8 +20,9 @@ You should be ready to execute the tests, if you setup the environment
 correctly. Go to the system tests directory (``src/tests/system``) of SSSD
 repository and run the tests from this course with:
 
-.. code-blocK:: text
-
+.. code-block:: text
+    
+    $ cp sssd-test-framework/docs/course/test_course.py sssd/src/tests/system/test_course.py
     $ pytest --mh-config=./mhc.yaml --mh-log-path=./log -v ./docs/course/test_course.py
 
 Take the Course
