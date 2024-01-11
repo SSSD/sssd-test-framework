@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from textwrap import dedent
 from typing import Any
 
 from pytest_mh.cli import CLIBuilderArgs
@@ -347,8 +348,11 @@ class IPAObject(BaseObject[IPAHost, IPA]):
         """
         cmd = self._exec("show", ["--all", "--raw"])
 
+        # ipa output starts with space
+        lines = dedent(cmd.stdout).splitlines()
+
         # Remove first line that contains the object name and not attribute
-        return attrs_parse(cmd.stdout_lines[1:], attrs)
+        return attrs_parse(lines[1:], attrs)
 
 
 class IPAUser(IPAObject):
