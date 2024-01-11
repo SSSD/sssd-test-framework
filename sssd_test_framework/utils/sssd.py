@@ -119,7 +119,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         debug_level: str | None = "0xfff0",
     ) -> SSHProcess:
         """
-        Start SSSD service. Non-blocking call.
+        Start the SSSD and KCM services. Non-blocking call.
 
         :param service: Service to start, defaults to 'sssd'
         :type service: str, optional
@@ -134,6 +134,10 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         """
         if apply_config:
             self.config_apply(check_config=check_config, debug_level=debug_level)
+
+        # Also stop kcm so that it is started when first used.
+        if service == "sssd":
+            self.svc.async_stop("sssd-kcm.service")
 
         return self.svc.async_start(service)
 
@@ -147,7 +151,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         debug_level: str | None = "0xfff0",
     ) -> SSHProcessResult:
         """
-        Start SSSD service. The call will wait until the operation is finished.
+        Start the SSSD and KCM services. The call will wait until the operation is finished.
 
         :param service: Service to start, defaults to 'sssd'
         :type service: str, optional
@@ -165,7 +169,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         if apply_config:
             self.config_apply(check_config=check_config, debug_level=debug_level)
 
-        # Also stop kcm so it can pick up changes when started again by socket-activation
+        # Also stop kcm so that it is started when first used.
         if service == "sssd":
             self.svc.stop("sssd-kcm.service")
 
@@ -173,18 +177,22 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
 
     def async_stop(self, service="sssd") -> SSHProcess:
         """
-        Stop SSSD service. Non-blocking call.
+        Stop the SSSD and KCM services. Non-blocking call.
 
         :param service: Service to start, defaults to 'sssd'
         :type service: str, optional
         :return: Running SSH process.
         :rtype: SSHProcess
         """
+        # Also stop kcm. Nevertheless, it will be started when first used.
+        if service == "sssd":
+            self.svc.async_stop("sssd-kcm.service")
+
         return self.svc.async_stop(service)
 
     def stop(self, service="sssd", *, raise_on_error: bool = True) -> SSHProcessResult:
         """
-        Stop SSSD service. The call will wait until the operation is finished.
+        Stop the SSSD and KCM services. The call will wait until the operation is finished.
 
         :param service: Service to start, defaults to 'sssd'
         :type service: str, optional
@@ -193,6 +201,10 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         :return: SSH process result.
         :rtype: SSHProcess
         """
+        # Also stop kcm. Nevertheless, it will be started when first used.
+        if service == "sssd":
+            self.svc.stop("sssd-kcm.service")
+
         return self.svc.stop(service, raise_on_error=raise_on_error)
 
     def async_restart(
@@ -204,7 +216,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         debug_level: str | None = "0xfff0",
     ) -> SSHProcess:
         """
-        Restart SSSD service. Non-blocking call.
+        Restart the SSSD and KCM services. Non-blocking call.
 
         :param service: Service to start, defaults to 'sssd'
         :type service: str, optional
@@ -219,6 +231,10 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         """
         if apply_config:
             self.config_apply(check_config=check_config, debug_level=debug_level)
+
+        # Also stop kcm so that it is started when first used.
+        if service == "sssd":
+            self.svc.async_stop("sssd-kcm.service")
 
         return self.svc.async_restart(service)
 
@@ -232,7 +248,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         debug_level: str | None = "0xfff0",
     ) -> SSHProcessResult:
         """
-        Restart SSSD service. The call will wait until the operation is finished.
+        Restart the SSSD and KCM services. The call will wait until the operation is finished.
 
         :param service: Service to start, defaults to 'sssd'
         :type service: str, optional
@@ -249,6 +265,10 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         """
         if apply_config:
             self.config_apply(check_config=check_config, debug_level=debug_level)
+
+        # Also stop kcm so that it is started when first used.
+        if service == "sssd":
+            self.svc.stop("sssd-kcm.service")
 
         return self.svc.restart(service, raise_on_error=raise_on_error)
 
