@@ -60,67 +60,6 @@ class ClientHost(BaseBackupHost):
 
         return self._features
 
-    def pytest_setup(self) -> None:
-        """
-        Called once before execution of any tests.
-
-        - override systemd unit to disable burst limiting, otherwise we will be
-          unable to restart the service frequently
-        - reload systemd to apply change to the unit file
-        """
-        super().pytest_setup()
-
-        self.logger.info("Creating SSSD systemd override")
-        self.ssh.run(
-            """
-            set -ex
-
-            backuppath="/tmp/mh.client.systemd.backup"
-            overridedir="/etc/systemd/system/sssd.service.d"
-            if [ -d "$overridedir" ] || [ -f "$overridedir" ]; then
-                cp --force --archive "$overridedir" "$backuppath"
-            fi
-
-            # Disable burst limiting to allow often sssd restarts for tests
-            mkdir -p "$overridedir"
-            cat <<EOF > "$overridedir/override.conf"
-            [Unit]
-            StartLimitIntervalSec=0
-            StartLimitBurst=0
-            EOF
-
-            # Reload systemd to pickup changes
-            systemctl daemon-reload
-            """,
-            log_level=SSHLog.Error,
-        )
-
-    def pytest_teardown(self) -> None:
-        """
-        Called once after all tests are finished.
-
-        - remove systemd changes
-        """
-        self.logger.info("Removing SSSD systemd override")
-        self.ssh.run(
-            """
-            set -ex
-
-            backuppath="/tmp/mh.client.systemd.backup"
-            overridedir="/etc/systemd/system/sssd.service.d"
-
-            rm -fr "$overridedir"
-            if [ -d "$overridedir" ] || [ -f "$overridedir" ]; then
-                mv --force "$backuppath" "$overridedir"
-            fi
-
-            # Reload systemd to pickup changes
-            systemctl daemon-reload
-            """,
-            log_level=SSHLog.Error,
-        )
-        super().pytest_teardown()
-
     def backup(self) -> None:
         """
         Backup all SSSD data.
