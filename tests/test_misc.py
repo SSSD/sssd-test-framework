@@ -75,6 +75,33 @@ def test_attrs_parse__long_line(input, expected):
 
 
 @pytest.mark.parametrize(
+    "input,expected",
+    [
+        (
+            [
+                "DistinguishedName : CN=username,CN=Users,DC=ad,DC=test",
+                "Enabled           : True",
+                "GivenName         : dummyfirstname",
+                "Name              : username",
+                "ObjectClass       : user",
+                "SamAccountName    : username",
+            ],
+            {
+                "DistinguishedName": ["CN=username,CN=Users,DC=ad,DC=test"],
+                "Enabled": ["True"],
+                "GivenName": ["dummyfirstname"],
+                "Name": ["username"],
+                "ObjectClass": ["user"],
+                "SamAccountName": ["username"],
+            },
+        ),
+    ],
+)
+def test_attrs_parse__strip_extra_white_space(input, expected):
+    assert attrs_parse(input) == expected
+
+
+@pytest.mark.parametrize(
     "value,include,expected",
     [
         ("value1", "value1", ["value1"]),
