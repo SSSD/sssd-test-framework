@@ -623,6 +623,9 @@ class ADUser(ADObject):
             "OtherAttributes": (self.cli.option.PLAIN, self._attrs_to_hash(unix_attrs)),
             "Enabled": (self.cli.option.PLAIN, "$True"),
             "Path": (self.cli.option.VALUE, self.path),
+            "EmailAddress": (self.cli.option.PLAIN, f'{self.name}@{self.host.client["ad_domain"]}'),
+            "GivenName": (self.cli.option.PLAIN, "dummyfirstname"),
+            "Surname": (self.cli.option.PLAIN, "dummylastname"),
         }
 
         self._add(attrs)
