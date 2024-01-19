@@ -18,6 +18,7 @@ from ..utils.authentication import AuthenticationUtils
 from ..utils.authselect import AuthselectUtils
 from ..utils.ldap import LDAPUtils
 from ..utils.pam import PAMUtils
+from ..utils.sshd import SSHDUtils
 from ..utils.tools import LinuxToolsUtils
 
 HostType = TypeVar("HostType", bound=BaseHost)
@@ -155,6 +156,11 @@ class BaseLinuxRole(BaseRole[HostType]):
         self.journald: JournaldUtils = JournaldUtils(self.host)
         """
         Journald utilities.
+        """
+
+        self.sshd: SSHDUtils = SSHDUtils(self.host, self.fs, self.svc)
+        """
+        Configuring SSH daemon
         """
 
 
