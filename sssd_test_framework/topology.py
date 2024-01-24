@@ -6,7 +6,14 @@ from enum import unique
 from typing import Any, Mapping, Tuple, final
 
 import pytest
-from pytest_mh import KnownTopologyBase, KnownTopologyGroupBase, Topology, TopologyDomain, TopologyMark
+from pytest_mh import (
+    KnownTopologyBase,
+    KnownTopologyGroupBase,
+    Topology,
+    TopologyController,
+    TopologyDomain,
+    TopologyMark,
+)
 
 __all__ = [
     "KnownTopology",
@@ -45,6 +52,8 @@ class SSSDTopologyMark(TopologyMark):
         self,
         name: str,
         topology: Topology,
+        *,
+        controller: TopologyController | None = None,
         fixtures: dict[str, str] | None = None,
         domains: dict[str, str] | None = None,
     ) -> None:
@@ -53,12 +62,14 @@ class SSSDTopologyMark(TopologyMark):
         :type name: str
         :param topology: Topology required to run the test.
         :type topology: Topology
+        :param controller: Topology controller, defaults to None
+        :type controller: TopologyController | None, optional
         :param fixtures: Dynamically created fixtures available during the test run.
         :type fixtures: dict[str, str] | None, optional
         :param domains: Automatically created SSSD domains on client host
         :type domains: dict[str, str] | None, optional
         """
-        super().__init__(name, topology, fixtures)
+        super().__init__(name, topology, controller=controller, fixtures=fixtures)
 
         self.domains: dict[str, str] = domains if domains is not None else {}
         """Map hosts to SSSD domains."""
@@ -115,9 +126,10 @@ class SSSDTopologyMark(TopologyMark):
         name = args[0]
         topology = args[1]
         domains = args[2] if len(args) == 3 else {}
-        fixtures = {k: str(v) for k, v in kwargs.items()}
+        controller = kwargs.get("controller", None)
+        fixtures = {k: str(v) for k, v in kwargs.get("fixtures", {}).items()}
 
-        return cls(name, topology, fixtures, domains)
+        return cls(name, topology, controller=controller, fixtures=fixtures, domains=domains)
 
 
 @final
