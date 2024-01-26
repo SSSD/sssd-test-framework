@@ -1200,12 +1200,9 @@ class LDAPSudoRule(Generic[HostType, LDAPRoleType, LDAPUserType, LDAPGroupType],
         host: str | list[str] | None = None,
         command: str | list[str] | None = None,
         option: str | list[str] | None = None,
-        runasuser: int
-        | str
-        | LDAPUserType
-        | LDAPGroupType
-        | list[int | str | LDAPUserType | LDAPGroupType]
-        | None = None,
+        runasuser: (
+            int | str | LDAPUserType | LDAPGroupType | list[int | str | LDAPUserType | LDAPGroupType] | None
+        ) = None,
         runasgroup: int | str | LDAPGroupType | list[int | str | LDAPGroupType] | None = None,
         notbefore: str | list[str] | None = None,
         notafter: str | list[str] | None = None,
@@ -1264,23 +1261,27 @@ class LDAPSudoRule(Generic[HostType, LDAPRoleType, LDAPUserType, LDAPGroupType],
     def modify(
         self,
         *,
-        user: int
-        | str
-        | LDAPUserType
-        | LDAPGroupType
-        | list[int | str | LDAPUserType | LDAPGroupType]
-        | DeleteAttribute
-        | None = None,
+        user: (
+            int
+            | str
+            | LDAPUserType
+            | LDAPGroupType
+            | list[int | str | LDAPUserType | LDAPGroupType]
+            | DeleteAttribute
+            | None
+        ) = None,
         host: str | list[str] | DeleteAttribute | None = None,
         command: str | list[str] | DeleteAttribute | None = None,
         option: str | list[str] | DeleteAttribute | None = None,
-        runasuser: int
-        | str
-        | LDAPUserType
-        | LDAPGroupType
-        | list[int | str | LDAPUserType | LDAPGroupType]
-        | DeleteAttribute
-        | None = None,
+        runasuser: (
+            int
+            | str
+            | LDAPUserType
+            | LDAPGroupType
+            | list[int | str | LDAPUserType | LDAPGroupType]
+            | DeleteAttribute
+            | None
+        ) = None,
         runasgroup: int | str | LDAPGroupType | list[int | str | LDAPGroupType] | DeleteAttribute | None = None,
         notbefore: str | list[str] | DeleteAttribute | None = None,
         notafter: str | list[str] | DeleteAttribute | None = None,
@@ -1341,13 +1342,15 @@ class LDAPSudoRule(Generic[HostType, LDAPRoleType, LDAPUserType, LDAPGroupType],
 
     def __sudo_user(
         self,
-        sudo_user: None
-        | DeleteAttribute
-        | int
-        | str
-        | LDAPUserType
-        | LDAPGroupType
-        | list[int | str | LDAPUserType | LDAPGroupType],
+        sudo_user: (
+            None
+            | DeleteAttribute
+            | int
+            | str
+            | LDAPUserType
+            | LDAPGroupType
+            | list[int | str | LDAPUserType | LDAPGroupType]
+        ),
     ) -> list[str] | DeleteAttribute | None:
         def _get_value(value: int | str | LDAPUserType | LDAPGroupType):
             if isinstance(value, self.user_cls):
