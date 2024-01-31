@@ -51,7 +51,7 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-        self.domain: str = self.host.ad_domain
+        self.domain: str = self.host.domain
         """
         Active Directory domain name.
         """

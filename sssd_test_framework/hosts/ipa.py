@@ -55,6 +55,14 @@ class IPAHost(BaseDomainHost):
         self.client.setdefault("ipa_server", self.hostname)
         self.client.setdefault("dyndns_update", False)
 
+        # Use different default for domain
+        if "domain" not in self.config and "ipa_domain" in self.client:
+            self.domain = self.client["ipa_domain"]
+
+        # Use different default for realm
+        if "realm" not in self.config:
+            self.realm = self.domain.upper()
+
     @property
     def features(self) -> dict[str, bool]:
         """

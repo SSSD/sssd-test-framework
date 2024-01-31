@@ -35,16 +35,19 @@ class ADHost(BaseDomainHost):
 
         self._features: dict[str, bool] | None = None
 
-        self.ad_domain: str = self.client["ad_domain"]
-        """
-        Active Directory domain name.
-        """
-
         # Additional client configuration
         self.client.setdefault("id_provider", "ad")
         self.client.setdefault("access_provider", "ad")
         self.client.setdefault("ad_server", self.hostname)
         self.client.setdefault("dyndns_update", False)
+
+        # Use different default for domain
+        if "domain" not in self.config and "ad_domain" in self.client:
+            self.domain = self.client["ad_domain"]
+
+        # Use different default for realm
+        if "realm" not in self.config:
+            self.realm = self.domain.upper()
 
         # Lazy properties
         self.__naming_context: str | None = None

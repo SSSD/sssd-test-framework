@@ -134,6 +134,12 @@ class BaseDomainHost(BaseBackupHost):
         super().__init__(*args, **kwargs)
         self.client: dict[str, Any] = self.config.get("client", {})
 
+        self.domain: str = self.config.get("domain", "test")
+        """Identity domain name."""
+
+        self.realm: str = self.config.get("realm", self.domain.upper())
+        """Kerberos realm."""
+
 
 class BaseLDAPDomainHost(BaseDomainHost):
     """

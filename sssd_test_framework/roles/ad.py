@@ -55,7 +55,7 @@ class AD(BaseWindowsRole[ADHost]):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-        self.domain: str = self.host.ad_domain
+        self.domain: str = self.host.domain
         """
         Active Directory domain name.
         """
@@ -623,7 +623,7 @@ class ADUser(ADObject):
             "OtherAttributes": (self.cli.option.PLAIN, self._attrs_to_hash(unix_attrs)),
             "Enabled": (self.cli.option.PLAIN, "$True"),
             "Path": (self.cli.option.VALUE, self.path),
-            "EmailAddress": (self.cli.option.PLAIN, f'{self.name}@{self.host.client["ad_domain"]}'),
+            "EmailAddress": (self.cli.option.PLAIN, f"{self.name}@{self.host.domain}"),
             "GivenName": (self.cli.option.PLAIN, "dummyfirstname"),
             "Surname": (self.cli.option.PLAIN, "dummylastname"),
         }
