@@ -142,8 +142,8 @@ class KDC(BaseLinuxRole[KDCHost]):
             }}
 
             [domain_realm]
-            .{self.host.krbdomain} = {self.host.realm}
-            {self.host.krbdomain} = {self.host.realm}
+            .{self.host.domain} = {self.host.realm}
+            {self.host.domain} = {self.host.realm}
         """
         ).lstrip()
 

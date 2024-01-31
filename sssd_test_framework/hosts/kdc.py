@@ -40,9 +40,6 @@ class KDCHost(BaseDomainHost):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-        self.realm: str = self.config.get("realm", "TEST")
-        self.krbdomain: str = self.config.get("domain", "test")
-
         self.client["auth_provider"] = "krb5"
 
     def backup(self) -> None:
