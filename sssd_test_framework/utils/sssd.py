@@ -406,7 +406,9 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         :type debug_level:  str | None, optional
         """
         cfg = self.__set_debug_level(debug_level)
-        service_user = self.config.get("sssd", "user", fallback="root")
+        service_user = self.svc.get_property("sssd", "User")
+        if service_user == "":
+            service_user = "root"
         contents = self.__config_dumps(cfg)
         self.fs.write("/etc/sssd/sssd.conf", contents, mode="0600", user=service_user, group=service_user)
 
