@@ -11,10 +11,25 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.x"]
+        upstream: ["upstream", "pypi"]
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
+    - name: Detect skipped environments
+      id: skipenv
+      env:
+        UPSTREAM: ${{ matrix.upstream }}
+      run: |
+        set -ex
+        case $UPSTREAM in
+          upstream)
+            echo 'skipenv=.*(?<!upstream)$' >> $GITHUB_OUTPUT
+            ;;
+          *)
+            echo 'skipenv=.*-upstream$' >> $GITHUB_OUTPUT
+            ;;
+        esac
     - uses: actions/checkout@v3
     - uses: actions/setup-python@v4
       with:
@@ -28,5 +43,9 @@ jobs:
 
         python -m pip install --upgrade pip
         pip install tox tox-gh
-    - name: Run tox
-      run: tox --colored=yes
+    - name: Prepare tox environment and install packages
+      run: |
+        tox --skip-env '${{ steps.skipenv.outputs.skipenv }}' --colored=yes --notest
+    - name: Run tests
+      run: |
+        tox --skip-env '${{ steps.skipenv.outputs.skipenv }}' --colored=yes --skip-pkg-install
