@@ -320,7 +320,7 @@ class LocalGroup(object):
         Delete the group.
         """
         self.util.logger.info(f'Deleting local group "{self.name}" on {self.util.host.hostname}')
-        self.util.host.ssh.run(f"groupdel '{self.name}' --force", log_level=SSHLog.Error)
+        self.util.host.ssh.run(f"groupdel '{self.name}' -f", log_level=SSHLog.Error)
         self.util._groups.remove(self.name)
 
     def get(self, attrs: list[str] | None = None) -> dict[str, list[str]]:
