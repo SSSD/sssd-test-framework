@@ -101,6 +101,9 @@ class PAMAccess(PAMUtils):
         super().setup_when_used()
         self.fs.backup(self.file)
 
+    def teardown_when_used(self) -> None:
+        self.fs.restore(self.file)
+
     def config_read(self) -> str:
         """
         Read access file as Augeas tree.
@@ -217,6 +220,9 @@ class PAMFaillock(PAMUtils):
     def setup_when_used(self) -> None:
         super().setup_when_used()
         self.fs.backup(self.file)
+
+    def teardown_when_used(self) -> None:
+        self.fs.restore(self.file)
 
     def config_read(self) -> str:
         """
