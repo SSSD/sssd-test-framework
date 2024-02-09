@@ -145,6 +145,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         self,
         service="sssd",
         *,
+        service_user: str | None = None,
         raise_on_error: bool = True,
         apply_config: bool = True,
         check_config: bool = True,
