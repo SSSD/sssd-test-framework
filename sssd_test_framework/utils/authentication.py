@@ -518,7 +518,7 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
             }}
 
             expect {{
-                "passwd: all authentication tokens updated successfully." {{ }}
+                -re "passwd: .+ updated successfully." {{ }}
                 timeout {{puts "expect result: Unexpected output"; exit 201}}
                 eof {{puts "expect result: Unexpected end of file"; exit 202}}
             }}
@@ -977,7 +977,7 @@ class PasswdUtils(MultihostUtility[MultihostHost]):
             spawn su - {user} -c passwd
 
             expect {{
-                -nocase "Changing password for user {user}.\r\nCurrent Password: " {{send "{password}\n"}}
+                -nocase "Current Password: " {{send "{password}\n"}}
                 timeout {{puts "expect result: Unexpected output"; exit 201}}
                 eof {{puts "expect result: Unexpected end of file"; exit 202}}
             }}
@@ -996,7 +996,7 @@ class PasswdUtils(MultihostUtility[MultihostHost]):
             }}
 
             expect {{
-                "passwd: all authentication tokens updated successfully." {{exit 0}}
+                -re "passwd: .+ updated successfully." {{exit 0}}
                 "Sorry, passwords do not match." {{exit 1}}
                 "Password change failed." {{exit 1}}
                 timeout {{puts "expect result: Unexpected output"; exit 201}}
