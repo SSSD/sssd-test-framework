@@ -238,6 +238,25 @@ class IPA(BaseLinuxRole[IPAHost]):
         """
         return IPANetgroup(self, name)
 
+    def host_account(self, name: str) -> IPAHostAccount:
+        """
+        Get host object.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.IPA)
+            def test_example(client: Client, ipa: IPA):
+                # Create host
+                ipa.host_account(f'myhost.{ipa.domain}').add(ip="10.255.251.10")
+
+        :param name: Hostname.
+        :type name: str
+        :return: New host account object.
+        :rtype: IPAHostAccount
+        """
+        return IPAHostAccount(self, name)
+
     def sudorule(self, name: str) -> IPASudoRule:
         """
         Get sudo rule object.
@@ -845,6 +864,83 @@ class IPANetgroupMember(GenericNetgroupMember):
 
         self.hostgroup: str | None = hostgroup
         """Netgroup hostgroup."""
+
+
+class IPAHostAccount(IPAObject):
+    """
+    IPA host management.
+    """
+
+    def __init__(self, role: IPA, name: str) -> None:
+        """
+        :param role: IPA role object.
+        :type role: IPA
+        :param name: Group name.
+        :type name: str
+        """
+        super().__init__(role, name, command_group="host")
+
+    def add(
+        self,
+        *,
+        description: str | None = None,
+        ip: str,
+        sshpubkey: str | list[str] | None = None,
+    ) -> IPAHostAccount:
+        """
+        Create new IPA host.
+
+        Parameters that are not set are ignored.
+
+        .. note::
+
+            If you need a reverse DNS record, use IP address from
+            10.255.251.0/24 address space. There is reverse zone for this
+            address space available on the IPA server.
+
+        :param description: Description, defaults to None
+        :type description: str | None, optional
+        :param ip: IP address.
+        :type ip: str
+        :param sshpubkey: SSH public key, defaults to None
+        :type sshpubkey: str | list[str] | None, optional
+        :return: Self.
+        :rtype: IPAHostAccount
+        """
+        attrs: CLIBuilderArgs = {
+            "desc": (self.cli.option.VALUE, description),
+            "ip-address": (self.cli.option.VALUE, ip),
+            "sshpubkey": (self.cli.option.VALUE, sshpubkey),
+        }
+
+        self._add(attrs)
+        return self
+
+    def modify(
+        self,
+        *,
+        description: str | None = None,
+        sshpubkey: str | list[str] | None = None,
+    ) -> IPAHostAccount:
+        """
+        Modify existing IPA host.
+
+        Parameters that are not set are ignored.
+
+        :param description: Description, defaults to None
+        :type description: str | None, optional
+        :param sshpubkey: SSH public key, defaults to None
+        :type sshpubkey: str | list[str] | None, optional
+        :return: Self.
+        :rtype: IPAGroup
+        """
+        attrs: CLIBuilderArgs = {
+            "desc": (self.cli.option.VALUE, description),
+            "sshpubkey": (self.cli.option.VALUE, sshpubkey),
+        }
+
+        self._modify(attrs)
+        return self
 
 
 class IPASudoRule(IPAObject):
