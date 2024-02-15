@@ -192,8 +192,8 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
         """
         Call ``su - $username`` and authenticate the user with password.
 
-        :param name: User name.
-        :type name: str
+        :param username: Username.
+        :type username: str
         :param password: User password.
         :type password: str
         :return: True if authentication was successful, False otherwise.
@@ -236,8 +236,8 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
         Call ``su - $username`` and authenticate the user with password, expect
         that the password is expired and change it to the new password.
 
-        :param username: User name.
-        :type name: str
+        :param username: Username.
+        :type username: str
         :param password: Old, expired user password.
         :type password: str
         :param new_password: New user password.
@@ -305,7 +305,7 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
         """
         Call ``su - $username`` and authenticate the user with passkey.
 
-        :param username: User name
+        :param username: Username
         :type username: str
         :param pin: Passkey PIN.
         :type pin: str | int
@@ -417,8 +417,8 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
         """
         SSH to the remote host and authenticate the user with password.
 
-        :param name: User name.
-        :type name: str
+        :param username: Username.
+        :type username: str
         :param password: User password.
         :type password: str
         :return: True if authentication was successful, False otherwise.
@@ -465,8 +465,8 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
         SSH to the remote host and authenticate the user with password, expect
         that the password is expired and change it to the new password.
 
-        :param username: User name.
-        :type name: str
+        :param username: Username.
+        :type username: str
         :param password: Old, expired user password.
         :type password: str
         :param new_password: New user password.
@@ -753,7 +753,7 @@ class KerberosAuthenticationUtils(MultihostUtility[MultihostHost]):
         checked.
 
         :param principal: Expected principal for which the TGT was obtained (without the realm part).
-        :type principle: str | None
+        :type principal: str | None
         :param realm: Expected realm for which the TGT was obtained.
         :type realm: str
         :return: True if TGT is available, False otherwise.
@@ -955,7 +955,7 @@ class PasswdUtils(MultihostUtility[MultihostHost]):
         @retyped is only used if the test needs to fail because the passwords don't match, otherwise it is redundant
 
         :param user: Username.
-        :type name: str
+        :type user: str
         :param password: Current password of user.
         :type password: str
         :param new_password: New password of user.
