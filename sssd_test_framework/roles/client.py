@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pytest_mh.ssh import SSHProcessResult
+
 from ..hosts.client import ClientHost
 from ..topology import SSSDTopologyMark
 from ..utils.automount import AutomountUtils
@@ -94,3 +96,14 @@ class Client(BaseLinuxRole[ClientHost]):
                     raise ValueError("List is not expected")
 
                 self.sssd.import_domain(domain, role)
+
+    def sss_ssh_knownhosts(self, *args: str) -> SSHProcessResult:
+        """
+        Execute sss_ssh_knownhosts.
+
+        :param `*args`: Command arguments.
+        :type `*args`: str
+        :return: Command result.
+        :rtype: SSHProcessResult
+        """
+        return self.host.ssh.exec(["sss_ssh_knownhosts", *args])
