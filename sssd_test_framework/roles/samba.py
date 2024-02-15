@@ -53,7 +53,12 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
 
         self.domain: str = self.host.domain
         """
-        Active Directory domain name.
+        Samba domain name.
+        """
+
+        self.realm: str = self.host.realm
+        """
+        Kerberos realm.
         """
 
         self.automount: SambaAutomount = SambaAutomount(self)

@@ -54,6 +54,16 @@ class IPA(BaseLinuxRole[IPAHost]):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
+        self.domain: str = self.host.domain
+        """
+        IPA domain name.
+        """
+
+        self.realm: str = self.host.realm
+        """
+        Kerberos realm.
+        """
+
         self.sssd: SSSDUtils = SSSDUtils(self.host, self.fs, self.svc, self.authselect, load_config=True)
         """
         Managing and configuring SSSD.
