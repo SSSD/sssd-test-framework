@@ -413,6 +413,80 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
         self.opts = "-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
         """SSH CLI options."""
 
+    def password_with_output(self, username: str, password: str) -> tuple[int, int, str, str]:
+        """
+        SSH to the remote host and authenticate the user with password and captures standard output and error.
+
+        :param username: Username.
+        :type username: str
+        :param password: User password.
+        :type password: str
+        :return: Tuple containing [except return code, command exit code, stdout, stderr].
+        :rtype: Tuple[int, int, str, str]
+        """
+
+        result = self.host.ssh.expect_nobody(
+            rf"""
+            # Disable debug output
+            exp_internal 0
+
+            proc exitmsg {{ msg code }} {{
+                # Close spawned program, if we are in the prompt
+                catch close
+
+                # Wait for the exit code
+                lassign [wait] pid spawnid os_error_flag rc
+
+                puts ""
+                puts "expect result: $msg"
+                puts "expect exit code: $code"
+                puts "expect spawn exit code: $rc"
+                exit $code
+            }}
+
+            # It takes some time to get authentication failure
+            set timeout {DEFAULT_AUTHENTICATION_TIMEOUT}
+            set prompt "\n.*\[#\$>\] $"
+            log_user 1
+            log_file /tmp/expect.log
+
+            spawn ssh {self.opts} \
+                -o PreferredAuthentications=password \
+                -o NumberOfPasswordPrompts=1 \
+                -l "{username}" localhost
+
+            expect {{
+                "password:" {{send "{password}\n"}}
+                timeout {{exitmsg "Unexpected output" 201}}
+                eof {{exitmsg "Unexpected end of file" 202}}
+            }}
+
+            expect {{
+                -re $prompt {{exitmsg "Password authentication successful" 0}}
+                "{username}@localhost: Permission denied" {{exitmsg "Authentication failure" 1}}
+                "Connection closed by UNKNOWN port 65535" {{exitmsg "Connection closed" 2}}
+                timeout {{exitmsg "Unexpected output" 201}}
+                eof {{exitmsg "Unexpected end of file" 202}}
+            }}
+
+            exitmsg "Unexpected code path" 203
+            """,
+            verbose=False,
+        )
+
+        if result.rc > 200:
+            raise ExpectScriptError(result.rc)
+
+        expect_data = result.stdout_lines[-3:]
+
+        # Get command exit code.
+        cmdrc = int(expect_data[2].split(":")[1].strip())
+
+        # Alter stdout, first line is spawned command, the last three are our expect output.
+        stdout = "\n".join(result.stdout_lines[1:-3])
+
+        return result.rc, cmdrc, stdout, result.stderr
+
     def password(self, username: str, password: str) -> bool:
         """
         SSH to the remote host and authenticate the user with password.
@@ -424,41 +498,8 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
         :return: True if authentication was successful, False otherwise.
         :rtype: bool
         """
-
-        result = self.host.ssh.expect_nobody(
-            rf"""
-            # It takes some time to get authentication failure
-            set timeout {DEFAULT_AUTHENTICATION_TIMEOUT}
-            set prompt "\n.*\[#\$>\] $"
-
-            spawn ssh {self.opts} \
-                -o PreferredAuthentications=password \
-                -o NumberOfPasswordPrompts=1 \
-                -l "{username}" localhost
-
-            expect {{
-                "password:" {{send "{password}\n"}}
-                timeout {{puts "expect result: Unexpected output"; exit 201}}
-                eof {{puts "expect result: Unexpected end of file"; exit 202}}
-            }}
-
-            expect {{
-                -re $prompt {{puts "expect result: Password authentication successful"; exit 0}}
-                "{username}@localhost: Permission denied" {{puts "expect result: Authentication failure"; exit 1}}
-                "Connection closed by UNKNOWN port 65535" {{puts "expect result: Connection closed"; exit 2}}
-                timeout {{puts "expect result: Unexpected output"; exit 201}}
-                eof {{puts "expect result: Unexpected end of file"; exit 202}}
-            }}
-
-            puts "expect result: Unexpected code path"
-            exit 203
-        """
-        )
-
-        if result.rc > 200:
-            raise ExpectScriptError(result.rc)
-
-        return result.rc == 0
+        rc, _, _, _ = self.password_with_output(username, password)
+        return rc == 0
 
     def password_expired(self, username: str, password: str, new_password: str) -> bool:
         """
