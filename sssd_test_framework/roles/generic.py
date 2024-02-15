@@ -48,6 +48,22 @@ class GenericProvider(ABC, MultihostRole[BaseHost]):
 
     @property
     @abstractmethod
+    def domain(self) -> str:
+        """
+        Domain name.
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def realm(self) -> str:
+        """
+        Kerberos realm.
+        """
+        pass
+
+    @property
+    @abstractmethod
     def features(self) -> dict[str, Any]:
         pass
 

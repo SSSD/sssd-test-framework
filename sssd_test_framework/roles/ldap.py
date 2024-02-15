@@ -64,6 +64,16 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
+        self.domain: str = self.host.domain
+        """
+        LDAP domain name.
+        """
+
+        self.realm: str = self.host.realm
+        """
+        Kerberos realm.
+        """
+
         self.auto_uid: int = 23000
         """The next automatically assigned user id."""
 

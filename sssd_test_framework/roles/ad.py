@@ -60,6 +60,11 @@ class AD(BaseWindowsRole[ADHost]):
         Active Directory domain name.
         """
 
+        self.realm: str = self.host.realm
+        """
+        Kerberos realm.
+        """
+
         self.auto_ou: dict[str, bool] = {}
         """Organizational units that were automatically created."""
 
