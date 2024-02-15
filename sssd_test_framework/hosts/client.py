@@ -43,7 +43,7 @@ class ClientHost(BaseBackupHost):
 
             [ -f "/usr/lib64/sssd/libsss_files.so" ] && echo "files-provider" || :
             [ -f "/usr/libexec/sssd/passkey_child" ] && echo "passkey" || :
-            man sssd.conf | grep -q "The user to drop the privileges to" && echo "non-privileged" || :
+            man sssd.conf | grep -q "user (string)" && echo "non-privileged" || :
             """,
             log_level=SSHLog.Error,
         )
