@@ -188,20 +188,37 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
         super().__init__(host)
         self.fs: LinuxFileSystem = fs
 
-    def password(self, username: str, password: str) -> bool:
+    def password_with_output(self, username: str, password: str) -> tuple[int, int, str, str]:
         """
-        Call ``su - $username`` and authenticate the user with password.
+        Call ``su - $username`` and authenticate the user with password and captures standard output and error.
 
         :param username: Username.
         :type username: str
         :param password: User password.
         :type password: str
-        :return: True if authentication was successful, False otherwise.
-        :rtype: bool
+        :return: Tuple containing [return code, command code, stdout, stderr].
+        :rtype: Tuple[int, int, str, str]
         """
 
         result = self.host.ssh.expect_nobody(
             rf"""
+            # Disable debug output
+            # exp_internal 0
+
+            proc exitmsg {{ msg code }} {{
+                # Close spawned program, if we are in the prompt
+                catch close
+
+                # Wait for the exit code
+                lassign [wait] pid spawnid os_error_flag rc
+
+                puts ""
+                puts "expect result: $msg"
+                puts "expect exit code: $code"
+                puts "expect spawn exit code: $rc"
+                exit $code
+            }}
+
             # It takes some time to get authentication failure
             set timeout {DEFAULT_AUTHENTICATION_TIMEOUT}
             set prompt "\n.*\[#\$>\] $"
@@ -210,26 +227,48 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
 
             expect {{
                 "Password:" {{send "{password}\n"}}
-                timeout {{puts "expect result: Unexpected output"; exit 201}}
-                eof {{puts "expect result: Unexpected end of file"; exit 202}}
+                timeout {{exitmsg "Unexpected output" 201}}
+                eof {{exitmsg "Unexpected end of file" 202}}
             }}
 
             expect {{
-                -re $prompt {{puts "expect result: Password authentication successful"; exit 0}}
-                "Authentication failure" {{puts "expect result: Authentication failure"; exit 1}}
-                timeout {{puts "expect result: Unexpected output"; exit 201}}
-                eof {{puts "expect result: Unexpected end of file"; exit 202}}
+                -re $prompt {{exitmsg "Password authentication successful" 0}}
+                "Authentication failure" {{exitmsg "Authentication failure" 1}}
+                timeout {{exitmsg "Unexpected output" 201}}
+                eof {{exitmsg "Unexpected end of file" 202}}
             }}
 
-            puts "expect result: Unexpected code path"
-            exit 203
-        """
+            exitmsg "Unexpected code path" 203
+        """,
+            verbose=False,
         )
 
         if result.rc > 200:
             raise ExpectScriptError(result.rc)
 
-        return result.rc == 0
+        expect_data = result.stdout_lines[-3:]
+
+        # Get command exit code.
+        cmdrc = int(expect_data[2].split(":")[1].strip())
+
+        # Alter stdout, first line is spawned command, the last three are our expect output.
+        stdout = "\n".join(result.stdout_lines[1:-3])
+
+        return result.rc, cmdrc, stdout, result.stderr
+
+    def password(self, username: str, password: str) -> bool:
+        """
+        SSH to the remote host and authenticate the user with password.
+
+        :param username: Username.
+        :type username: str
+        :param password: User password.
+        :type password: str
+        :return: True if authentication was successful, False otherwise.
+        :rtype: bool
+        """
+        rc, _, _, _ = self.password_with_output(username, password)
+        return rc == 0
 
     def password_expired(self, username: str, password: str, new_password: str) -> bool:
         """
