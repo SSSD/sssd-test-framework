@@ -819,6 +819,20 @@ class SSSDCommonConfiguration(object):
         self.sssd.authselect.select("sssd", ["with-sudo"])
         self.sssd.enable_responder("sudo")
 
+    def gssapi(self) -> None:
+        """
+        Configure SSSD with gssapi.
+
+        #. Select authselect sssd profile with "with-gssapi" and "with-sudo"
+        #. Configure SSSD pam_gssapi_services in SSSD configuration
+        """
+
+        self.sssd.authselect.select("sssd", ["with-gssapi", "with-sudo"])
+        self.sssd.enable_responder("sudo")
+
+        self.sssd.domain["pam_gssapi_services"] = "sudo, sudo-i"
+        self.sssd.domain["pam_gssapi_check_upn"] = "False"
+
     def autofs(self) -> None:
         """
         Configure SSSD with autofs.
