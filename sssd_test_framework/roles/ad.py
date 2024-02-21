@@ -592,6 +592,7 @@ class ADUser(ADObject):
         home: str | None = None,
         gecos: str | None = None,
         shell: str | None = None,
+        email: str | None = None,
     ) -> ADUser:
         """
         Create new AD user.
@@ -610,9 +611,14 @@ class ADUser(ADObject):
         :type gecos: str | None, optional
         :param shell: Login shell, defaults to None
         :type shell: str | None, optional
+        :param email: Email, defaults to None (= user@domain)
+        :type email: str | None, optional
         :return: Self.
         :rtype: ADUser
         """
+        if email is None:
+            email = f"{self.name}@{self.host.domain}"
+
         unix_attrs = {
             "uid": self.name,
             "uidNumber": uid,
@@ -628,7 +634,7 @@ class ADUser(ADObject):
             "OtherAttributes": (self.cli.option.PLAIN, self._attrs_to_hash(unix_attrs)),
             "Enabled": (self.cli.option.PLAIN, "$True"),
             "Path": (self.cli.option.VALUE, self.path),
-            "EmailAddress": (self.cli.option.PLAIN, f"{self.name}@{self.host.domain}"),
+            "EmailAddress": (self.cli.option.PLAIN, email),
             "GivenName": (self.cli.option.PLAIN, "dummyfirstname"),
             "Surname": (self.cli.option.PLAIN, "dummylastname"),
         }
@@ -644,6 +650,7 @@ class ADUser(ADObject):
         home: str | DeleteAttribute | None = None,
         gecos: str | DeleteAttribute | None = None,
         shell: str | DeleteAttribute | None = None,
+        email: str | DeleteAttribute | None = None,
     ) -> ADUser:
         """
         Modify existing AD user.
@@ -661,6 +668,8 @@ class ADUser(ADObject):
         :type gecos: str | DeleteAttribute | None, optional
         :param shell: Login shell, defaults to None
         :type shell: str | DeleteAttribute | None, optional
+        :param email: Email address, defaults to None
+        :type email: str | DeleteAttribute | None, optional
         :return: Self.
         :rtype: ADUser
         """
@@ -672,10 +681,13 @@ class ADUser(ADObject):
             "loginShell": shell,
         }
 
-        clear = [key for key, value in unix_attrs.items() if isinstance(value, DeleteAttribute)]
+        ad_attrs = {"emailAddress": email}
+        all_attrs = {**unix_attrs, **ad_attrs}
+
+        clear = [key for key, value in all_attrs.items() if isinstance(value, DeleteAttribute)]
         replace = {
             key: value
-            for key, value in unix_attrs.items()
+            for key, value in all_attrs.items()
             if value is not None and not isinstance(value, DeleteAttribute)
         }
 
