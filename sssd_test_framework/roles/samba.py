@@ -436,6 +436,7 @@ class SambaUser(SambaObject):
         home: str | None = None,
         gecos: str | None = None,
         shell: str | None = None,
+        email: str | None = None,
     ) -> SambaUser:
         """
         Create new Samba user.
@@ -454,9 +455,14 @@ class SambaUser(SambaObject):
         :type gecos: str | None, optional
         :param shell: Login shell, defaults to None
         :type shell: str | None, optional
+        :param email: Email, defaults to None (= user@domain)
+        :type email:  str | None, optional
         :return: Self.
         :rtype: SambaUser
         """
+        if email is None:
+            email = f"{self.name}@{self.host.domain}"
+
         attrs: CLIBuilderArgs = {
             "password": (self.cli.option.POSITIONAL, password),
             "given-name": (self.cli.option.VALUE, self.name),
@@ -466,6 +472,7 @@ class SambaUser(SambaObject):
             "unix-home": (self.cli.option.VALUE, home),
             "gecos": (self.cli.option.VALUE, gecos),
             "login-shell": (self.cli.option.VALUE, shell),
+            "mail-address": (self.cli.option.VALUE, email),
         }
 
         self._add(attrs)
@@ -479,6 +486,7 @@ class SambaUser(SambaObject):
         home: str | DeleteAttribute | None = None,
         gecos: str | DeleteAttribute | None = None,
         shell: str | DeleteAttribute | None = None,
+        email: str | DeleteAttribute | None = None,
     ) -> SambaUser:
         """
         Modify existing Samba user.
@@ -496,16 +504,21 @@ class SambaUser(SambaObject):
         :type gecos: str | DeleteAttribute | None, optional
         :param shell: Login shell, defaults to None
         :type shell: str | DeleteAttribute | None, optional
+        :param email: Email, defaults to None
+        :type email: str | DeleteAttribute | None, optional
         :return: Self.
         :rtype: SambaUser
         """
-        attrs: dict[str, Any] = {
+        unix_attrs: dict[str, Any] = {
             "uidNumber": uid,
             "gidNumber": gid,
             "unixHomeDirectory": home,
             "gecos": gecos,
             "loginShell": shell,
         }
+
+        samba_attrs: dict[str, Any] = {"emailAddress": email}
+        attrs = {**unix_attrs, **samba_attrs}
 
         self._modify(attrs)
         return self
