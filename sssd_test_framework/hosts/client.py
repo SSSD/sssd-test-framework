@@ -44,6 +44,7 @@ class ClientHost(BaseBackupHost):
             [ -f "/usr/lib64/sssd/libsss_files.so" ] && echo "files-provider" || :
             [ -f "/usr/libexec/sssd/passkey_child" ] && echo "passkey" || :
             man sssd.conf | grep -q "user (string)" && echo "non-privileged" || :
+            /usr/bin/sss_ssh_knownhostsproxy -h 2>&1 | grep -q "Usage" && echo "ssh-known-hosts-proxy" || :
             """,
             log_level=SSHLog.Error,
         )
@@ -53,6 +54,7 @@ class ClientHost(BaseBackupHost):
             "files-provider": False,
             "passkey": False,
             "non-privileged": False,
+            "ssh-known-hosts-proxy": False,
         }
 
         self._features.update({k: True for k in result.stdout_lines})
