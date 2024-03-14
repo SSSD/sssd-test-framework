@@ -6,6 +6,7 @@ import jc
 from pytest_mh import MultihostHost, MultihostUtility
 from pytest_mh.cli import CLIBuilder, CLIBuilderArgs
 from pytest_mh.ssh import SSHLog
+from pytest_mh.utils.fs import LinuxFileSystem
 
 __all__ = [
     "LocalGroup",
@@ -23,7 +24,7 @@ class LocalUsersUtils(MultihostUtility[MultihostHost]):
         All changes are automatically reverted when a test is finished.
     """
 
-    def __init__(self, host: MultihostHost) -> None:
+    def __init__(self, host: MultihostHost, fs: LinuxFileSystem) -> None:
         """
         :param host: Remote host instance.
         :type host: MultihostHost
@@ -31,6 +32,7 @@ class LocalUsersUtils(MultihostUtility[MultihostHost]):
         super().__init__(host)
 
         self.cli: CLIBuilder = CLIBuilder(host.ssh)
+        self.fs: LinuxFileSystem = fs
         self._users: list[str] = []
         self._groups: list[str] = []
 
@@ -155,6 +157,9 @@ class LocalUser(object):
         :return: Self.
         :rtype: LocalUser
         """
+        if home is not None:
+            self.util.fs.backup(home)
+
         args: CLIBuilderArgs = {
             "name": (self.util.cli.option.POSITIONAL, self.name),
             "uid": (self.util.cli.option.VALUE, uid),
