@@ -9,6 +9,7 @@ import pytest
 from sssd_test_framework.misc import (
     attrs_include_value,
     attrs_parse,
+    attrs_to_hash,
     parse_ldif,
     to_list,
     to_list_of_strings,
@@ -221,3 +222,16 @@ def test_to_list_without_none(value, expected):
 def test_parse_ldif(value, expected):
     value = textwrap.dedent(value).strip()
     assert parse_ldif(value) == expected
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            {"key1": "value1", "key2": "value2 value2.1", "key3": "value3", "key4": "value4, value4.1"},
+            """@{"key1"="value1";"key2"="value2 value2.1";"key3"="value3";"key4"="value4, value4.1"}""",
+        )
+    ],
+)
+def test_attrs_to_hash(value, expected):
+    assert attrs_to_hash(value) == expected

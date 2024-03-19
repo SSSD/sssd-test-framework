@@ -19,8 +19,7 @@ __all__ = [
     "SudoAuthenticationUtils",
 ]
 
-
-DEFAULT_AUTHENTICATION_TIMEOUT: int = 20
+DEFAULT_AUTHENTICATION_TIMEOUT: int = 60
 """Default timeout for authentication failure."""
 
 
@@ -234,6 +233,7 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
             expect {{
                 -re $prompt {{exitmsg "Password authentication successful" 0}}
                 "Authentication failure" {{exitmsg "Authentication failure" 1}}
+                "su: Permission denied" {{exitmsg "Permission denied" 2}}
                 timeout {{exitmsg "Unexpected output" 201}}
                 eof {{exitmsg "Unexpected end of file" 202}}
             }}
@@ -503,7 +503,7 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
             expect {{
                 -re $prompt {{exitmsg "Password authentication successful" 0}}
                 "{username}@localhost: Permission denied" {{exitmsg "Authentication failure" 1}}
-                "Connection closed by UNKNOWN port 65535" {{exitmsg "Connection closed" 2}}
+                "Connection closed by * port *" {{exitmsg "Connection closed" 2}}
                 timeout {{exitmsg "Unexpected output" 201}}
                 eof {{exitmsg "Unexpected end of file" 202}}
             }}

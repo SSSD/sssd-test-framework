@@ -129,3 +129,27 @@ def parse_ldif(ldif: str) -> dict[str, dict[str, list[str]]]:
         output[result["dn"][0]] = result
 
     return output
+
+
+def attrs_to_hash(attrs: dict[str, Any]) -> str | None:
+    """
+    Convert attributes into an Powershell hash table records.
+
+    :param attrs: Attributes names and values.
+    :type attrs: dict[str, Any]
+    :return: Attributes in powershell hash record format.
+    :rtype: str | None
+    """
+    out = ""
+    for key, value in attrs.items():
+        if value is not None:
+            if isinstance(value, list):
+                values = [f'"{x}"' for x in value]
+                out += f'"{key}"={",".join(values)};'
+            else:
+                out += f'"{key}"="{value}";'
+
+    if not out:
+        return None
+
+    return "@{" + out.rstrip(";") + "}"

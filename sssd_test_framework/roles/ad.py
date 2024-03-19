@@ -8,7 +8,7 @@ from pytest_mh.cli import CLIBuilderArgs
 from pytest_mh.ssh import SSHClient, SSHPowerShellProcess, SSHProcessResult
 
 from ..hosts.ad import ADHost
-from ..misc import attrs_include_value, attrs_parse
+from ..misc import attrs_include_value, attrs_parse, attrs_to_hash
 from .base import BaseObject, BaseWindowsRole, DeleteAttribute
 from .ldap import LDAPNetgroupMember
 from .nfs import NFSExport
@@ -20,8 +20,10 @@ __all__ = [
     "ADGroup",
     "ADObject",
     "ADOrganizationalUnit",
+    "ADComputer",
     "ADSudoRule",
     "ADUser",
+    "GPO",
 ]
 
 
@@ -252,7 +254,7 @@ class AD(BaseWindowsRole[ADHost]):
         """
         Get organizational unit object.
 
-        .. code-blocK:: python
+        .. code-block:: python
             :caption: Example usage
 
             @pytest.mark.topology(KnownTopology.AD)
@@ -280,6 +282,65 @@ class AD(BaseWindowsRole[ADHost]):
         :rtype: ADOrganizationalUnit
         """
         return ADOrganizationalUnit(self, name, basedn)
+
+    def computer(self, name: str, basedn: ADObject | str | None = "cn=computers") -> ADComputer:
+        """
+        Get computer object.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.AD)
+            def test_example(client: Client, ad: AD):
+                # Create OU
+                ou = ad.ou("test").add().dn
+                # Move computer object
+                ad.computer(client.host.hostname.split(".")[0]).move(ou)
+
+                client.sssd.start()
+
+        :param name: Computer name.
+        :type name: str
+        :param basedn: Base dn, defaults to "cn=computers"
+        :type basedn: ADObject | str | None,
+        :return: New computer object.
+        :rtype: ADComputer
+        """
+        return ADComputer(self, name, basedn)
+
+    def gpo(self, name: str) -> GPO:
+        """
+        Get group policy object.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.AD)
+            def test_ad__gpo_is_set_to_enforcing(client: Client, ad: AD):
+                user = ad.user("user").add()
+                allow_user = ad.user("allow_user").add()
+                deny_user = ad.user("deny_user").add()
+
+                ad.gpo("test policy").add().policy(
+                    {
+                    "SeInteractiveLogonRight": [allow_user, ad.group("Domain Admins")],
+                    "SeRemoteInteractiveLogonRight": [allow_user, ad.group("Domain Admins")],
+                    "SeDenyInteractiveLogonRight": [deny_user],
+                    "SeDenyRemoteInteractiveLogonRight": [deny_user],
+                    }
+                ).link()
+
+                client.sssd.domain["ad_gpo_access_control"] = "enforcing"
+                client.sssd.start()
+
+                assert client.auth.ssh.password(username="allow_user", password="Secret123")
+                assert not client.auth.ssh.password(username="user", password="Secret123")
+                assert not client.auth.ssh.password(username="deny_user", password="Secret123")
+
+        :param name: Name of the GPO.
+        :type name: str
+        """
+        return GPO(self, name)
 
     def sudorule(self, name: str, basedn: ADObject | str | None = "ou=sudoers") -> ADSudoRule:
         """
@@ -367,6 +428,8 @@ class ADObject(BaseObject[ADHost, AD]):
 
         self._identity: CLIBuilderArgs = {"Identity": (self.cli.option.VALUE, self.dn)}
         """Identity parameter used in powershell commands."""
+
+        self.__sid: str | None = None
 
         self.__create_default_ou(basedn, self.default_ou)
 
@@ -509,28 +572,20 @@ class ADObject(BaseObject[ADHost, AD]):
         cmd = self._exec("Get", self.cli.args(self._identity, quote_value=True), format_with="Format-List")
         return attrs_parse(cmd.stdout_lines, attrs)
 
-    def _attrs_to_hash(self, attrs: dict[str, Any]) -> str | None:
+    @property
+    def sid(self) -> str | None:
         """
-        Convert attributes into an Powershell hash table records.
+        Gets AD Object's SID.
 
-        :param attrs: Attributes names and values.
-        :type attrs: dict[str, Any]
-        :return: Attributes in powershell hash record format.
-        :rtype: str | None
+        :return: SID
+        :rtype: str
         """
-        out = ""
-        for key, value in attrs.items():
-            if value is not None:
-                if isinstance(value, list):
-                    values = [f'"{x}"' for x in value]
-                    out += f'"{key}"={",".join(values)};'
-                else:
-                    out += f'"{key}"="{value}";'
+        if self.__sid is None:
+            for i in self.get(["SID"]).values():
+                if len(i) == 1:
+                    self.__sid = i[0]
 
-        if not out:
-            return None
-
-        return "@{" + out.rstrip(";") + "}"
+        return self.__sid
 
 
 class ADOrganizationalUnit(ADObject):
@@ -563,6 +618,43 @@ class ADOrganizationalUnit(ADObject):
         }
 
         self._add(attrs)
+        return self
+
+
+class ADComputer(ADObject):
+    """
+    AD computer management.
+    """
+
+    def __init__(self, role: AD, name: str, basedn: ADObject | str | None = "cn=computers") -> None:
+        """
+        :param role: AD role object.
+        :type role: AD
+        :param name: Computer name.
+        :type name: str
+        :param basedn: Base dn, defaults to 'cn=computers'
+        :type basedn: ADObject | str | None, optional
+        """
+        super().__init__(role, "Object", name.upper(), f"cn={name.upper()}", basedn, default_ou=None)
+
+    def move(self, target: str) -> ADComputer:
+        """
+        Move a computer object.
+        :param target: Target path.
+        :type target: str
+
+        :return: Self.
+        :rtype: ADComputer
+        """
+        attrs: CLIBuilderArgs = {
+            **self._identity,
+            "TargetPath": (self.cli.option.VALUE, target),
+        }
+
+        self._exec("Move", self.cli.args(attrs, quote_value=True))
+        self.basedn = target
+        self._identity = {"Identity": (self.cli.option.VALUE, f"{self.rdn},{target}")}
+
         return self
 
 
@@ -631,7 +723,7 @@ class ADUser(ADObject):
         attrs: CLIBuilderArgs = {
             "Name": (self.cli.option.VALUE, self.name),
             "AccountPassword": (self.cli.option.PLAIN, f'(ConvertTo-SecureString "{password}" -AsPlainText -force)'),
-            "OtherAttributes": (self.cli.option.PLAIN, self._attrs_to_hash(unix_attrs)),
+            "OtherAttributes": (self.cli.option.PLAIN, attrs_to_hash(unix_attrs)),
             "Enabled": (self.cli.option.PLAIN, "$True"),
             "Path": (self.cli.option.VALUE, self.path),
             "EmailAddress": (self.cli.option.PLAIN, email),
@@ -693,7 +785,7 @@ class ADUser(ADObject):
 
         attrs: CLIBuilderArgs = {
             **self._identity,
-            "Replace": (self.cli.option.PLAIN, self._attrs_to_hash(replace)),
+            "Replace": (self.cli.option.PLAIN, attrs_to_hash(replace)),
             "Clear": (self.cli.option.PLAIN, ",".join(clear) if clear else None),
         }
 
@@ -711,7 +803,7 @@ class ADUser(ADObject):
         """
         attrs: CLIBuilderArgs = {
             **self._identity,
-            "Add": (self.cli.option.PLAIN, self._attrs_to_hash({"altSecurityIdentities": passkey_mapping})),
+            "Add": (self.cli.option.PLAIN, attrs_to_hash({"altSecurityIdentities": passkey_mapping})),
         }
         self._modify(attrs)
         return self
@@ -727,7 +819,7 @@ class ADUser(ADObject):
         """
         attrs: CLIBuilderArgs = {
             **self._identity,
-            "Remove": (self.cli.option.PLAIN, self._attrs_to_hash({"altSecurityIdentities": passkey_mapping})),
+            "Remove": (self.cli.option.PLAIN, attrs_to_hash({"altSecurityIdentities": passkey_mapping})),
         }
         self._modify(attrs)
         return self
@@ -781,7 +873,7 @@ class ADGroup(ADObject):
             "Name": (self.cli.option.VALUE, self.name),
             "GroupScope": (self.cli.option.VALUE, scope),
             "GroupCategory": (self.cli.option.VALUE, category),
-            "OtherAttributes": (self.cli.option.PLAIN, self._attrs_to_hash(unix_attrs)),
+            "OtherAttributes": (self.cli.option.PLAIN, attrs_to_hash(unix_attrs)),
             "Path": (self.cli.option.VALUE, self.path),
         }
 
@@ -821,7 +913,7 @@ class ADGroup(ADObject):
 
         attrs: CLIBuilderArgs = {
             **self._identity,
-            "Replace": (self.cli.option.PLAIN, self._attrs_to_hash(replace)),
+            "Replace": (self.cli.option.PLAIN, attrs_to_hash(replace)),
             "Clear": (self.cli.option.PLAIN, ",".join(clear) if clear else None),
         }
 
@@ -919,7 +1011,7 @@ class ADNetgroup(ADObject):
         args: CLIBuilderArgs = {
             "Name": (self.cli.option.VALUE, self.name),
             "Type": (self.cli.option.VALUE, "nisNetgroup"),
-            "OtherAttributes": (self.cli.option.PLAIN, self._attrs_to_hash(attrs)),
+            "OtherAttributes": (self.cli.option.PLAIN, attrs_to_hash(attrs)),
             "Path": (self.cli.option.VALUE, self.path),
         }
 
@@ -970,7 +1062,7 @@ class ADNetgroup(ADObject):
 
         args: CLIBuilderArgs = {
             **self._identity,
-            "Add": (self.cli.option.PLAIN, self._attrs_to_hash(attrs)),
+            "Add": (self.cli.option.PLAIN, attrs_to_hash(attrs)),
         }
 
         self._modify(args)
@@ -1020,7 +1112,7 @@ class ADNetgroup(ADObject):
 
         args: CLIBuilderArgs = {
             **self._identity,
-            "Remove": (self.cli.option.PLAIN, self._attrs_to_hash(attrs)),
+            "Remove": (self.cli.option.PLAIN, attrs_to_hash(attrs)),
         }
 
         self._modify(args)
@@ -1131,7 +1223,7 @@ class ADSudoRule(ADObject):
         args: CLIBuilderArgs = {
             "Name": (self.cli.option.VALUE, self.name),
             "Type": (self.cli.option.VALUE, "sudoRole"),
-            "OtherAttributes": (self.cli.option.PLAIN, self._attrs_to_hash(attrs)),
+            "OtherAttributes": (self.cli.option.PLAIN, attrs_to_hash(attrs)),
             "Path": (self.cli.option.VALUE, self.path),
         }
 
@@ -1207,7 +1299,7 @@ class ADSudoRule(ADObject):
 
         args: CLIBuilderArgs = {
             **self._identity,
-            "Replace": (self.cli.option.PLAIN, self._attrs_to_hash(replace)),
+            "Replace": (self.cli.option.PLAIN, attrs_to_hash(replace)),
             "Clear": (self.cli.option.PLAIN, ",".join(clear) if clear else None),
         }
 
@@ -1356,7 +1448,7 @@ class ADAutomountMap(ADObject):
         args: CLIBuilderArgs = {
             "Name": (self.cli.option.VALUE, self.name),
             "Type": (self.cli.option.VALUE, "nisMap"),
-            "OtherAttributes": (self.cli.option.PLAIN, self._attrs_to_hash(attrs)),
+            "OtherAttributes": (self.cli.option.PLAIN, attrs_to_hash(attrs)),
             "Path": (self.cli.option.VALUE, self.path),
         }
 
@@ -1422,7 +1514,7 @@ class ADAutomountKey(ADObject):
         args: CLIBuilderArgs = {
             "Name": (self.cli.option.VALUE, self.name),
             "Type": (self.cli.option.VALUE, "nisObject"),
-            "OtherAttributes": (self.cli.option.PLAIN, self._attrs_to_hash(attrs)),
+            "OtherAttributes": (self.cli.option.PLAIN, attrs_to_hash(attrs)),
             "Path": (self.cli.option.VALUE, self.path),
         }
 
@@ -1458,7 +1550,7 @@ class ADAutomountKey(ADObject):
 
         args: CLIBuilderArgs = {
             **self._identity,
-            "Replace": (self.cli.option.PLAIN, self._attrs_to_hash(replace)),
+            "Replace": (self.cli.option.PLAIN, attrs_to_hash(replace)),
             "Clear": (self.cli.option.PLAIN, ",".join(clear) if clear else None),
         }
 
@@ -1500,6 +1592,293 @@ class ADAutomountKey(ADObject):
             return info.name
 
         return info
+
+
+class GPO(BaseObject[ADHost, AD]):
+    """
+    Group policy object management.
+    """
+
+    def __init__(self, role: AD, name: str) -> None:
+        """
+        :param role: AD host object.
+        :type role:  ADHost
+        :param name: GPO name, defaults to 'Domain Test Policy'
+        :type name: str, optional
+        """
+        super().__init__(role)
+
+        self.name: str = name
+        """Group policy display name."""
+
+        self.target: str | None = None
+        """Group policy target."""
+
+        self._search_base: str = f"cn=policies,cn=system,{self.role.host.naming_context}"
+        """Group policy search base."""
+
+        self._dn = self.get("DistinguishedName")
+        """Group policy dn."""
+
+        self._cn = self.get("CN")
+        """Group policy cn."""
+
+    def get(self, key: str) -> str | None:
+        """
+        Get group policy attributes.
+
+        :param key: Attribute to get.
+        :type key: str
+        :return: Key value.
+        :rtype: str
+        """
+        result = self.role.host.ssh.run(
+            rf"""
+            $query = "(&(ObjectClass=groupPolicyContainer)(DisplayName={self.name}))"
+            Get-ADObject -SearchBase "{self._search_base}" -Properties "*" -LDAPFilter $query
+            """
+        ).stdout_lines
+
+        i = 0
+        while i < len(result):
+            if result[i].startswith(key):
+                if result[i + 1].startswith(" "):
+                    value = (result[i].strip() + result[i + 1].strip()).split(":")
+                    return value[1].strip()
+                else:
+                    value = result[i].split(":")
+                    return value[1].strip()
+            i += 1
+
+        return None
+
+    def delete(self) -> None:
+        """
+        Delete group policy object.
+        """
+        self.role.host.ssh.run(f'Remove-GPO -Guid "{self._cn}" -Confirm:$false')
+
+    def add(self) -> GPO:
+        """
+        Add a group policy object.
+
+        This creates an empty GPO, the security part of the policy cannot be configured using
+        official GroupPolicy cmdlets, because the settings are actually stored in security database.
+        The workaround, is to manually edit policy. First create the SecEdit directory path,
+        'C:\\Windows\\SYSVOL\\domain\\Policies\\{GUID}\\Machines\\Microsoft\\Windows NT\\SecEdit'.
+
+        Second, create and edit GptTmpl.inf file in this directory. Only the headers, are
+        added at this time. The rest of the configuration is done by policy method.
+
+        :return: Group policy object
+        :rtype: GPO
+        """
+        self.role.host.ssh.run(f'New-GPO -name "{self.name}"')
+
+        self._cn = self.get("CN")
+        self._dn = self.get("DistinguishedName")
+
+        self.role.host.ssh.run(
+            rf"""
+            Import-Module GroupPolicy, PSIni
+            $path = "C:\\Windows\\SYSVOL\\domain\\Policies\\{self._cn}\\Machine\\Microsoft\\Windows NT\\SecEdit"
+            $file = Join-Path $path GptTmpl.inf
+            $content = @{{'Unicode'=@{{'Unicode'='yes'}};'Version'=@{{'signature'='"$CHICAGO$"';'Revision'='1'}}}}
+            New-Item -Path "$path" -ItemType Directory
+            New-Item -Path "$file" -ItemType File
+            Out-IniFile -InputObject $content -FilePath $file
+            Test-Path -Path "$path"
+            Exit 0
+            """
+        )
+        return self
+
+    def link(
+        self,
+        op: str | None = "New",
+        target: str | None = None,
+        args: list[str] | str | None = None,
+    ) -> GPO:
+        """
+        Link the group policy to the a target object inside the directory, a site, domain or an ou.
+
+        ..Note::
+            The New and Set cmdlets are identical. To modify an an existing link,
+            change the $op parameter to "Set", i.e. to disable 'Enforced'
+
+            ou_policy.link("Set", args=["-Enforced No"])
+
+        :param op: Cmdlet operation, defaults to "New"
+        :type op: str, optional
+        :param target: Group policy target
+        :type target: str, optional
+        :param args: Additional arguments
+        :type args: list[str] | None, optional
+        :return: Group policy object
+        :rtype: GPO
+        """
+        if args is None:
+            args = []
+
+        if isinstance(args, list):
+            args = " ".join(args)
+        elif args is None:
+            args = ""
+
+        if target is None and self.target is None:
+            self.target = "Default-First-Site-Name"
+
+        if target is not None and self.target is None:
+            self.target = target
+
+        self.role.host.ssh.run(f'{op}-GPLink -Guid "{self._cn}" -Target "{self.target}" -LinkEnabled Yes {args}')
+
+        return self
+
+    def unlink(self) -> GPO:
+        """
+        Unlink the group policy from the target.
+
+        :return: Group policy object
+        :rtype: GPO
+        """
+        self.role.host.ssh.run(f'Remove-GPLink -Guid "{self._cn}" -Target "{self.target}"')
+
+        return self
+
+    def permissions(self, target: str, permission_level: str, target_type: str | None = "Group") -> GPO:
+        """
+        Configure group policy object permissions.
+
+        :param target: Target object
+        :type target: str
+        :param permission_level: Permission level
+        :type permission_level: str, 'GpoRead | GpoApply | GpoEdit | GpoEditDeleteModifySecurity | None'
+        :param target_type: Target type, defaults to 'group'
+        :type target_type: str, optional, values should be 'user | group | computer'
+        :return: Group policy object
+        :rtype: GPO
+        """
+        if permission_level == "None" and target == "Authenticated Users":
+            self.role.host.ssh.run(
+                rf"""
+                # Some test scenarios require making the GPO unreadable. Changing the 'Authenticated Users',
+                # 'S-1-5-11' SID permissions to 'None' accomplishes that. The confirm prompt cannot be skipped
+                # using Set-GPPermissions, for more information. https://support.microsoft.com/kb/3163622
+                # Setting the permission using ADSI is a workaround for automation.
+
+                $authenticated_users = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-11")
+                $gpo = Get-GPO -Guid "{self._cn}"
+                $gid = $gpo.id
+                $search_base = "cn=policies,cn=system," + "{self.host.naming_context}"
+                $filter = "(&(objectClass=groupPolicyContainer)(cn={{$gid}}))"
+                $gpo_object = Get-ADObject -SearchBase "$search_base" -Properties "*" -LDAPFilter $filter
+                $gpo_ldap = "LDAP://" + $gpo_object.DistinguishedName
+                $gpo_adsi = [ADSI]"$gpo_ldap"
+                $extRight = [system.guid]"edacfd8f-ffb3-11d1-b41d-00a0c968f939"
+                $ace = new-object System.DirectoryServices.ActiveDirectoryAccessRule(
+                    $authenticated_users, "ReadProperty", "Deny")
+                $gpo_adsi.psbase.get_objectSecurity().AddAccessRule($ace)
+                $gpo_adsi.psbase.CommitChanges()
+                """
+            )
+        else:
+            self.role.host.ssh.run(
+                f'Set-GPPermission -Guid "{self._cn}" '
+                f'-TargetName "{target}" '
+                f'-PermissionLevel "{permission_level}" '
+                f'-TargetType "{target_type}" -Replace:$True -Confirm:$False'
+            )
+
+        return self
+
+    def policy(self, logon_rights: dict[str, list[ADObject]], cfg: dict[str, Any] | None = None) -> GPO:
+        """
+        Group policy configuration.
+
+        This method does the remaining configuration of the group policy. It updates
+        'GptTmpl.inf' with security logon right keys with the SIDs of users and groups
+        objects. The *Remote* keys can be omitted, in which the corresponding keys values
+        will then be used.
+
+        To add users and groups to the policy, the SID must be used for the values. The
+        values need to be prefixed with an '*' and use a comma for a de-limiter, i.e.
+        `*SID1-2-3-4,*SID-5-6-7-8`
+
+        Additionally, gPCMachineExtensionNames need to be updated in the directory so
+        the GPO is readable to the client. The value is a list of Client Side
+        Extensions (CSEs), that is an index of what part of the policy is pushed and
+        processed by the client.
+
+        There is a test case where GptTmpl.inf contains invalid values. The parameter
+        gpttmpl takes a dictionary that will modify the GptTmpl.inf for this scenario.
+
+        :param logon_rights: List of logon rights.
+        :type logon_rights: dict[str, list[ADObject]]
+        :param cfg: Extra configuration for GptTmpl.inf file, defaults to None
+        :type cfg: dict[str, Any] | None, optional
+        :return: Group policy object
+        :rtype: GPO
+        """
+        _keys: list[str] = [
+            "SeInteractiveLogonRight",
+            "SeRemoteInteractiveLogonRight",
+            "SeDenyInteractiveLogonRight",
+            "SeDenyRemoteInteractiveLogonRight",
+        ]
+
+        for i in _keys:
+            if i not in logon_rights.keys() and i == "SeRemoteInteractiveLogonRight":
+                logon_rights[i] = logon_rights["SeInteractiveLogonRight"]
+            if i not in logon_rights.keys() and i == "SeDenyRemoteInteractiveLogonRight":
+                logon_rights[i] = logon_rights["SeDenyInteractiveLogonRight"]
+
+        for i in _keys:
+            if i not in logon_rights.keys():
+                raise KeyError(f"Expected {i} but got {logon_rights.keys()}")
+
+        _logon_rights: dict[str, Any] = {}
+        for k, v in logon_rights.items():
+            sids: list[str] = []
+            for j in v:
+                sids.append(f"*{j.sid}")
+                _logon_rights = {**_logon_rights, **{k: ",".join(sids)}}
+
+        ps_logon_rights = attrs_to_hash(_logon_rights)
+
+        self.host.ssh.run(
+            rf"""
+            Import-Module PSIni
+            $path = "C:\\Windows\\SYSVOL\\domain\\Policies\\{self._cn}\\Machine\\Microsoft\\Windows NT\\SecEdit"
+            $file = Join-Path $path GptTmpl.inf
+            $policy = @{{"Privilege Rights"={ps_logon_rights}}}
+            Out-IniFile -InputObject $policy -FilePath "$file"
+            Exit 0
+            """
+        )
+
+        if cfg is not None:
+            ps_cfg = attrs_to_hash(cfg)
+            self.host.ssh.run(
+                rf"""
+                Import-Module PSIni
+                $path = "C:\\Windows\\SYSVOL\\domain\\Policies\\{self._cn}\\Machine\\Microsoft\\Windows NT\\SecEdit"
+                $file = Join-Path $path GptTmpl.inf
+                $policy = {ps_cfg}
+                Out-IniFile -InputObject $policy -FilePath "$file"
+                Exit 0
+                """
+            )
+
+        self.host.ssh.run(
+            rf"""
+            $gpc = "[{{827D319E-6EAC-11D2-A4EA-00C04F79F83A}}{{803E14A0-B4FB-11D0-A0D0-00A0C90F574B}}]"
+            Set-ADObject -Identity "{self._dn}" -Replace @{{gPCMachineExtensionNames=$gpc}}
+            Exit 0
+            """
+        )
+
+        return self
 
 
 ADNetgroupMember: TypeAlias = LDAPNetgroupMember[ADUser, ADNetgroup]
