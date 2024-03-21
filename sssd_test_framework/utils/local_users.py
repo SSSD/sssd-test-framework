@@ -47,7 +47,7 @@ class LocalUsersUtils(MultihostUtility[MultihostHost]):
             cmd += "\n"
 
         if self._groups:
-            cmd += "\n".join([f"groupdel '{x}' --force" for x in self._groups])
+            cmd += "\n".join([f"groupdel '{x}' -f" for x in self._groups])
             cmd += "\n"
 
         if cmd:
