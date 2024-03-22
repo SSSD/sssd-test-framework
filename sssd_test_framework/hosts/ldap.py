@@ -23,10 +23,15 @@ class LDAPHost(BaseLDAPDomainHost):
         Full backup and restore is supported.
     """
 
+    def _start(self) -> None:
+        # start ldap if it is not running
+        self.ssh.run(f"systemctl start {self._ldap_service_name}")
+
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
         self._features: dict[str, bool] | None = None
+        self._ldap_service_name = self.config.get("ldap_service_name", "dirsrv@localhost.service")
 
         # Additional client configuration
         self.client.setdefault("id_provider", "ldap")
@@ -34,6 +39,15 @@ class LDAPHost(BaseLDAPDomainHost):
 
         # Backup of original data
         self.__backup: dict[str, dict[str, list[bytes]]] = {}
+
+    def pytest_setup(self) -> None:
+        # Start ldap before properties are enumerated in MultihostUtility
+        self._start()
+
+    def setup(self) -> None:
+        # Make sure ldap is running for each test
+        super().setup()
+        self._start()
 
     @property
     def features(self) -> dict[str, bool]:
@@ -72,6 +86,7 @@ class LDAPHost(BaseLDAPDomainHost):
         This is done by simple LDAP search on given base dn and remembering the
         contents. The operation is usually very fast.
         """
+        self._start()
         data = self.conn.search_s(self.naming_context, ldap.SCOPE_SUBTREE)
         config = self.conn.search_s("cn=config", ldap.SCOPE_BASE)
         nc = self.conn.search_s(self.naming_context, ldap.SCOPE_BASE, attrlist=["aci"])
@@ -91,6 +106,7 @@ class LDAPHost(BaseLDAPDomainHost):
         calling add, delete and modify operations to convert current state to
         the original state. This operation is usually very fast.
         """
+        self._start()
         data = self.conn.search_s(self.naming_context, ldap.SCOPE_SUBTREE)
         config = self.conn.search_s("cn=config", ldap.SCOPE_BASE)
         nc = self.conn.search_s(self.naming_context, ldap.SCOPE_BASE, attrlist=["aci"])
