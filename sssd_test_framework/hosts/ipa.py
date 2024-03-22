@@ -126,3 +126,4 @@ class IPAHost(BaseDomainHost):
         self.ssh.exec(
             ["ipa-restore", "--unattended", "--password", self.adminpw, "--data", "--online", self._backup_location]
         )
+        self.ssh.exec(["systemctl", "restart", "ipa"])
