@@ -127,7 +127,9 @@ class ADHost(BaseDomainHost):
         self.ssh.run(
             rf"""
         $backup = Get-Content "{self._backup_location}"
-        $result = Get-ADObject -SearchBase '{self.naming_context}' -Filter "*"
+        $result_base = Get-ADObject -SearchBase '{self.naming_context}' -Filter "*"
+        $result_sites = Get-ADObject -SearchBase 'cn=sites,cn=configuration,{self.naming_context}' -Filter "*"
+        $result = $result_base + $result_sites
         foreach ($r in $result) {{
             if (!$backup.contains($r.DistinguishedName)) {{
                 Write-Host "Removing: $r"
