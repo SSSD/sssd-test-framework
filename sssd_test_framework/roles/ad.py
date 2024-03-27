@@ -281,6 +281,33 @@ class AD(BaseWindowsRole[ADHost]):
         """
         return ADOrganizationalUnit(self, name, basedn)
 
+    def site(self, name: str, basedn: ADObject | str | None = "cn=sites,cn=configuration") -> ADSite:
+        """
+        Get site object.
+
+        .. code-blocK:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.AD)
+            def test_example(client: Client, ad: AD):
+                # Create organizational unit for sudo rules
+                site = ad.site('new site').add().dn
+
+                # Create user
+                ad.user('user-1').add()
+
+                # Move computer into site
+                ad.computer(client.host.hostname.split(".")[0]).move(site)
+
+        :param name: Site name.
+        :type name: str
+        :param basedn: Base dn, defaults to None
+        :type basedn: ADObject | str | None, optional
+        :return: New site object.
+        :rtype: ADSite
+        """
+        return ADSite(self, name, basedn)
+
     def sudorule(self, name: str, basedn: ADObject | str | None = "ou=sudoers") -> ADSudoRule:
         """
         Get sudo rule object.
@@ -559,6 +586,38 @@ class ADOrganizationalUnit(ADObject):
         attrs: CLIBuilderArgs = {
             "Name": (self.cli.option.VALUE, self.name),
             "Path": (self.cli.option.VALUE, self.path),
+            "ProtectedFromAccidentalDeletion": (self.cli.option.PLAIN, "$False"),
+        }
+
+        self._add(attrs)
+        return self
+
+
+class ADSite(ADObject):
+    """
+    AD Sites management.
+    """
+
+    def __init__(self, role: AD, name: str, basedn: ADObject | str | None = "cn=sites,cn=configuration") -> None:
+        """
+        :param role: AD role object.
+        :type role: AD
+        :param name: Site name.
+        :type name: str
+        :param basedn: Base dn, defaults to None
+        :type basedn: ADObject | str | None, optional
+        """
+        super().__init__(role, "ADReplicationSite", name, f"cn={name}", basedn)
+
+    def add(self) -> ADSite:
+        """
+        Create new AD site.
+
+        :return: Self.
+        :rtype: ADSite
+        """
+        attrs: CLIBuilderArgs = {
+            "Name": (self.cli.option.VALUE, self.name),
             "ProtectedFromAccidentalDeletion": (self.cli.option.PLAIN, "$False"),
         }
 
