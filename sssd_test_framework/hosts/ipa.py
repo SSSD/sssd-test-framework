@@ -63,6 +63,11 @@ class IPAHost(BaseDomainHost):
         if "realm" not in self.config:
             self.realm = self.domain.upper()
 
+    def setup(self) -> None:
+        # Make sure ipa is running for each test
+        self.ssh.run("ipactl start")
+        super().setup()
+
     @property
     def features(self) -> dict[str, bool]:
         """
@@ -126,4 +131,3 @@ class IPAHost(BaseDomainHost):
         self.ssh.exec(
             ["ipa-restore", "--unattended", "--password", self.adminpw, "--data", "--online", self._backup_location]
         )
-        self.ssh.exec(["systemctl", "restart", "ipa"])
