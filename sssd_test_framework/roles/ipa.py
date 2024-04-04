@@ -408,6 +408,7 @@ class IPAUser(IPAObject):
         gecos: str | None = None,
         shell: str | None = None,
         require_password_reset: bool = False,
+        user_auth_type: list[str] | None = None,
     ) -> IPAUser:
         """
         Create new IPA user.
@@ -428,6 +429,8 @@ class IPAUser(IPAObject):
         :type shell: str | None, optional
         :param require_password_reset: Require password reset on first login, defaults to False
         :type require_password_reset: bool, optional
+        :param user_auth_type: Types of supported user authentication, defaults to None
+        :type user_auth_type: list[str] | None, optional
         :return: Self.
         :rtype: IPAUser
         """
@@ -440,6 +443,7 @@ class IPAUser(IPAObject):
             "gecos": (self.cli.option.VALUE, gecos),
             "shell": (self.cli.option.VALUE, shell),
             "password": (self.cli.option.SWITCH, True) if password is not None else None,
+            "user-auth-type": (self.cli.option.VALUE, user_auth_type),
         }
 
         if not require_password_reset:
@@ -457,6 +461,7 @@ class IPAUser(IPAObject):
         home: str | None = None,
         gecos: str | None = None,
         shell: str | None = None,
+        user_auth_type: list[str] | None = None,
     ) -> IPAUser:
         """
         Modify existing IPA user.
@@ -475,6 +480,8 @@ class IPAUser(IPAObject):
         :type gecos: str | None, optional
         :param shell: Login shell, defaults to None
         :type shell: str | None, optional
+        :param user_auth_type: Types of supported user authentication, defaults to None
+        :type user_auth_type: list[str] | None, optional
         :return: Self.
         :rtype: IPAUser
         """
@@ -485,6 +492,7 @@ class IPAUser(IPAObject):
             "gecos": (self.cli.option.VALUE, gecos),
             "shell": (self.cli.option.VALUE, shell),
             "password": (self.cli.option.SWITCH, True) if password is not None else None,
+            "user-auth-type": (self.cli.option.VALUE, user_auth_type),
         }
 
         self._modify(attrs, input=password)
