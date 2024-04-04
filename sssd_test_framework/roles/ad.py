@@ -283,6 +283,27 @@ class AD(BaseWindowsRole[ADHost]):
         """
         return ADOrganizationalUnit(self, name, basedn)
 
+    def site(self, name: str, basedn: ADObject | str | None = "cn=sites,cn=configuration") -> ADSite:
+        """
+        Get site object.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.AD)
+            def test_example(client: Client, ad: AD):
+                # Create New Site, this name cannot contain spaces
+                site = ad.site('New-Site').add()
+
+        :param name: Site name.
+        :type name: str, cannot contain spaces
+        :param basedn: Base dn, defaults to "cn=sites,cn=configuration"
+        :type basedn: ADObject | str | None, optional
+        :return: New site object.
+        :rtype: ADSite
+        """
+        return ADSite(self, name, basedn)
+
     def computer(self, name: str, basedn: ADObject | str | None = "cn=computers") -> ADComputer:
         """
         Get computer object.
@@ -614,6 +635,38 @@ class ADOrganizationalUnit(ADObject):
         attrs: CLIBuilderArgs = {
             "Name": (self.cli.option.VALUE, self.name),
             "Path": (self.cli.option.VALUE, self.path),
+            "ProtectedFromAccidentalDeletion": (self.cli.option.PLAIN, "$False"),
+        }
+
+        self._add(attrs)
+        return self
+
+
+class ADSite(ADObject):
+    """
+    AD Sites management.
+    """
+
+    def __init__(self, role: AD, name: str, basedn: ADObject | str | None = "cn=sites,cn=configuration") -> None:
+        """
+        :param role: AD role object.
+        :type role: AD
+        :param name: Site name, cannot contain spaces.
+        :type name: str
+        :param basedn: Base dn, defaults to "cn=sites,cn=configuration"
+        :type basedn: ADObject | str | None, optional
+        """
+        super().__init__(role, "ReplicationSite", name, f"cn={name}", basedn)
+
+    def add(self) -> ADSite:
+        """
+        Create new AD site.
+
+        :return: Self.
+        :rtype: ADSite
+        """
+        attrs: CLIBuilderArgs = {
+            "Name": (self.cli.option.VALUE, self.name),
             "ProtectedFromAccidentalDeletion": (self.cli.option.PLAIN, "$False"),
         }
 

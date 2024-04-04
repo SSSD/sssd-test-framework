@@ -107,11 +107,15 @@ class ADHost(BaseDomainHost):
         """
         self.ssh.run(
             rf"""
+                $basedn = '{self.naming_context}'
+                $sitesdn = "cn=sites,cn=configuration,$basedn"
                 $backup = "C:\\multihost_backup.txt"
                 if (Test-Path $backup) {{
                     Remove-Item $backup
                 }}
-                $result = Get-ADObject -SearchBase "{self.naming_context}" -Filter "*"
+                $result_basedn = Get-ADObject -SearchBase "$basedn" -Filter "*"
+                $result_sitesdn = Get-ADObject -SearchBase "$sitesdn" -LDAPFilter ("objectClass=site")
+                $result = $result_basedn + $result_sitesdn
                 foreach ($r in $result) {{
                     $r.DistinguishedName | Add-Content -Path $backup
                 }}
@@ -226,8 +230,12 @@ class ADHost(BaseDomainHost):
         if self._backup_location:
             self.ssh.run(
                 rf"""
+                    $basedn = '{self.naming_context}'
+                    $sitesdn = "cn=sites,cn=configuration,$basedn"
                     $backup = Get-Content '{self._backup_location}'
-                    $result = Get-ADObject -SearchBase '{self.naming_context}' -Filter "*"
+                    $result_basedn = Get-ADObject -SearchBase "$basedn" -Filter "*"
+                    $result_sitesdn = Get-ADObject -SearchBase "$sitesdn" -LDAPFilter ("objectClass=site")
+                    $result = $result_basedn + $result_sitesdn
                     foreach ($r in $result) {{
                         if (!$backup.contains($r.DistinguishedName)) {{
                             Write-Host "Removing: $r"
