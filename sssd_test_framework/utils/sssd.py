@@ -88,7 +88,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         Shortcuts to SSSD log paths.
         """
 
-    def setup_when_used(self) -> None:
+    def setup(self) -> None:
         """
         Setup SSSD on the host.
 

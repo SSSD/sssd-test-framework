@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pytest_mh import MultihostHost, MultihostUtility
+from pytest_mh import MultihostHost, MultihostUtility, mh_utility_postpone_setup
 from pytest_mh.ssh import SSHProcessResult
 from pytest_mh.utils.fs import LinuxFileSystem
 from pytest_mh.utils.services import SystemdServices
@@ -12,6 +12,7 @@ __all__ = [
 ]
 
 
+@mh_utility_postpone_setup
 class SSHDUtils(MultihostUtility[MultihostHost]):
     """
     Managing global and server SSH configuration files.
@@ -61,13 +62,13 @@ class SSHDUtils(MultihostUtility[MultihostHost]):
         self.args: str = f'--transform "sshd.lns incl {self.file}"'
         self.cmd: str = ""
 
-    def setup_when_used(self) -> None:
-        super().setup_when_used()
+    def setup(self) -> None:
+        super().setup()
         self.fs.backup(self.file)
 
-    def teardown_when_used(self) -> None:
-        super().teardown_when_used()
+    def teardown(self) -> None:
         self.svc.reload("sshd")
+        super().teardown()
 
     def config_read(self) -> str:
         """
