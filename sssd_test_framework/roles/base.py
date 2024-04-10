@@ -128,12 +128,12 @@ class BaseLinuxRole(BaseRole[HostType]):
         Systemd service management.
         """
 
-        self.firewall: Firewalld = Firewalld(self.host)
+        self.firewall: Firewalld = Firewalld(self.host).postpone_setup()
         """
         Configure firewall using firewalld.
         """
 
-        self.tc: LinuxTrafficControl = LinuxTrafficControl(self.host)
+        self.tc: LinuxTrafficControl = LinuxTrafficControl(self.host).postpone_setup()
         """
         Traffic control manipulation.
         """
@@ -191,7 +191,7 @@ class BaseWindowsRole(BaseRole[HostType]):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-        self.firewall: WindowsFirewall = WindowsFirewall(self.host)
+        self.firewall: WindowsFirewall = WindowsFirewall(self.host).postpone_setup()
         """
         Configure Windows firewall.
         """
