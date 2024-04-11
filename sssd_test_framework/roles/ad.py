@@ -1753,10 +1753,10 @@ class GPO(BaseObject[ADHost, AD]):
         args: list[str] | str | None = None,
     ) -> GPO:
         """
-        Link the group policy to the a target object inside the directory, a site, domain or an ou.
+        Link the group policy to the target object inside the directory, a site, domain or an ou.
 
         ..Note::
-            The New and Set cmdlets are identical. To modify an an existing link,
+            The New and Set cmdlets are identical. To modify an existing link,
             change the $op parameter to "Set", i.e. to disable 'Enforced'
 
             ou_policy.link("Set", args=["-Enforced No"])

@@ -24,6 +24,7 @@ __all__ = [
     "GenericAutomount",
     "GenericAutomountMap",
     "GenericAutomountKey",
+    "GenericGPO",
 ]
 
 
@@ -286,6 +287,14 @@ class GenericADProvider(GenericProvider):
     @property
     @abstractmethod
     def firewall(self) -> Firewall:
+        pass
+
+    @property
+    @abstractmethod
+    def gpo(self) -> GenericGPO:
+        """
+        Generic GPO management.
+        """
         pass
 
 
@@ -960,4 +969,67 @@ class GenericAutomountKey(ABC, BaseObject):
 
     @abstractmethod
     def __str__(self) -> str:
+        pass
+
+
+class GenericGPO(ABC, object):
+    """
+    Generic GPO management.
+    """
+
+    @abstractmethod
+    def get(self, key: str) -> str | None:
+        """
+        Get GPO attribute.
+
+        :param key: GPO key value.
+        :type key: str
+        :return: GPO key value.
+        :rtype: str | None
+        """
+        pass
+
+    @abstractmethod
+    def delete(self) -> None:
+        """
+        Delete GPO.
+        """
+        pass
+
+    @abstractmethod
+    def add(self) -> GenericGPO:
+        """
+        Add GPO.
+        """
+        pass
+
+    @abstractmethod
+    def link(self,
+             op: str | None = "New",
+             target: str | None = None,
+             args: list[str] | str | None = None) -> GenericGPO:
+        """
+        Link GPO.
+        """
+        pass
+
+    @abstractmethod
+    def unlink(self) -> None:
+        """
+        Unlink GPO.
+        """
+        pass
+
+    @abstractmethod
+    def permissions(self, target: str, permission_level: str, target_type: str | None = "Group") -> GenericGPO:
+        """
+        Configure GPO permissions.
+        """
+        pass
+
+    @abstractmethod
+    def policy(self, logon_rights: dict[str, list[GenericUser]], cfg: dict[str, Any] | None = None) -> GenericGPO:
+        """
+        GPO configuration.
+        """
         pass
