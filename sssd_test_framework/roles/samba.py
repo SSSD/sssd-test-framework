@@ -644,8 +644,8 @@ class SambaGroup(SambaObject):
         """
         Add multiple group members.
 
-        :param member: List of users or groups to add as members.
-        :type member: list[SambaUser | SambaGroup]
+        :param members: List of users or groups to add as members.
+        :type members: list[SambaUser | SambaGroup]
         :return: Self.
         :rtype: SambaGroup
         """
@@ -667,8 +667,8 @@ class SambaGroup(SambaObject):
         """
         Remove multiple group members.
 
-        :param member: List of users or groups to remove from the group.
-        :type member: list[SambaUser | SambaGroup]
+        :param members: List of users or groups to remove from the group.
+        :type members: list[SambaUser | SambaGroup]
         :return: Self.
         :rtype: SambaGroup
         """
