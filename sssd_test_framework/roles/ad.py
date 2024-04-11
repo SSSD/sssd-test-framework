@@ -549,7 +549,7 @@ class ADObject(BaseObject[ADHost, AD]):
 
     def _modify(self, attrs: CLIBuilderArgs) -> None:
         """
-        Modifiy Active Directory object.
+        Modify Active Directory object.
 
         :param attrs: Object attributes in :class:`pytest_mh.cli.CLIBuilder` format, defaults to dict()
         :type attrs: pytest_mh.cli.CLIBuilderArgs, optional
@@ -1652,18 +1652,20 @@ class GPO(BaseObject[ADHost, AD]):
         self.target: str | None = None
         """Group policy target."""
 
-        self._search_base: str = f"cn=policies,cn=system,{self.role.host.naming_context}"
+        self.search_base: str = f"cn=policies,cn=system,{self.role.host.naming_context}"
         """Group policy search base."""
 
-        self._dn = self.get("DistinguishedName")
+        self.dn = self.get("DistinguishedName")
         """Group policy dn."""
 
-        self._cn = self.get("CN")
+        self.cn = self.get("CN")
         """Group policy cn."""
 
     def get(self, key: str) -> str | None:
         """
         Get group policy attributes.
+
+        This method is unique for the GPO class, unlike SambaGPO class, the ADObject class is not inherited.
 
         :param key: Attribute to get.
         :type key: str
@@ -1673,7 +1675,7 @@ class GPO(BaseObject[ADHost, AD]):
         result = self.role.host.conn.run(
             rf"""
             $query = "(&(ObjectClass=groupPolicyContainer)(DisplayName={self.name}))"
-            Get-ADObject -SearchBase "{self._search_base}" -Properties "*" -LDAPFilter $query
+            Get-ADObject -SearchBase "{self.search_base}" -Properties "*" -LDAPFilter $query
             """
         ).stdout_lines
 
@@ -1694,7 +1696,7 @@ class GPO(BaseObject[ADHost, AD]):
         """
         Delete group policy object.
         """
-        self.role.host.conn.run(f'Remove-GPO -Guid "{self._cn}" -Confirm:$false')
+        self.role.host.conn.run(f'Remove-GPO -Guid "{self.cn}" -Confirm:$false')
 
     def add(self) -> GPO:
         """
@@ -1713,13 +1715,13 @@ class GPO(BaseObject[ADHost, AD]):
         """
         self.role.host.conn.run(f'New-GPO -name "{self.name}"')
 
-        self._cn = self.get("CN")
-        self._dn = self.get("DistinguishedName")
+        self.cn = self.get("CN")
+        self.dn = self.get("DistinguishedName")
 
         self.role.host.conn.run(
             rf"""
             Import-Module GroupPolicy, PSIni
-            $path = "C:\\Windows\\SYSVOL\\domain\\Policies\\{self._cn}\\Machine\\Microsoft\\Windows NT\\SecEdit"
+            $path = "C:\\Windows\\SYSVOL\\domain\\Policies\\{self.cn}\\Machine\\Microsoft\\Windows NT\\SecEdit"
             $file = Join-Path $path GptTmpl.inf
             $content = @{{'Unicode'=@{{'Unicode'='yes'}};'Version'=@{{'signature'='"$CHICAGO$"';'Revision'='1'}}}}
             New-Item -Path "$path" -ItemType Directory
@@ -1733,43 +1735,50 @@ class GPO(BaseObject[ADHost, AD]):
 
     def link(
         self,
-        op: str | None = "New",
         target: str | None = None,
-        args: list[str] | str | None = None,
+        enforced: bool | None = None,
+        disabled: bool | None = False,
+        order: int | None = 0,
     ) -> GPO:
         """
-        Link the group policy to the a target object inside the directory, a site, domain or an ou.
+        Link the group policy to the target object inside the directory, a site, domain or an ou.
 
-        ..Note::
-            The New and Set cmdlets are identical. To modify an an existing link,
-            change the $op parameter to "Set", i.e. to disable 'Enforced'
-
-            ou_policy.link("Set", args=["-Enforced No"])
-
-        :param op: Cmdlet operation, defaults to "New"
-        :type op: str, optional
         :param target: Group policy target
         :type target: str, optional
-        :param args: Additional arguments
-        :type args: list[str] | None, optional
+        :param enforced: Enforced the policy
+        :type enforced: bool, optional
+        :param disabled: Disable the policy
+        :type disabled: bool, optional
+        :param order: Order number
+        :type order: int, optional
         :return: Group policy object
         :rtype: GPO
         """
-        if args is None:
-            args = []
-
-        if isinstance(args, list):
-            args = " ".join(args)
-        elif args is None:
-            args = ""
-
         if target is None and self.target is None:
             self.target = "Default-First-Site-Name"
 
         if target is not None and self.target is None:
             self.target = target
 
-        self.role.host.conn.run(f'{op}-GPLink -Guid "{self._cn}" -Target "{self.target}" -LinkEnabled Yes {args}')
+        args: CLIBuilderArgs = {
+            "Guid": (self.cli.option.VALUE, self.cn),
+            "Target": (self.cli.option.VALUE, self.target),
+            "Enforced": (self.cli.option.VALUE, "Yes" if enforced else "No"),
+            "LinkEnabled": (self.cli.option.VALUE, "Yes" if not disabled else "No"),
+            "Order": (self.cli.option.VALUE, order),
+        }
+
+        # The cmdlets take the same arguments, but one is for new links and the other is for existing links.
+        # This is combined to simplify gpo management.
+        new_link = self.role.host.conn.run(
+            self.cli.command("New-GPLink", args),
+            raise_on_error=False,
+        )
+        if new_link.rc != 0:
+            self.role.host.conn.run(
+                self.cli.command("Set-GPLink", args),
+                raise_on_error=False,
+            )
 
         return self
 
@@ -1780,7 +1789,7 @@ class GPO(BaseObject[ADHost, AD]):
         :return: Group policy object
         :rtype: GPO
         """
-        self.role.host.conn.run(f'Remove-GPLink -Guid "{self._cn}" -Target "{self.target}"')
+        self.role.host.conn.run(f'Remove-GPLink -Guid "{self.cn}" -Target "{self.target}"')
 
         return self
 
@@ -1806,7 +1815,7 @@ class GPO(BaseObject[ADHost, AD]):
                 # Setting the permission using ADSI is a workaround for automation.
 
                 $authenticated_users = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-11")
-                $gpo = Get-GPO -Guid "{self._cn}"
+                $gpo = Get-GPO -Guid "{self.cn}"
                 $gid = $gpo.id
                 $search_base = "cn=policies,cn=system," + "{self.host.naming_context}"
                 $filter = "(&(objectClass=groupPolicyContainer)(cn={{$gid}}))"
@@ -1822,7 +1831,7 @@ class GPO(BaseObject[ADHost, AD]):
             )
         else:
             self.role.host.conn.run(
-                f'Set-GPPermission -Guid "{self._cn}" '
+                f'Set-GPPermission -Guid "{self.cn}" '
                 f'-TargetName "{target}" '
                 f'-PermissionLevel "{permission_level}" '
                 f'-TargetType "{target_type}" -Replace:$True -Confirm:$False'
@@ -1836,7 +1845,7 @@ class GPO(BaseObject[ADHost, AD]):
 
         This method does the remaining configuration of the group policy. It updates
         'GptTmpl.inf' with security logon right keys with the SIDs of users and groups
-        objects. The *Remote* keys can be omitted, in which the corresponding keys values
+        objects. The *Remote* keys can be omitted, in which the interactive key's value
         will then be used.
 
         To add users and groups to the policy, the SID must be used for the values. The
@@ -1887,7 +1896,7 @@ class GPO(BaseObject[ADHost, AD]):
         self.host.conn.run(
             rf"""
             Import-Module PSIni
-            $path = "C:\\Windows\\SYSVOL\\domain\\Policies\\{self._cn}\\Machine\\Microsoft\\Windows NT\\SecEdit"
+            $path = "C:\\Windows\\SYSVOL\\domain\\Policies\\{self.cn}\\Machine\\Microsoft\\Windows NT\\SecEdit"
             $file = Join-Path $path GptTmpl.inf
             $policy = @{{"Privilege Rights"={ps_logon_rights}}}
             Out-IniFile -InputObject $policy -FilePath "$file"
@@ -1900,7 +1909,7 @@ class GPO(BaseObject[ADHost, AD]):
             self.host.conn.run(
                 rf"""
                 Import-Module PSIni
-                $path = "C:\\Windows\\SYSVOL\\domain\\Policies\\{self._cn}\\Machine\\Microsoft\\Windows NT\\SecEdit"
+                $path = "C:\\Windows\\SYSVOL\\domain\\Policies\\{self.cn}\\Machine\\Microsoft\\Windows NT\\SecEdit"
                 $file = Join-Path $path GptTmpl.inf
                 $policy = {ps_cfg}
                 Out-IniFile -InputObject $policy -FilePath "$file"
@@ -1911,7 +1920,7 @@ class GPO(BaseObject[ADHost, AD]):
         self.host.conn.run(
             rf"""
             $gpc = "[{{827D319E-6EAC-11D2-A4EA-00C04F79F83A}}{{803E14A0-B4FB-11D0-A0D0-00A0C90F574B}}]"
-            Set-ADObject -Identity "{self._dn}" -Replace @{{gPCMachineExtensionNames=$gpc}}
+            Set-ADObject -Identity "{self.dn}" -Replace @{{gPCMachineExtensionNames=$gpc}}
             Exit 0
             """
         )
