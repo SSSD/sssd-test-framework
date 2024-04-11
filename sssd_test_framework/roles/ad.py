@@ -1655,13 +1655,13 @@ class GPO(BaseObject[ADHost, AD]):
         self._search_base: str = f"cn=policies,cn=system,{self.role.host.naming_context}"
         """Group policy search base."""
 
-        self._dn = self.get("DistinguishedName")
+        self._dn = self._get("DistinguishedName")
         """Group policy dn."""
 
-        self._cn = self.get("CN")
+        self._cn = self._get("CN")
         """Group policy cn."""
 
-    def get(self, key: str) -> str | None:
+    def _get(self, key: str) -> str | None:
         """
         Get group policy attributes.
 
@@ -1713,8 +1713,8 @@ class GPO(BaseObject[ADHost, AD]):
         """
         self.role.host.conn.run(f'New-GPO -name "{self.name}"')
 
-        self._cn = self.get("CN")
-        self._dn = self.get("DistinguishedName")
+        self._cn = self._get("CN")
+        self._dn = self._get("DistinguishedName")
 
         self.role.host.conn.run(
             rf"""
@@ -1733,30 +1733,33 @@ class GPO(BaseObject[ADHost, AD]):
 
     def link(
         self,
-        op: str | None = "New",
         target: str | None = None,
-        args: list[str] | str | None = None,
+        enforced: bool | None = False,
+        disabled: bool | None = False,
+        order: int | None = 0,
     ) -> GPO:
         """
-        Link the group policy to the a target object inside the directory, a site, domain or an ou.
+        Link the group policy to the target object inside the directory, a site, domain or an ou.
 
-        ..Note::
-            The New and Set cmdlets are identical. To modify an an existing link,
-            change the $op parameter to "Set", i.e. to disable 'Enforced'
-
-            ou_policy.link("Set", args=["-Enforced No"])
-
-        :param op: Cmdlet operation, defaults to "New"
-        :type op: str, optional
         :param target: Group policy target
         :type target: str, optional
-        :param args: Additional arguments
-        :type args: list[str] | None, optional
+        :param enforced: Enforced the policy
+        :type enforced: bool, optional
+        :param disabled: Disable the policy
+        :type disabled: bool, optional
+        :param order: Order number
+        :type order: int, optional
         :return: Group policy object
         :rtype: GPO
         """
-        if args is None:
-            args = []
+        args = []
+
+        if enforced is True:
+            args.extend("-Enforce Yes")
+        if disabled is True:
+            args.extend("-LinkEnabled No")
+        if order != 0:
+            args.extend(f"-Order {str(order)}")
 
         if isinstance(args, list):
             args = " ".join(args)
@@ -1769,7 +1772,7 @@ class GPO(BaseObject[ADHost, AD]):
         if target is not None and self.target is None:
             self.target = target
 
-        self.role.host.conn.run(f'{op}-GPLink -Guid "{self._cn}" -Target "{self.target}" -LinkEnabled Yes {args}')
+        self.role.host.conn.run(f'New-GPLink -Guid "{self._cn}" -Target "{self.target}" -LinkEnabled Yes {args}')
 
         return self
 
@@ -1836,7 +1839,7 @@ class GPO(BaseObject[ADHost, AD]):
 
         This method does the remaining configuration of the group policy. It updates
         'GptTmpl.inf' with security logon right keys with the SIDs of users and groups
-        objects. The *Remote* keys can be omitted, in which the corresponding keys values
+        objects. The *Remote* keys can be omitted, in which the corresponding keys value
         will then be used.
 
         To add users and groups to the policy, the SID must be used for the values. The

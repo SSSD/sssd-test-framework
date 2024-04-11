@@ -24,6 +24,7 @@ __all__ = [
     "GenericAutomount",
     "GenericAutomountMap",
     "GenericAutomountKey",
+    "GenericGPO",
 ]
 
 
@@ -252,6 +253,39 @@ class GenericProvider(ABC, MultihostRole[BaseHost]):
                         'keys': [str(key3)]
                     },
                 }
+        """
+        pass
+
+    @abstractmethod
+    def gpo(self, name: str) -> GenericGPO:
+        """
+        Get group policy object.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopologies.GenericAD)
+            def test_gpo_is_set_to_enforcing(client: Client, provider: GenericProvider):
+                user = provider.user("user").add()
+                allow_user = provider.user("allow_user").add()
+                deny_user = provider.user("deny_user").add()
+
+                provider.gpo("test policy").add().policy(
+                    {
+                    "SeInteractiveLogonRight": [allow_user, ad.group("Domain Admins")],
+                    "SeRemoteInteractiveLogonRight": [allow_user, ad.group("Domain Admins")],
+                    "SeDenyInteractiveLogonRight": [deny_user],
+                    "SeDenyRemoteInteractiveLogonRight": [deny_user],
+                    }
+                ).link()
+
+                client.sssd.domain["ad_gpo_access_control"] = "enforcing"
+                client.sssd.start()
+
+                assert client.auth.ssh.password(username="allow_user", password="Secret123")
+                assert not client.auth.ssh.password(username="user", password="Secret123")
+                assert not client.auth.ssh.password(username="deny_user", password="Secret123")
+
         """
         pass
 
@@ -960,4 +994,73 @@ class GenericAutomountKey(ABC, BaseObject):
 
     @abstractmethod
     def __str__(self) -> str:
+        pass
+
+
+class GenericGPO(ABC, BaseObject,):
+    """
+    Generic GPO management.
+    """
+
+    @property
+    @abstractmethod
+    def name(self):
+        """
+        GPO name.
+        """
+        pass
+
+    @abstractmethod
+    def get(self, key: str) -> str | None:
+        """
+        Get GPO attribute.
+        """
+        pass
+
+    @abstractmethod
+    def delete(self) -> None:
+        """
+        Delete GPO.
+        """
+        pass
+
+    @abstractmethod
+    def add(self) -> GenericGPO:
+        """
+        Add GPO.
+        """
+        pass
+
+    @abstractmethod
+    def link(
+        self,
+        op: str | None = None,
+        target: str | None = None,
+        enforced: bool | None = False,
+        disabled: bool | None = False,
+    ) -> GenericGPO:
+        """
+        Link GPO.
+        """
+        pass
+
+    @abstractmethod
+    def unlink(self) -> None:
+        """
+        Unlink GPO.
+        """
+        pass
+
+    @abstractmethod
+    def permissions(self, target: str, permission_level: str, target_type: str | None = "Group") -> GenericGPO:
+        """
+        Configure GPO permissions.
+        """
+        pass
+
+    @abstractmethod
+    def policy(self, logon_rights: dict[str, list[GenericUser]], cfg: dict[str, Any] | None = None) -> GenericGPO:
+        """
+        GPO configuration.
+        """
         pass
