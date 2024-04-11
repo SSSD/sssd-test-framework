@@ -16,14 +16,18 @@ __all__ = [
     "ProtocolName",
     "GenericProvider",
     "GenericADProvider",
+    "GenericOrganizationalUnit",
     "GenericUser",
     "GenericGroup",
+    "GenericComputer",
+    "GenericSite",
     "GenericNetgroup",
     "GenericNetgroupMember",
     "GenericSudoRule",
     "GenericAutomount",
     "GenericAutomountMap",
     "GenericAutomountKey",
+    "GenericGPO",
 ]
 
 
@@ -37,7 +41,7 @@ class ProtocolName(Protocol):
 
 class GenericProvider(ABC, MultihostRole[BaseHost]):
     """
-    Generic provider interface. All providers implements this interface.
+    Generic provider interface. All providers implement this interface.
 
     .. note::
 
@@ -93,7 +97,7 @@ class GenericProvider(ABC, MultihostRole[BaseHost]):
                 assert result is not None
                 assert result.user.name == 'user-1'
 
-        :param name: User name.
+        :param name: Username.
         :type name: str
         :return: New user object.
         :rtype: GenericUser
@@ -285,7 +289,136 @@ class GenericADProvider(GenericProvider):
 
     @property
     @abstractmethod
+    def dn(self) -> str:
+        """
+        Distinguished Name.
+        """
+        pass
+
+    @property
+    @abstractmethod
     def firewall(self) -> Firewall:
+        pass
+
+    @abstractmethod
+    def ou(self, name: str) -> GenericOrganizationalUnit:
+        """
+        Get OU object.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopologyGroup.AnyAD)
+            def test_example(client: Client, provider: GenericADProvider):
+                # Create OU
+                provider.ou("test_ou").add()
+
+        :param name: OU name.
+        :type name: str
+        :return: OU object.
+        :rtype: GenericOrganizationalUnit
+        """
+        pass
+
+    @abstractmethod
+    def computer(self, name: str) -> GenericComputer:
+        """
+        Get computer object.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopologyGroup.AnyAD)
+            def test_example(client: Client, provider: GenericADProvider):
+                # Create a new OU
+                ou = provider.ou("test_ou").add().dn
+
+                # Moves a computer object, takes the hostname and gets the shortname
+                provider.computer(client.host.hostname.split("."[0])).move(ou)
+
+        :param name: Computer name.
+        :type name: str
+        :return: OU object.
+        :rtype: GenericComputer
+        """
+        pass
+
+    @abstractmethod
+    def site(self, name: str) -> GenericSite:
+        """
+        Get site object.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopologyGroup.AnyAD)
+            def test_example(client: Client, provider: GenericADProvider):
+                # Create New Site, this name cannot contain spaces
+                site = provider.site('New-Site').add()
+
+        :param name: Site name.
+        :type name: str, cannot contain spaces
+        :return: Site object.
+        :rtype: GenericSite
+        """
+        pass
+
+    @abstractmethod
+    def gpo(self, name: str) -> GenericGPO:
+        """
+        Get group policy object.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopologyGroup.AnyAD)
+            def test_gpo_is_set_to_enforcing(client: Client, provider: GenericADProvider):
+                user = provider.user("user").add()
+                allow_user = provider.user("allow_user").add()
+                deny_user = provider.user("deny_user").add()
+
+                provider.gpo("test policy").add().policy(
+                    {
+                    "SeInteractiveLogonRight": [allow_user, provider.group("Domain Admins")],
+                    "SeRemoteInteractiveLogonRight": [allow_user, provider.group("Domain Admins")],
+                    "SeDenyInteractiveLogonRight": [deny_user],
+                    "SeDenyRemoteInteractiveLogonRight": [deny_user],
+                    }
+                ).link()
+
+                client.sssd.domain["ad_gpo_access_control"] = "enforcing"
+                client.sssd.start()
+
+                assert client.auth.ssh.password(username="allow_user", password="Secret123")
+                assert not client.auth.ssh.password(username="user", password="Secret123")
+                assert not client.auth.ssh.password(username="deny_user", password="Secret123")
+
+        """
+        pass
+
+
+class GenericOrganizationalUnit(ABC, BaseObject):
+    """
+    Generic ou management.
+    """
+
+    @property
+    @abstractmethod
+    def name(self):
+        """
+        OU name.
+        """
+        pass
+
+    @abstractmethod
+    def add(self, name: str) -> GenericOrganizationalUnit:
+        """
+        Create a new OU.
+        :param name:
+        :type name: str
+        :return: self
+        :rtype: GenericOrganizationalUnit
+        """
         pass
 
 
@@ -531,6 +664,55 @@ class GenericGroup(ABC, BaseObject):
         :type members: list[GenericUser | GenericGroup]
         :return: Self.
         :rtype: GenericGroup
+        """
+        pass
+
+
+class GenericComputer(ABC, BaseObject):
+    """
+    Generic computer management.
+    """
+
+    @property
+    @abstractmethod
+    def name(self):
+        """
+        Computer name.
+        """
+        pass
+
+    @abstractmethod
+    def move(self, target: str) -> GenericComputer:
+        """
+        Move  a computer object.
+        :param target: Target path.
+        :type target: str
+        :return: Self.
+        :rtype: GenericComputer
+        """
+        pass
+
+
+class GenericSite(ABC, BaseObject):
+    """
+    Generic site management.
+    """
+
+    @property
+    @abstractmethod
+    def name(self):
+        """
+        Site name.
+        """
+        pass
+
+    @abstractmethod
+    def add(self) -> GenericSite:
+        """
+        Create new site.
+
+        :return: Self.
+        :type: GenericSite
         """
         pass
 
@@ -960,4 +1142,105 @@ class GenericAutomountKey(ABC, BaseObject):
 
     @abstractmethod
     def __str__(self) -> str:
+        pass
+
+
+class GenericGPO(
+    ABC,
+    BaseObject,
+):
+    """
+    Generic GPO management.
+    """
+
+    @property
+    @abstractmethod
+    def name(self):
+        """
+        GPO name.
+        """
+        pass
+
+    @abstractmethod
+    def get(self, key: str) -> str | None:
+        """
+        Get GPO attribute.
+
+        :param key: Attribute key.
+        :type key: str
+        :return: Attribute value, optional
+        :rtype: str | None
+        """
+        pass
+
+    @abstractmethod
+    def delete(self) -> None:
+        """
+        Delete GPO.
+        """
+        pass
+
+    @abstractmethod
+    def add(self) -> GenericGPO:
+        """
+        Add GPO.
+        """
+        pass
+
+    @abstractmethod
+    def link(
+        self,
+        target: str | None = None,
+        enforced: bool | None = False,
+        disabled: bool | None = False,
+    ) -> GenericGPO:
+        """
+        Link GPO.
+
+        :param target: Target location, optional.
+        :type target: str | None
+        :param enforced: Enforce boolean.
+        :type enforced: bool | None
+        :param disabled: Disabled boolean.
+        :type disabled: bool | None
+        :return: Self.
+        :rtype: GenericGPO
+        """
+        pass
+
+    @abstractmethod
+    def unlink(self) -> None:
+        """
+        Unlink GPO.
+        """
+        pass
+
+    @abstractmethod
+    def permissions(self, target: str, permission_level: str, target_type: str | None = "Group") -> GenericGPO:
+        """
+        Configure GPO permissions.
+
+        :param target: Target location
+        :type target: str | None
+        :param permission_level: Permission level
+        :type permission_level: str
+        :param target_type: Target type, defaults to "Group"
+        :type target_type: str | None = "Group"
+        :return: Self.
+        :rtype: GenericGPO
+        """
+        pass
+
+    @abstractmethod
+    def policy(self, logon_rights: dict[str, list[GenericUser]], cfg: dict[str, Any] | None = None) -> GenericGPO:
+        """
+        GPO configuration.
+
+        :param logon_rights: Logon rights.
+        :type logon_rights: dict[str, list[GenericUser]]
+        :param cfg: Extra configuration parameters.
+        :type cfg: dict[str, Any] | None
+        :return: Self.
+        :rtype: GenericGPO
+        """
         pass

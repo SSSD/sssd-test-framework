@@ -30,6 +30,9 @@ class SambaHost(BaseLDAPDomainHost, BaseLinuxHost):
 
         self._features: dict[str, bool] | None = None
 
+        self.admin: str = self.config.get("username", "Administrator")
+        """Username of the admin user, defaults to value of ``Administrator``."""
+
         self.adminpw: str = self.config.get("adminpw", self.bindpw)
         """Password of the admin user, defaults to value of ``bindpw``."""
 
