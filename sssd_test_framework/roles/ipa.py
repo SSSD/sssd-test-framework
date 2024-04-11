@@ -675,8 +675,8 @@ class IPAGroup(IPAObject):
         Member can be either IPAUser, IPAGroup or a string in which case it
         is added as an external member.
 
-        :param member: List of users or groups to add as members.
-        :type member: list[IPAUser | IPAGroup | str]
+        :param members: List of users or groups to add as members.
+        :type members: list[IPAUser | IPAGroup | str]
         :return: Self.
         :rtype: IPAGroup
         """
@@ -704,8 +704,8 @@ class IPAGroup(IPAObject):
         Member can be either IPAUser, IPAGroup or a string in which case
         an external member is removed.
 
-        :param member: List of users or groups to remove from the group.
-        :type member: list[IPAUser | IPAGroup | str]
+        :param members: List of users or groups to remove from the group.
+        :type members: list[IPAUser | IPAGroup | str]
         :return: Self.
         :rtype: IPAGroup
         """
@@ -1137,7 +1137,7 @@ class IPASudoRule(IPAObject):
 
             allow_commands.append(cmd)
 
-        return (allow_commands, deny_commands, category)
+        return allow_commands, deny_commands, category
 
     def __get_hosts(self, value: str | list[str] | None) -> tuple[list[str], str]:
         hosts = []
@@ -1149,7 +1149,7 @@ class IPASudoRule(IPAObject):
 
             hosts.append(host)
 
-        return (hosts, category)
+        return hosts, category
 
     def __get_users_and_groups(
         self, value: str | IPAUser | IPAGroup | list[str | IPAUser | IPAGroup] | None
@@ -1180,7 +1180,7 @@ class IPASudoRule(IPAObject):
 
             raise ValueError(f"Unsupported type: {type(item)}")
 
-        return (users, groups, category)
+        return users, groups, category
 
     def __get_run_as_user(
         self, value: str | IPAUser | IPAGroup | list[str | IPAUser | IPAGroup] | None
@@ -1189,7 +1189,7 @@ class IPASudoRule(IPAObject):
         if category:
             category = "--runasusercat=all"
 
-        return (users, groups, category)
+        return users, groups, category
 
     def __get_run_as_group(self, value: str | IPAGroup | list[str | IPAGroup] | None) -> tuple[list[str], str]:
         groups = []
@@ -1209,7 +1209,7 @@ class IPASudoRule(IPAObject):
 
             raise ValueError(f"Unsupported type: {type(item)}")
 
-        return (groups, category)
+        return groups, category
 
     def __args_from_list(self, option: str, value: list[str]) -> str:
         if not value:

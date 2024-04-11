@@ -223,8 +223,8 @@ class KeycloakGroup(KeycloakObject):
         """
         Add multiple group members.
 
-        :param member: List of users or groups to add as members.
-        :type member: list[KeycloakUser | KeycloakGroup]
+        :param members: List of users or groups to add as members.
+        :type members: list[KeycloakUser | KeycloakGroup]
         :return: Self.
         :rtype: KeycloakGroup
         """
@@ -248,8 +248,8 @@ class KeycloakGroup(KeycloakObject):
         """
         Remove multiple group members.
 
-        :param member: List of users or groups to remove from the group.
-        :type member: list[KeycloakUser | KeycloakGroup]
+        :param members: List of users or groups to remove from the group.
+        :type members: list[KeycloakUser | KeycloakGroup]
         :return: Self.
         :rtype: KeycloakGroup
         """

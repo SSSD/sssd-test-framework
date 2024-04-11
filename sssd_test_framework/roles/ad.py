@@ -988,8 +988,8 @@ class ADGroup(ADObject):
         """
         Add multiple group members.
 
-        :param member: List of users or groups to add as members.
-        :type member: list[ADUser | ADGroup]
+        :param members: List of users or groups to add as members.
+        :type members: list[ADUser | ADGroup]
         :return: Self.
         :rtype: ADGroup
         """
@@ -1016,8 +1016,8 @@ class ADGroup(ADObject):
         """
         Remove multiple group members.
 
-        :param member: List of users or groups to remove from the group.
-        :type member: list[ADUser | ADGroup]
+        :param members: List of users or groups to remove from the group.
+        :type members: list[ADUser | ADGroup]
         :return: Self.
         :rtype: ADGroup
         """
@@ -1191,7 +1191,7 @@ class ADNetgroup(ADObject):
             if triple is not None:
                 triples.append(triple)
 
-        return (triples, netgroups)
+        return triples, netgroups
 
 
 class ADSudoRule(ADObject):
