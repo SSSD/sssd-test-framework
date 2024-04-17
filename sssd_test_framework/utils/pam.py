@@ -8,48 +8,12 @@ from pytest_mh import MultihostHost, MultihostUtility
 from pytest_mh.utils.fs import LinuxFileSystem
 
 __all__ = [
-    "PAMUtils",
-    "PAMAccess",
-    "PAMFaillock",
+    "PAMAccessUtils",
+    "PAMFaillockUtils",
 ]
 
 
-class PAMUtils(MultihostUtility[MultihostHost]):
-    """
-    Configuring various PAM modules
-    """
-
-    def __init__(self, host: MultihostHost, fs: LinuxFileSystem) -> None:
-        """
-        :param host: Remote host instance
-        :type host: MultihostHost
-        :param fs: Linux file system instance
-        :type fs: LinuxFileSystem
-        """
-        super().__init__(host)
-
-        self.fs: LinuxFileSystem = fs
-
-    def access(self, file: str = "/etc/security/access.conf") -> PAMAccess:
-        """
-        :param file: PAM Access file name.
-        :type file: str
-        :return: PAM Access object
-        :rtype: PAMAccess
-        """
-        return PAMAccess(self, file, self.host, self.fs)
-
-    def faillock(self, file: str = "/etc/security/faillock.conf") -> PAMFaillock:
-        """
-        :param file: PAM Faillock file name.
-        :type file: str
-        :return: PAM Faillock object
-        :rtype: PAMFaillock
-        """
-        return PAMFaillock(self, file, self.host, self.fs)
-
-
-class PAMAccess(PAMUtils):
+class PAMAccessUtils(MultihostUtility):
     """
     Management of PAM Access on the client host.
 
@@ -62,44 +26,53 @@ class PAMAccess(PAMUtils):
             provider.user("user-1").add()
             provider.user("user-2").add()
 
-            # Add rule to permit "user-1" and deny "user-2"
-            access = client.pam.access()
-            access.config_set([{"access": "+", "user": "user-1", "origin": "ALL"},
-                               {"access": "-", "user": "user-2", "origin": "ALL"}])
+            with mh_utility(PAMAccessUtils(client.host, client.fs)) as access:
+                # Add rule to permit "user-1" and deny "user-2"
+                access.config_set([
+                    {
+                        "access": "+",
+                        "user": "user-1",
+                        "origin": "ALL",
+                    },
+                    {
+                        "access": "-",
+                        "user": "user-2",
+                         "origin": "ALL"
+                    }
+                ])
 
-            client.sssd.authselect.enable_feature(["with-pamaccess"])
-            client.sssd.start()
+                client.sssd.authselect.enable_feature(["with-pamaccess"])
+                client.sssd.start()
 
-            # Check the results
-            assert client.auth.ssh.password("user-1", "Secret123")
-            assert not client.auth.ssh.password("user-2", "Secret123")
+                # Check the results
+                assert client.auth.ssh.password("user-1", "Secret123")
+                assert not client.auth.ssh.password("user-2", "Secret123")
     """
 
-    def __init__(self, util: PAMUtils, file: str, host: MultihostHost, fs: LinuxFileSystem) -> None:
+    def __init__(self, host: MultihostHost, fs: LinuxFileSystem, file: str = "/etc/security/access.conf") -> None:
         """
-        :param util: PAMUtils utility object
-        :type util: PAMUtils
-        :param file: Configuration file
-        :type file: str
         :param host: Multihost object
         :type host: MultihostHost
         :param fs: LinuxFileSystem object
         :type fs: LinuxFileSystem
-        :param file: File name of access file
-        :type file: str, optional
+        :param file: File name of access file, defaults to ``/etc/security/access.conf``
+        :type file: str
         """
-        super().__init__(host, fs)
-        self._changed: bool = False
+        super().__init__(host)
 
-        self.util: PAMUtils = util
+        self.fs: LinuxFileSystem = fs
         self.file: str = file
         self.path: str = "/files" + self.file
         self.args: str = f'--noautoload --transform "Access.lns incl {self.file}"'
         self.cmd: str = ""
 
-    def setup_when_used(self) -> None:
-        super().setup_when_used()
+    def setup(self) -> None:
+        super().setup()
         self.fs.backup(self.file)
+
+    def teardown(self) -> None:
+        self.fs.restore(self.file)
+        return super().teardown()
 
     def config_read(self) -> str:
         """
@@ -107,8 +80,8 @@ class PAMAccess(PAMUtils):
         :return: PAM access configuration
         :rtype: str
         """
-        self.util.logger.info(f"Reading {self.file} and parsing as Augeas tree")
-        result = self.util.host.ssh.run(f"augtool {self.args} print {self.path}")
+        self.logger.info(f"Reading {self.file} and parsing as Augeas tree")
+        result = self.host.ssh.run(f"augtool {self.args} print {self.path}")
 
         return result.stdout
 
@@ -123,17 +96,17 @@ class PAMAccess(PAMUtils):
             raise ValueError("No data!")
 
         index = 1
-        for i in self.util.host.ssh.run(f"augtool {self.args} match {self.path}/*").stdout_lines:
+        for i in self.host.ssh.run(f"augtool {self.args} match {self.path}/*").stdout_lines:
             node = re.sub("\\d", str(index), i.split("=")[0].strip())
-            leaf = self.util.host.ssh.run(f"augtool {self.args} match {node}/*").stdout_lines
+            leaf = self.host.ssh.run(f"augtool {self.args} match {node}/*").stdout_lines
             access = i.split("=")[1].strip()
             user = leaf[0].split("=")[1].strip()
             origin = leaf[1].split("=")[1].strip()
             match = {"access": access, "user": user, "origin": origin}
             for y in value:
                 if match == y:
-                    self.util.logger.info(f"Deleting node in Augeas tree {self.file}")
-                    self.util.host.ssh.run(f"augtool {self.args} --autosave rm {node}")
+                    self.logger.info(f"Deleting node in Augeas tree {self.file}")
+                    self.host.ssh.run(f"augtool {self.args} --autosave rm {node}")
                 else:
                     index = +index
 
@@ -154,10 +127,10 @@ class PAMAccess(PAMUtils):
             self.cmd = self.cmd + f"set {self.path}/access[{count}]/origin " + i["origin"] + "\n"
             count = +count
 
-        self.util.host.ssh.run(f"augtool --echo {self.args}", input=f"{self.cmd} save\n")
+        self.host.ssh.run(f"augtool --echo {self.args}", input=f"{self.cmd} save\n")
 
 
-class PAMFaillock(PAMUtils):
+class PAMFaillockUtils(MultihostUtility):
     """
     Management of PAM Faillock on the client host.
 
@@ -169,54 +142,48 @@ class PAMFaillock(PAMUtils):
             # Add user
             provider.user("user-1").add()
 
-            # Setup faillock
-            faillock = client.pam.faillock()
-            faillock.config_set({"deny": "3", "unlock_time": "300"})
+            with mh_utility(PAMFaillockUtils(client.host, client.fs)) as faillock:
+                # Setup faillock
+                faillock.config_set({"deny": "3", "unlock_time": "300"})
+                client.sssd.common.pam(["with-faillock"])
 
-            client.sssd.common.pam(["with-faillock"])
+                # Start SSSD
+                client.sssd.start()
 
-            # Start SSSD
-            client.sssd.start()
+                # Check the results
+                assert client.auth.ssh.password("user-1", "Secret123")
 
-            # Check the results
-            assert client.auth.ssh.password("user-1", "Secret123")
+                # Three failed login attempts
+                for i in range(3):
+                    assert not client.auth.ssh.password("user-1", "bad_password")
 
-            # Three failed login attempts
-            for i in range(3):
-                assert not client.auth.ssh.password("user-1", "bad_password")
-
-            assert not client.auth.ssh.password("user-1", "Secret123")
-
-            # Reset user lockout
-            client.pam.faillock("user-1").reset
-            assert client.auth.ssh.password("user-1", "Secret123")
+                assert not client.auth.ssh.password("user-1", "Secret123")
     """
 
-    def __init__(self, util: PAMUtils, file: str, host: MultihostHost, fs: LinuxFileSystem) -> None:
+    def __init__(self, host: MultihostHost, fs: LinuxFileSystem, file: str = "/etc/security/faillock.conf") -> None:
         """
-        :param util: PAMUtils object
-        :type util: PAMUtils
-        :param file: Configuration file
-        :type file: str
         :param host: MultihostHost object
         :type host: MultihostHost
         :param fs: LinuxFileSystem object
         :type fs: LinuxFileSystem
-        :param file: Faillock configuration file
-        :type file: str, optional
+        :param file: Faillock configuration file, defaults to ``/etc/security/faillock.conf``
+        :type file: str
         """
-        super().__init__(host, fs)
-        self._changed: bool = False
+        super().__init__(host)
 
-        self.util: PAMUtils = util
+        self.fs: LinuxFileSystem = fs
         self.file: str = file
         self.path: str = "/files" + self.file
         self.args: str = f'--noautoload --transform "Simplevars.lns incl {self.file}"'
         self.cmd: str = ""
 
-    def setup_when_used(self) -> None:
-        super().setup_when_used()
+    def setup(self) -> None:
+        super().setup()
         self.fs.backup(self.file)
+
+    def teardown(self) -> None:
+        self.fs.restore(self.file)
+        super().teardown()
 
     def config_read(self) -> str:
         """
@@ -224,8 +191,8 @@ class PAMFaillock(PAMUtils):
         :return: PAM access configuration
         :rtype: str
         """
-        self.util.logger.info(f"Reading {self.file} and parsing as Augeas tree")
-        result = self.util.host.ssh.run(f"augtool {self.args} print {self.path}").stdout
+        self.logger.info(f"Reading {self.file} and parsing as Augeas tree")
+        result = self.host.ssh.run(f"augtool {self.args} print {self.path}").stdout
 
         return result
 
@@ -239,9 +206,9 @@ class PAMFaillock(PAMUtils):
         if value is None:
             raise ValueError("No data!")
 
-        self.util.logger.info(f"Deleting node in Augeas tree in {self.file}")
+        self.logger.info(f"Deleting node in Augeas tree in {self.file}")
         for k, v in value.items():
-            self.util.host.ssh.run(f"augtool {self.args} --autosave rm {self.path}/{k} {v}")
+            self.host.ssh.run(f"augtool {self.args} --autosave rm {self.path}/{k} {v}")
 
     def config_set(self, value: dict[str, str]) -> None:
         """
@@ -256,4 +223,4 @@ class PAMFaillock(PAMUtils):
         for k, v in value.items():
             self.cmd = self.cmd + f"set {self.path}/{k} {v}\n"
 
-        self.util.host.ssh.run(f"augtool --echo {self.args}", input=f"{self.cmd}save\n")
+        self.host.ssh.run(f"augtool --echo {self.args}", input=f"{self.cmd}save\n")
