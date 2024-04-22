@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import PurePosixPath
+from typing import Any
+
 from .base import BaseBackupHost
 
 __all__ = [
@@ -38,29 +41,40 @@ class NFSHost(BaseBackupHost):
         self.exports_dir: str = self.config.get("exports_dir", "/exports").rstrip("/")
         """Top level NFS exports directory, defaults to ``/exports``."""
 
-    def backup(self) -> None:
+    def backup(self) -> Any:
         """
         Backup NFS server.
+
+        :return: Backup data.
+        :rtype: Any
         """
         self.ssh.run(
             rf"""
-        tar --ignore-failed-read -czvf /tmp/mh.nfs.backup.tgz "{self.exports_dir}" /etc/exports /etc/exports.d
-        """
+            tar --ignore-failed-read -czvf /tmp/mh.nfs.backup.tgz "{self.exports_dir}" /etc/exports /etc/exports.d
+            """
         )
-        self._backup_location = "/tmp/mh.nfs.backup.tgz"
+        return PurePosixPath("/tmp/mh.nfs.backup.tgz")
 
-    def restore(self) -> None:
+    def restore(self, backup_data: Any | None) -> None:
         """
         Restore NFS server to its initial contents.
+
+        :return: Backup data.
+        :rtype: Any
         """
-        if not self._backup_location:
+        if backup_data is None:
             return
+
+        if not isinstance(backup_data, PurePosixPath):
+            raise TypeError(f"Expected PurePosixPath, got {type(backup_data)}")
+
+        backup_path = str(backup_data)
 
         self.ssh.run(
             rf"""
-        rm -fr "{self.exports_dir}/*"
-        rm -fr /etc/exports.d/*
-        tar -xf "{self._backup_location}" -C /
-        exportfs -r
-        """
+            rm -fr "{self.exports_dir}/*"
+            rm -fr /etc/exports.d/*
+            tar -xf "{backup_path}" -C /
+            exportfs -r
+            """
         )

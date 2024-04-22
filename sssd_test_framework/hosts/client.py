@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import PurePosixPath
+from typing import Any
+
 from pytest_mh.ssh import SSHLog
 
 from .base import BaseBackupHost
@@ -60,9 +63,12 @@ class ClientHost(BaseBackupHost):
 
         return self._features
 
-    def backup(self) -> None:
+    def backup(self) -> Any:
         """
         Backup all SSSD data.
+
+        :return: Backup data.
+        :rtype: Any
         """
         location = "/tmp/mh.client.sssd.backup"
         self.logger.info(f"Creating backup of SSSD client at {location}")
@@ -85,16 +91,24 @@ class ClientHost(BaseBackupHost):
             log_level=SSHLog.Error,
         )
 
-        self._backup_location = location
+        return PurePosixPath(location)
 
-    def restore(self) -> None:
+    def restore(self, backup_data: Any | None) -> None:
         """
         Restore all SSSD data.
+
+        :return: Backup data.
+        :rtype: Any
         """
-        if not self._backup_location:
+        if backup_data is None:
             return
 
-        self.logger.info(f"Restoring SSSD data from {self._backup_location}")
+        if not isinstance(backup_data, PurePosixPath):
+            raise TypeError(f"Expected PurePosixPath, got {type(backup_data)}")
+
+        backup_path = str(backup_data)
+
+        self.logger.info(f"Restoring SSSD data from {backup_path}")
         self.ssh.run(
             f"""
             set -ex
@@ -107,9 +121,9 @@ class ClientHost(BaseBackupHost):
             }}
 
             rm --force --recursive /etc/sssd /var/lib/sss /var/log/sssd
-            restore "{self._backup_location}/config" /etc/sssd
-            restore "{self._backup_location}/logs" /var/log/sssd
-            restore "{self._backup_location}/lib" /var/lib/sss
+            restore "{backup_path}/config" /etc/sssd
+            restore "{backup_path}/logs" /var/log/sssd
+            restore "{backup_path}/lib" /var/lib/sss
             """,
             log_level=SSHLog.Error,
         )

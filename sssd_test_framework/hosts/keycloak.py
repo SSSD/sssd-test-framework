@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import time
+from pathlib import PurePosixPath
+from typing import Any
 
 from pytest_mh.ssh import SSHProcessError
 
@@ -44,9 +46,6 @@ class KeycloakHost(BaseDomainHost):
 
         self.adminpw = self.config.get("adminpw", "Secret123")
 
-        # Backup of original data
-        self.__backup: str | None = None
-
     def kclogin(self) -> None:
         """
         Obtain ``admin`` user credentials for Keycloak.
@@ -77,16 +76,16 @@ class KeycloakHost(BaseDomainHost):
             else:
                 break
 
-    def backup(self) -> None:
+    def backup(self) -> Any:
         """
         Backup all Keycloak server data.
 
         This is done by calling ``kc.sh export`` on the server
         and can take several seconds to finish.
-        """
-        if self.__backup is not None:
-            return
 
+        :return: Backup data.
+        :rtype: Any
+        """
         cmd = self.ssh.run(
             "set -e; systemctl stop keycloak;"
             "/opt/keycloak/bin/kc.sh export --dir /tmp/kcbackup"
@@ -94,18 +93,28 @@ class KeycloakHost(BaseDomainHost):
             "systemctl start keycloak;"
             "ls -1 /tmp/kcbackup| tail -n 1"
         )
-        self.__backup = cmd.stdout.strip()
+        path = cmd.stdout.strip()
 
-    def restore(self) -> None:
+        return PurePosixPath(path)
+
+    def restore(self, backup_data: Any | None) -> None:
         """
         Restore all Keycloak server data to its original state.
 
         This is done by calling ``kc.sh import`` on the server
         and can take several seconds to finish.
+
+        :return: Backup data.
+        :rtype: Any
         """
-        if self.__backup is None:
+        if backup_data is None:
             return
 
+        if not isinstance(backup_data, PurePosixPath):
+            raise TypeError(f"Expected PurePosixPath, got {type(backup_data)}")
+
+        backup_path = str(backup_data)
+
         self.ssh.run(
-            "systemctl stop keycloak; /opt/keycloak/bin/kc.sh import --dir /tmp/kcbackup; systemctl start keycloak"
+            f"systemctl stop keycloak; /opt/keycloak/bin/kc.sh import --dir '{backup_path}'; systemctl start keycloak"
         )

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import PurePosixPath
+from typing import Any
+
 from .base import BaseLDAPDomainHost
 
 __all__ = [
@@ -58,12 +61,15 @@ class SambaHost(BaseLDAPDomainHost):
 
         return self._features
 
-    def backup(self) -> None:
+    def backup(self) -> Any:
         """
         Backup all Samba server data.
 
         This is done by creating a backup of Samba database. This operation
         is usually very fast.
+
+        :return: Backup data.
+        :rtype: Any
         """
         self.ssh.run(
             """
@@ -75,19 +81,28 @@ class SambaHost(BaseLDAPDomainHost):
 
             # systemctl finishes before samba is fully started, wait for it to start listening on ldap port
             timeout 60s bash -c 'until netstat -ltp 2> /dev/null | grep :ldap &> /dev/null; do :; done'
-        """
+            """
         )
-        self._backup_location = "/var/lib/samba.bak"
 
-    def restore(self) -> None:
+        return PurePosixPath("/var/lib/samba.bak")
+
+    def restore(self, backup_data: Any | None) -> None:
         """
         Restore all Samba server data to its original value.
 
         This is done by overriding current database with the backup created
         by :func:`backup`. This operation is usually very fast.
+
+        :return: Backup data.
+        :rtype: Any
         """
-        if not self._backup_location:
+        if backup_data is None:
             return
+
+        if not isinstance(backup_data, PurePosixPath):
+            raise TypeError(f"Expected PurePosixPath, got {type(backup_data)}")
+
+        backup_path = str(backup_data)
 
         self.disconnect()
         self.ssh.run(
@@ -95,12 +110,12 @@ class SambaHost(BaseLDAPDomainHost):
             set -e
             systemctl stop samba
             rm -fr /var/lib/samba
-            cp -r "{self._backup_location}" /var/lib/samba
+            cp -r "{backup_path}" /var/lib/samba
             systemctl start samba
             samba-tool ntacl sysvolreset
 
             # systemctl finishes before samba is fully started, wait for it to start listening on ldap port
             timeout 60s bash -c 'until netstat -ltp 2> /dev/null | grep :ldap &> /dev/null; do :; done'
-        """
+            """
         )
         self.disconnect()

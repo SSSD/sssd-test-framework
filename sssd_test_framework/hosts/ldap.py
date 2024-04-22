@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import ldap
 from pytest_mh.ssh import SSHLog
 
@@ -37,13 +39,6 @@ class LDAPHost(BaseLDAPDomainHost):
         self.client.setdefault("id_provider", "ldap")
         self.client.setdefault("ldap_uri", f"ldap://{self.hostname}")
 
-        # Backup of original data
-        self.__backup: dict[str, dict[str, list[bytes]]] = {}
-
-    def pytest_setup(self) -> None:
-        # Start ldap before properties are enumerated in MultihostUtility
-        self._start()
-
     def setup(self) -> None:
         # Make sure ldap is running for each test
         super().setup()
@@ -78,13 +73,26 @@ class LDAPHost(BaseLDAPDomainHost):
 
         return self._features
 
-    def backup(self) -> None:
+    def remove_backup(self, backup_data: Any | None) -> None:
+        """
+        Remove backup data from the host.
+
+        :param backup_data: Backup data.
+        :type backup_data: Any | None
+        """
+        # Nothing to do since we store backup in memory
+        pass
+
+    def backup(self) -> Any:
         """
         Backup all directory server data.
 
         Full backup of ``cn=config`` and default naming context is performed.
         This is done by simple LDAP search on given base dn and remembering the
         contents. The operation is usually very fast.
+
+        :return: Backup data.
+        :rtype: Any
         """
         self._start()
         data = self.conn.search_s(self.naming_context, ldap.SCOPE_SUBTREE)
@@ -94,9 +102,10 @@ class LDAPHost(BaseLDAPDomainHost):
         dct = self.ldap_result_to_dict(data)
         dct.update(self.ldap_result_to_dict(config))
         dct.update(self.ldap_result_to_dict(nc))
-        self.__backup = dct
 
-    def restore(self) -> None:
+        return dct
+
+    def restore(self, backup_data: Any | None) -> None:
         """
         Restore directory server data.
 
@@ -105,7 +114,16 @@ class LDAPHost(BaseLDAPDomainHost):
         difference between original data obtained by :func:`backup` and then
         calling add, delete and modify operations to convert current state to
         the original state. This operation is usually very fast.
+
+        :return: Backup data.
+        :rtype: Any
         """
+        if backup_data is None:
+            return
+
+        if not isinstance(backup_data, dict):
+            raise TypeError(f"Expected dict, got {type(backup_data)}")
+
         self._start()
         data = self.conn.search_s(self.naming_context, ldap.SCOPE_SUBTREE)
         config = self.conn.search_s("cn=config", ldap.SCOPE_BASE)
@@ -118,8 +136,8 @@ class LDAPHost(BaseLDAPDomainHost):
 
         for dn, attrs in reversed(data.items()):
             # Restore records that were modified
-            if dn in self.__backup:
-                original_attrs = self.__backup[dn]
+            if dn in backup_data:
+                original_attrs = backup_data[dn]
                 modlist = ldap.modlist.modifyModlist(attrs, original_attrs)
                 modlist = self.__filter_modlist(dn, modlist)
                 if modlist:
@@ -127,11 +145,11 @@ class LDAPHost(BaseLDAPDomainHost):
 
         for dn, attrs in reversed(data.items()):
             # Delete records that were added
-            if dn not in self.__backup:
+            if dn not in backup_data:
                 self.conn.delete_s(dn)
                 continue
 
-        for dn, attrs in self.__backup.items():
+        for dn, attrs in backup_data.items():
             # Add back records that were deleted
             if dn not in data:
                 self.conn.add_s(dn, list(attrs.items()))

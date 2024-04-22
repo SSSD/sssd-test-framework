@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import PureWindowsPath
+from typing import Any
+
 from .base import BaseDomainHost
 
 __all__ = [
@@ -52,12 +55,6 @@ class ADHost(BaseDomainHost):
         # Lazy properties
         self.__naming_context: str | None = None
 
-        # GPO policy file location
-        self._backup_gpo_location: str | None = None
-
-        # Computers file location
-        self._backup_computers_location: str | None = None
-
     @property
     def features(self) -> dict[str, bool]:
         """
@@ -98,64 +95,54 @@ class ADHost(BaseDomainHost):
     def disconnect(self) -> None:
         return
 
-    def backup(self) -> None:
+    def backup(self) -> Any:
         """
         Perform limited backup of the domain controller data. Content under
         ``$default_naming_context``. Site, groupPolicyContainer and computer
         objects are explicitly exported so GPO setup can be undone. These
         operations are usually very fast.
+
+        :return: Backup data.
+        :rtype: Any
         """
-        self.ssh.run(
+        result = self.ssh.run(
             rf"""
-                $basedn = '{self.naming_context}'
-                $sitesdn = "cn=sites,cn=configuration,$basedn"
-                $backup = "C:\\multihost_backup.txt"
-                if (Test-Path $backup) {{
-                    Remove-Item $backup
-                }}
-                $result_basedn = Get-ADObject -SearchBase "$basedn" -Filter "*"
-                $result_sitesdn = Get-ADObject -SearchBase "$sitesdn" -LDAPFilter ("objectClass=site")
-                $result = $result_basedn + $result_sitesdn
-                foreach ($r in $result) {{
-                    $r.DistinguishedName | Add-Content -Path $backup
-                }}
+            $basedn = '{self.naming_context}'
+            $sitesdn = "cn=sites,cn=configuration,$basedn"
+
+            # Create temporary directory to store backups
+            $tmpdir = New-TemporaryFile | % {{ Remove-Item $_; New-Item -ItemType Directory -Path $_ }}
+            $backup_dc = Join-Path $tmpdir dc.txt
+            $backup_gpo = Join-Path $tmpdir gpo.txt
+            $backup_computers = Join-Path $tmpdir computers.txt
+
+            # Backup DC content and sites
+            $result_basedn = Get-ADObject -SearchBase "$basedn" -Filter "*"
+            $result_sitesdn = Get-ADObject -SearchBase "$sitesdn" -LDAPFilter "objectClass=site"
+            $result = $result_basedn + $result_sitesdn
+            foreach ($r in $result) {{
+                $r.DistinguishedName | Add-Content -Path $backup_dc
+            }}
+
+            # Backup GPOs
+            $result = Get-ADObject -SearchBase "$basedn" -LDAPFilter "(objectClass=GroupPolicyContainer)"
+            foreach ($r in $result) {{
+                $r.DistinguishedName | Add-Content -Path $backup_gpo
+            }}
+
+            # Backup computers
+            $result = Get-ADObject -SearchBase "cn=computers,$basedn" -LDAPFilter "(objectClass=computer)"
+            foreach ($r in $result) {{
+                $r.DistinguishedName | Add-Content -Path $backup_computers
+            }}
+
+            Write-Output $tmpdir.FullName
             """
         )
-        self._backup_location = "C:\\multihost_backup.txt"
 
-        self.ssh.run(
-            rf"""
-                $backup = "C:\\multihost_gpo_backup.txt"
-                if (Test-Path $backup) {{
-                    Remove-Item $backup
-                }}
-                $filter = "objectClass=GroupPolicyContainer"
-                $result = Get-ADObject -SearchBase "{self.naming_context}" -LDAPFilter ($filter)
-                foreach ($r in $result) {{
-                    $r.DistinguishedName | Add-Content -Path $backup
-                }}
-            """
-        )
-        self._backup_gpo_location = "C:\\multihost_gpo_backup.txt"
+        return PureWindowsPath(result.stdout.strip())
 
-        self.ssh.run(
-            rf"""
-                $backup = "C:\\multihost_computers_backup.txt"
-                $basedn = '{self.naming_context}'
-                $computersdn = "cn=computers,$basedn"
-                if (Test-Path $backup) {{
-                    Remove-Item $backup
-                }}
-                $filter = "objectClass=computer"
-                $result = Get-ADObject -SearchBase "$computersdn" -LDAPFilter ($filter)
-                foreach ($r in $result) {{
-                    $r.DistinguishedName | Add-Content -Path $backup
-                }}
-            """
-        )
-        self._backup_computers_location = "C:\\multihost_computers_backup.txt"
-
-    def restore(self) -> None:
+    def restore(self, backup_data: Any | None) -> None:
         """
         Perform limited restoration of the domain controller state.
 
@@ -171,82 +158,84 @@ class ADHost(BaseDomainHost):
         The client computer object may move to a different location during a test.
         There is a check to ensure that the object is in 'cn=computers' otherwise
         the object will be deleted when attempting to restore the computer state.
+
+        :return: Backup data.
+        :rtype: Any
         """
-        if self._backup_computers_location:
-            self.ssh.run(
-                rf"""
-                    $basedn = '{self.naming_context}'
-                    $backup = Get-Content '{self._backup_computers_location}'
-                    $result = Get-ADObject -SearchBase $basedn -Filter "*"
-                    $computersdn = "cn=computers,$basedn"
-                    foreach ($b in $backup) {{
-                        if ($b -Like "*$computersdn*") {{
-                            $cn = $b.split(",")[0].split("=")[1].ToUpper()
-                            $computer = (Get-ADComputer $cn).DistinguishedName
-                            if ($computer -NotLike "*$computersdn*") {{
-                                Write-Host Moving: $computer : $computersdn
-                                Move-ADObject -Identity "$computer" -TargetPath "$computersdn" -Confirm:$false
-                            }}
-                        }}
-                    }}
-                    Exit 0
-                """
-            )
+        if backup_data is None:
+            return
 
-        if self._backup_gpo_location:
-            self.ssh.run(
-                rf"""
-                    $basedn = '{self.naming_context}'
-                    $sitesdn = "cn=Default-First-Site-Name,cn=sites,cn=configuration,$basedn"
-                    $backup = Get-Content '{self._backup_gpo_location}'
-                    $filter = ("objectClass=GroupPolicyContainer")
-                    $gpo = Get-ADObject -SearchBase $basedn -Properties "*" -LDAPFilter $filter
-                    $sites = Get-ADObject -Identity $sitesdn -Properties "*"
-                    $link = Get-ADObject -SearchBase $basedn -Properties "*" -LDAPFilter ("gplink=*")
-                    foreach ($r in $gpo) {{
-                        if (!$backup.contains($r.DistinguishedName)) {{
-                            if ($sites.gplink -Like "*$r*") {{
-                                Remove-GPLink -GUID $r.Name -Target "Default-First-Site-Name"
-                                Write-Host Removing: "*$r*" from Default-First-Site-Name
-                            }}
-                            foreach ($g in $link) {{
-                                if ($g.gplink -Like "*$r*") {{
-                                    Remove-GPLink -GUID $r.Name -Target $g
-                                    Write-Host Removing: "*$r*" from $g
-                                }}
-                            }}
-                            Remove-GPO -GUID $r.Name
-                            $path = Join-Path C:\Windows\SYSVOL\domain\Policies\ $r.Name
-                            Remove-Item $path -Recurse -Confirm:$false -Force
-                            Write-Host "Deleting directory: $path"
-                        }}
-                    }}
-                    # An extra gplink clear on the sites target.
-                    Set-ADObject -Identity $sitesdn -Clear gPLink
-                    Exit 0
-                """
-            )
+        if not isinstance(backup_data, PureWindowsPath):
+            raise TypeError(f"Expected PureWindowsPath, got {type(backup_data)}")
 
-        if self._backup_location:
-            self.ssh.run(
-                rf"""
-                    $basedn = '{self.naming_context}'
-                    $sitesdn = "cn=sites,cn=configuration,$basedn"
-                    $backup = Get-Content '{self._backup_location}'
-                    $result_basedn = Get-ADObject -SearchBase "$basedn" -Filter "*"
-                    $result_sitesdn = Get-ADObject -SearchBase "$sitesdn" -LDAPFilter ("objectClass=site")
-                    $result = $result_basedn + $result_sitesdn
-                    foreach ($r in $result) {{
-                        if (!$backup.contains($r.DistinguishedName)) {{
-                            Write-Host "Removing: $r"
-                            Try {{
-                                Remove-ADObject -Identity $r.DistinguishedName -Recursive -Confirm:$false
-                            }} Catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {{
-                                # Ignore not found error as the object may have been deleted by recursion
-                            }}
+        backup_path = str(backup_data)
+
+        self.ssh.run(
+            rf"""
+            $basedn = '{self.naming_context}'
+            $sitesdn = "cn=sites,cn=configuration,$basedn"
+
+            # Load backup data
+            $tmpdir = '{backup_path}'
+            $backup_dc = Get-Content $(Join-Path $tmpdir dc.txt)
+            $backup_gpo = Get-Content $(Join-Path $tmpdir gpo.txt)
+            $backup_computers = Get-Content $(Join-Path $tmpdir computers.txt)
+
+            # Restore computers
+            $result = Get-ADObject -SearchBase $basedn -Filter "*"
+            $computersdn = "cn=computers,$basedn"
+            foreach ($b in $backup_computers) {{
+                if ($b -Like "*$computersdn*") {{
+                    $cn = $b.split(",")[0].split("=")[1].ToUpper()
+                    $computer = (Get-ADComputer $cn).DistinguishedName
+                    if ($computer -NotLike "*$computersdn*") {{
+                        Write-Host Moving: $computer : $computersdn
+                        Move-ADObject -Identity "$computer" -TargetPath "$computersdn" -Confirm:$false
+                    }}
+                }}
+            }}
+
+            # Restore GPOs
+            $gpo = Get-ADObject -SearchBase $basedn -Properties "*" -LDAPFilter "(objectClass=GroupPolicyContainer)"
+            $sites = Get-ADObject -Identity "cn=Default-First-Site-Name,$sitesdn" -Properties "*"
+            $link = Get-ADObject -SearchBase $basedn -Properties "*" -LDAPFilter "(gplink=*)"
+            foreach ($r in $gpo) {{
+                if (!$backup_gpo.contains($r.DistinguishedName)) {{
+                    if ($sites.gplink -Like "*$r*") {{
+                        Remove-GPLink -GUID $r.Name -Target "Default-First-Site-Name"
+                        Write-Host Removing: "*$r*" from Default-First-Site-Name
+                    }}
+                    foreach ($g in $link) {{
+                        if ($g.gplink -Like "*$r*") {{
+                            Remove-GPLink -GUID $r.Name -Target $g
+                            Write-Host Removing: "*$r*" from $g
                         }}
                     }}
-                    # If we got here, make sure we exit with 0
-                    Exit 0
-                """
-            )
+                    Remove-GPO -GUID $r.Name
+                    $path = Join-Path C:\Windows\SYSVOL\domain\Policies\ $r.Name
+                    Remove-Item $path -Recurse -Confirm:$false -Force
+                    Write-Host "Deleting directory: $path"
+                }}
+            }}
+            # An extra gplink clear on the sites target.
+            Set-ADObject -Identity "cn=Default-First-Site-Name,$sitesdn" -Clear gPLink
+
+            # Restore DC content and site
+            $result_basedn = Get-ADObject -SearchBase "$basedn" -Filter "*"
+            $result_sitesdn = Get-ADObject -SearchBase "$sitesdn" -LDAPFilter ("objectClass=site")
+            $result = $result_basedn + $result_sitesdn
+            foreach ($r in $result) {{
+                if (!$backup_dc.contains($r.DistinguishedName)) {{
+                    Write-Host "Removing: $r"
+                    Try {{
+                        Remove-ADObject -Identity $r.DistinguishedName -Recursive -Confirm:$false
+                    }} Catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {{
+                        # Ignore not found error as the object may have been deleted by recursion
+                    }}
+                }}
+            }}
+
+            # If we got here, make sure we exit with 0
+            Exit 0
+            """
+        )
