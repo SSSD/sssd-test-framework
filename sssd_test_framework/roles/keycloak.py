@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shlex
+from abc import abstractmethod
 
 from pytest_mh.conn import ProcessResult
 
@@ -39,6 +40,8 @@ class Keycloak(BaseLinuxRole[KeycloakHost]):
 
         :param command: kcadm command
         :type command: str
+        :return: Remote process result
+        :rtype: ProcessResult
         """
         kcadm = "/opt/keycloak/bin/kcadm.sh"
         command_split = shlex.split(command)
@@ -82,7 +85,34 @@ class KeycloakObject(BaseObject[KeycloakHost, Keycloak]):
         """
         super().__init__(role)
         self.name = name
-        self.id: str = ""
+
+        # This is set as a side effect of certain operations like add or get.
+        self._id: str | None = None
+
+    @property
+    def id(self) -> str:
+        """
+        Keycloak object ID.
+
+        :return: Keycloak object ID.
+        :rtype: str
+        """
+        if self._id is None:
+            obj = self.get()
+            self._id = obj["id"][0]
+
+        return self._id
+
+    @id.setter
+    def id(self, value: str):
+        self._id = value
+
+    @abstractmethod
+    def get(self) -> dict[str, list[str]]:
+        """
+        Get keycloak object data
+        """
+        pass
 
 
 class KeycloakUser(KeycloakObject):
@@ -115,7 +145,12 @@ class KeycloakUser(KeycloakObject):
         :rtype: KeycloakUser
         """
         create_user = (
-            "create users -r master " f"-s username={self.name} " f"-s email={self.name}@ipa.test " "-s enabled=true"
+            "create users -r master "
+            f"-s username={self.name} "
+            f"-s email={self.name}@ipa.test "
+            "-s enabled=true "
+            f"-s firstName={self.name} "
+            f"-s lastName={self.name}"
         )
         result = self.role.kcadm(create_user)
 
@@ -132,6 +167,53 @@ class KeycloakUser(KeycloakObject):
         """
         del_user = f"delete users/{self.id}"
         self.role.kcadm(del_user)
+
+    def modify(
+        self,
+        *,
+        firstName: str | None = None,
+        lastName: str | None = None,
+        email: str | None = None,
+        enabled: bool | None = None,
+    ) -> KeycloakUser:
+        """
+        Modify keycloak user attributes.
+
+        :param firstName: User's first name
+        :type firstName: str | None, optional
+        :param lastName: User's last name
+        :type lastName: str | None, optional
+        :param email: User's email address
+        :type email: str | None, optional
+        :param enabled: User account enabled/disabled status
+        :type enabled: bool | None, optional
+        :return: Remote process result
+        :rtype: ProcessResult
+        """
+        attrs = {"firstName": firstName, "lastName": lastName, "email": email, "enabled": enabled}
+
+        update_attrs = " ".join([f'-s "{k}={v}"' for k, v in attrs.items() if v is not None])
+        update_user = f"update users/{self.id} {update_attrs}"
+        self.role.kcadm(update_user)
+
+        return self
+
+    def set_password(
+        self,
+        password: str | None = "Secret123",
+    ) -> KeycloakUser:
+        """
+        Set Keycloak user password.
+
+        :param password: Password, defaults to 'Secret123'
+        :type password: str | None, optional
+        :return: Self
+        :rtype: KeycloakUser
+        """
+        set_password = f"set-password -r master --username {self.name} --new-password {password}"
+        self.role.kcadm(set_password)
+
+        return self
 
     def get(self) -> dict[str, list[str]]:
         """
@@ -151,6 +233,8 @@ class KeycloakUser(KeycloakObject):
         for key in json1.keys():
             out.setdefault(key, [])
             out[key].append(json1[key])
+
+        self.id = out["id"][0]
 
         return out
 
@@ -207,6 +291,27 @@ class KeycloakGroup(KeycloakObject):
 
         self.id = result.stderr.split()[-1].strip("'")
         return self
+
+    def get(self) -> dict[str, list[str]]:
+        """
+        Get Keycloak group details.
+
+        :return: Dict of group info.
+        :rtype: Dict
+        """
+        get_user = f"get groups -q username={self.name}"
+        result = self.role.kcadm(get_user)
+
+        out: dict[str, list[str]] = {}
+        if not result.stdout or result.stdout == "[ ]":
+            return out
+
+        json1 = json.loads(result.stdout)[0]
+        for key in json1.keys():
+            out.setdefault(key, [])
+            out[key].append(json1[key])
+
+        return out
 
     def add_member(self, member: KeycloakUser | KeycloakGroup) -> KeycloakGroup:
         """
