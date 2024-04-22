@@ -39,6 +39,8 @@ class Keycloak(BaseLinuxRole[KeycloakHost]):
 
         :param command: kcadm command
         :type command: str
+        :return: SSH exec result
+        :rtype: SSHProcessResult
         """
         kcadm = "/opt/keycloak/bin/kcadm.sh"
         command_split = shlex.split(command)
@@ -82,7 +84,27 @@ class KeycloakObject(BaseObject[KeycloakHost, Keycloak]):
         """
         super().__init__(role)
         self.name = name
-        self.id: str = ""
+
+        # This is set as a side effect of certain operations like add or get.
+        self._id: str | None = None
+
+    @property
+    def id(self) -> str:
+        """
+        Keycloak object ID.
+
+        :raises ValueError: If ID is not set.
+        :return: Keycloak object ID.
+        :rtype: str
+        """
+        if self._id is None:
+            raise ValueError("Keycloak object ID is unset.")
+
+        return self._id
+
+    @id.setter
+    def id(self, value: str):
+        self._id = value
 
 
 class KeycloakUser(KeycloakObject):
@@ -98,6 +120,7 @@ class KeycloakUser(KeycloakObject):
         :type name: str
         """
         super().__init__(role, name)
+        self.get()
 
     def add(
         self,
@@ -133,6 +156,53 @@ class KeycloakUser(KeycloakObject):
         del_user = f"delete users/{self.id}"
         self.role.kcadm(del_user)
 
+    def modify(
+        self,
+        *,
+        firstName: str | None = None,
+        lastName: str | None = None,
+        email: str | None = None,
+        enabled: bool | None = None,
+    ) -> KeycloakUser:
+        """
+        Modify keycloak user attributes.
+
+        :param firstName: User's first name
+        :type firstName: str | None, optional
+        :param lastName: User's last name
+        :type lastName: str | None, optional
+        :param email: User's email address
+        :type email: str | None, optional
+        :param enabled: User account enabled/disabled status
+        :type enabled: bool | None, optional
+        :return: SSH exec result
+        :rtype: SSHProcessResult
+        """
+        attrs = {"firstName": firstName, "lastName": lastName, "email": email, "enabled": enabled}
+
+        update_attrs = " ".join([f'-s "{k}={v}"' for k, v in attrs.items() if v is not None])
+        update_user = f"update users/{self.id} {update_attrs}"
+        self.role.kcadm(update_user)
+
+        return self
+
+    def set_password(
+        self,
+        password: str | None = "Secret123",
+    ) -> KeycloakUser:
+        """
+        Set Keycloak user password.
+
+        :param password: Password, defaults to 'Secret123'
+        :type password: str | None, optional
+        :return: Self
+        :rtype: KeycloakUser
+        """
+        set_password = f"set-password -r master --username {self.name} --new-password {password}"
+        self.role.kcadm(set_password)
+
+        return self
+
     def get(self) -> dict[str, list[str]]:
         """
         Get Keycloak user details.
@@ -151,6 +221,8 @@ class KeycloakUser(KeycloakObject):
         for key in json1.keys():
             out.setdefault(key, [])
             out[key].append(json1[key])
+
+        self.id = out["id"][0]
 
         return out
 
