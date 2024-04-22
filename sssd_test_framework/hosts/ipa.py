@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import PurePosixPath
+from typing import Any
+
 from pytest_mh.ssh import SSHLog
 
 from .base import BaseDomainHost
@@ -107,27 +110,38 @@ class IPAHost(BaseDomainHost):
         """
         self.ssh.exec(["kinit", "admin"], input=self.adminpw)
 
-    def backup(self) -> None:
+    def backup(self) -> Any:
         """
         Backup all IPA server data.
 
         This is done by calling ``ipa-backup --data --online`` on the server
         and can take several seconds to finish.
+
+        :return: Backup data.
+        :rtype: Any
         """
         self.ssh.run("ipa-backup --data --online")
         cmd = self.ssh.run("ls /var/lib/ipa/backup | tail -n 1")
-        self._backup_location = cmd.stdout.strip()
+        path = cmd.stdout.strip()
 
-    def restore(self) -> None:
+        return PurePosixPath(path)
+
+    def restore(self, backup_data: Any | None) -> None:
         """
         Restore all IPA server data to its original state.
 
         This is done by calling ``ipa-restore --data --online`` on the server
         and can take several seconds to finish.
+
+        :return: Backup data.
+        :rtype: Any
         """
-        if not self._backup_location:
+        if backup_data is None:
             return
 
-        self.ssh.exec(
-            ["ipa-restore", "--unattended", "--password", self.adminpw, "--data", "--online", self._backup_location]
-        )
+        if not isinstance(backup_data, PurePosixPath):
+            raise TypeError(f"Expected PurePosixPath, got {type(backup_data)}")
+
+        backup_path = str(backup_data)
+
+        self.ssh.exec(["ipa-restore", "--unattended", "--password", self.adminpw, "--data", "--online", backup_path])

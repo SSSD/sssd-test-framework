@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import PurePosixPath
+from typing import Any
+
 from .base import BaseDomainHost
 
 __all__ = [
@@ -42,18 +45,29 @@ class KDCHost(BaseDomainHost):
 
         self.client["auth_provider"] = "krb5"
 
-    def backup(self) -> None:
+    def backup(self) -> Any:
         """
         Backup KDC server.
+
+        :return: Backup data.
+        :rtype: Any
         """
         self.ssh.run('kdb5_util dump /tmp/mh.kdc.kdb.backup && rm -f "/tmp/mh.kdc.kdb.backup.dump_ok"')
-        self._backup_location = "/tmp/mh.kdc.kdb.backup"
+        return PurePosixPath("/tmp/mh.kdc.kdb.backup")
 
-    def restore(self) -> None:
+    def restore(self, backup_data: Any | None) -> None:
         """
         Restore KDC server to its initial contents.
+
+        :return: Backup data.
+        :rtype: Any
         """
-        if not self._backup_location:
+        if backup_data is None:
             return
 
-        self.ssh.run(f'kdb5_util load "{self._backup_location}"')
+        if not isinstance(backup_data, PurePosixPath):
+            raise TypeError(f"Expected PurePosixPath, got {type(backup_data)}")
+
+        backup_path = str(backup_data)
+
+        self.ssh.run(f'kdb5_util load "{backup_path}"')

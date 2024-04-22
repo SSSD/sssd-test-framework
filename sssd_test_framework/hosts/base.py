@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from pathlib import PurePath
 from typing import Any
 
 import ldap
@@ -51,59 +52,66 @@ class BaseBackupHost(BaseHost, ABC):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-        self.__backup_created: bool = False
-        """True if backup of the backend was already created."""
+        self.backup_data: Any | None = None
+        """Backup data of vanilla state of this host."""
 
-        self._backup_location: str | None = None
-        """Backup file or folder location."""
+    def pytest_setup(self) -> None:
+        super().pytest_setup()
+        self.backup_data = self.backup()
 
     def pytest_teardown(self) -> None:
-        """
-        Called once after all tests are finished.
-        """
-        if self._backup_location is not None:
-            if self.ssh.shell is SSHPowerShellProcess:
-                self.ssh.exec(["Remove-Item", "-Force", "-Recurse", self._backup_location])
-            else:
-                self.ssh.exec(["rm", "-fr", self._backup_location])
-
+        self.remove_backup(self.backup_data)
         super().pytest_teardown()
-
-    def setup(self) -> None:
-        """
-        Called before execution of each test.
-
-        Perform backup of the backend.
-        """
-        super().setup()
-
-        # Make sure to backup the data only once
-        if not self.__backup_created:
-            self.backup()
-            self.__backup_created = True
 
     def teardown(self) -> None:
         """
-        Called after execution of each test.
-
-        Perform teardown of the backend, the backend is restored to its original
-        state where is was before the test was executed.
+        Restore to vanilla state after each test.
         """
-        if self.__backup_created:
-            self.restore()
-        super().teardown()
+        self.restore(self.backup_data)
+        return super().teardown()
+
+    def remove_backup(self, backup_data: Any | None) -> None:
+        """
+        Remove backup data from the host.
+
+        :param backup_data: Backup data.
+        :type backup_data: Any | None
+        """
+        if backup_data is None:
+            return
+
+        if isinstance(backup_data, PurePath):
+            path = str(backup_data)
+        else:
+            raise TypeError(f"Only PurePath is supported as backup_data, got {type(backup_data)}")
+
+        if self.ssh.shell is SSHPowerShellProcess:
+            self.ssh.exec(["Remove-Item", "-Force", "-Recurse", path])
+        else:
+            self.ssh.exec(["rm", "-fr", path])
 
     @abstractmethod
-    def backup(self) -> None:
+    def backup(self) -> Any:
         """
         Backup backend data.
+
+        Returns directory or file path where the backup is stored (as PurePath)
+        or any Python data relevant for the backup. This data is passed to
+        :meth:`restore` which will use this information to restore the host to
+        its original state.
+
+        :return: Backup data.
+        :rtype: Any
         """
         pass
 
     @abstractmethod
-    def restore(self) -> None:
+    def restore(self, backup_data: Any | None) -> None:
         """
         Restore backend data.
+
+        :param backup_data: Backup data.
+        :type backup_data: Any | None
         """
         pass
 
