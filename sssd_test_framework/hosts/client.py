@@ -70,28 +70,29 @@ class ClientHost(BaseBackupHost):
         :return: Backup data.
         :rtype: Any
         """
-        location = "/tmp/mh.client.sssd.backup"
-        self.logger.info(f"Creating backup of SSSD client at {location}")
+        self.logger.info("Creating backup of SSSD client")
 
-        self.ssh.run(
-            f"""
+        result = self.ssh.run(
+            """
             set -ex
 
-            function backup {{
+            function backup {
                 if [ -d "$1" ] || [ -f "$1" ]; then
                     cp --force --archive "$1" "$2"
                 fi
-            }}
+            }
 
-            mkdir -p "{location}"
-            backup /etc/sssd "{location}/config"
-            backup /var/log/sssd "{location}/logs"
-            backup /var/lib/sss "{location}/lib"
+            path=`mktemp -d`
+            backup /etc/sssd "$path/config"
+            backup /var/log/sssd "$path/logs"
+            backup /var/lib/sss "$path/lib"
+
+            echo $path
             """,
             log_level=SSHLog.Error,
         )
 
-        return PurePosixPath(location)
+        return PurePosixPath(result.stdout_lines[-1].strip())
 
     def restore(self, backup_data: Any | None) -> None:
         """

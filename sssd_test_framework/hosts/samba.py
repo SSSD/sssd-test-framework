@@ -71,20 +71,24 @@ class SambaHost(BaseLDAPDomainHost):
         :return: Backup data.
         :rtype: Any
         """
-        self.ssh.run(
+        result = self.ssh.run(
             """
             set -e
+
+            path=`mktemp -d`
+
             systemctl stop samba
-            rm -fr /var/lib/samba.bak
-            cp -r /var/lib/samba /var/lib/samba.bak
+            rm -fr "$path" && cp -r /var/lib/samba "$path"
             systemctl start samba
 
             # systemctl finishes before samba is fully started, wait for it to start listening on ldap port
             timeout 60s bash -c 'until netstat -ltp 2> /dev/null | grep :ldap &> /dev/null; do :; done'
+
+            echo $path
             """
         )
 
-        return PurePosixPath("/var/lib/samba.bak")
+        return PurePosixPath(result.stdout_lines[-1].strip())
 
     def restore(self, backup_data: Any | None) -> None:
         """
