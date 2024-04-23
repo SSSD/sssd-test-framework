@@ -48,12 +48,16 @@ class NFSHost(BaseBackupHost):
         :return: Backup data.
         :rtype: Any
         """
-        self.ssh.run(
+        result = self.ssh.run(
             rf"""
-            tar --ignore-failed-read -czvf /tmp/mh.nfs.backup.tgz "{self.exports_dir}" /etc/exports /etc/exports.d
+            set -e
+            path=`mktemp`
+            tar --ignore-failed-read -czvf "$path" "{self.exports_dir}" /etc/exports /etc/exports.d
+            echo $path
             """
         )
-        return PurePosixPath("/tmp/mh.nfs.backup.tgz")
+
+        return PurePosixPath(result.stdout_lines[-1].strip())
 
     def restore(self, backup_data: Any | None) -> None:
         """
@@ -72,6 +76,7 @@ class NFSHost(BaseBackupHost):
 
         self.ssh.run(
             rf"""
+            set -e
             rm -fr "{self.exports_dir}/*"
             rm -fr /etc/exports.d/*
             tar -xf "{backup_path}" -C /

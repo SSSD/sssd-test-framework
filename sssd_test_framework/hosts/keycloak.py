@@ -87,15 +87,19 @@ class KeycloakHost(BaseDomainHost):
         :rtype: Any
         """
         cmd = self.ssh.run(
-            "set -e; systemctl stop keycloak;"
-            "/opt/keycloak/bin/kc.sh export --dir /tmp/kcbackup"
-            "> /tmp/kcbackup.log;"
-            "systemctl start keycloak;"
-            "ls -1 /tmp/kcbackup| tail -n 1"
-        )
-        path = cmd.stdout.strip()
+            """
+            set -e
 
-        return PurePosixPath(path)
+            path=`mktemp -d`
+            systemctl stop keycloak
+            /opt/keycloak/bin/kc.sh export --dir "$path"
+            systemctl start keycloak
+
+            echo $path
+            """
+        )
+
+        return PurePosixPath(cmd.stdout_lines[-1].strip())
 
     def restore(self, backup_data: Any | None) -> None:
         """
@@ -116,5 +120,10 @@ class KeycloakHost(BaseDomainHost):
         backup_path = str(backup_data)
 
         self.ssh.run(
-            f"systemctl stop keycloak; /opt/keycloak/bin/kc.sh import --dir '{backup_path}'; systemctl start keycloak"
+            f"""
+            set -e
+            systemctl stop keycloak
+            /opt/keycloak/bin/kc.sh import --dir '{backup_path}'
+            systemctl start keycloak
+            """
         )

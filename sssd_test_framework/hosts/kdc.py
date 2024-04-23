@@ -52,8 +52,15 @@ class KDCHost(BaseDomainHost):
         :return: Backup data.
         :rtype: Any
         """
-        self.ssh.run('kdb5_util dump /tmp/mh.kdc.kdb.backup && rm -f "/tmp/mh.kdc.kdb.backup.dump_ok"')
-        return PurePosixPath("/tmp/mh.kdc.kdb.backup")
+        result = self.ssh.run(
+            """
+            set -e
+            path=`mktemp`
+            kdb5_util dump $path && rm -f "$path.dump_ok"
+            echo $path
+            """
+        )
+        return PurePosixPath(result.stdout_lines[-1].strip())
 
     def restore(self, backup_data: Any | None) -> None:
         """
