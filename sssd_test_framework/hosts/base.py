@@ -63,13 +63,6 @@ class BaseBackupHost(BaseHost, ABC):
         self.remove_backup(self.backup_data)
         super().pytest_teardown()
 
-    def teardown(self) -> None:
-        """
-        Restore to vanilla state after each test.
-        """
-        self.restore(self.backup_data)
-        return super().teardown()
-
     def remove_backup(self, backup_data: Any | None) -> None:
         """
         Remove backup data from the host.

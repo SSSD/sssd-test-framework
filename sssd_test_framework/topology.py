@@ -8,6 +8,15 @@ from typing import final
 from pytest_mh import KnownTopologyBase, KnownTopologyGroupBase, Topology, TopologyDomain
 
 from .config import SSSDTopologyMark
+from .topology_controllers import (
+    ADTopologyController,
+    ClientTopologyController,
+    IPATopologyController,
+    IPATrustADTopologyController,
+    IPATrustSambaTopologyController,
+    LDAPTopologyController,
+    SambaTopologyController,
+)
 
 __all__ = [
     "KnownTopology",
@@ -34,6 +43,7 @@ class KnownTopology(KnownTopologyBase):
     Client = SSSDTopologyMark(
         name="client",
         topology=Topology(TopologyDomain("sssd", client=1, kdc=1)),
+        controller=ClientTopologyController(),
         fixtures=dict(client="sssd.client[0]", kdc="sssd.kdc[0]"),
     )
     """
@@ -43,6 +53,7 @@ class KnownTopology(KnownTopologyBase):
     LDAP = SSSDTopologyMark(
         name="ldap",
         topology=Topology(TopologyDomain("sssd", client=1, ldap=1, nfs=1, kdc=1)),
+        controller=LDAPTopologyController(),
         domains=dict(test="sssd.ldap[0]"),
         fixtures=dict(
             client="sssd.client[0]", ldap="sssd.ldap[0]", provider="sssd.ldap[0]", nfs="sssd.nfs[0]", kdc="sssd.kdc[0]"
@@ -55,6 +66,7 @@ class KnownTopology(KnownTopologyBase):
     IPA = SSSDTopologyMark(
         name="ipa",
         topology=Topology(TopologyDomain("sssd", client=1, ipa=1, nfs=1)),
+        controller=IPATopologyController(),
         domains=dict(test="sssd.ipa[0]"),
         fixtures=dict(client="sssd.client[0]", ipa="sssd.ipa[0]", provider="sssd.ipa[0]", nfs="sssd.nfs[0]"),
     )
@@ -65,6 +77,7 @@ class KnownTopology(KnownTopologyBase):
     AD = SSSDTopologyMark(
         name="ad",
         topology=Topology(TopologyDomain("sssd", client=1, ad=1, nfs=1)),
+        controller=ADTopologyController(),
         domains=dict(test="sssd.ad[0]"),
         fixtures=dict(client="sssd.client[0]", ad="sssd.ad[0]", provider="sssd.ad[0]", nfs="sssd.nfs[0]"),
     )
@@ -75,6 +88,7 @@ class KnownTopology(KnownTopologyBase):
     Samba = SSSDTopologyMark(
         name="samba",
         topology=Topology(TopologyDomain("sssd", client=1, samba=1, nfs=1)),
+        controller=SambaTopologyController(),
         domains={"test": "sssd.samba[0]"},
         fixtures=dict(client="sssd.client[0]", samba="sssd.samba[0]", provider="sssd.samba[0]", nfs="sssd.nfs[0]"),
     )
@@ -85,6 +99,7 @@ class KnownTopology(KnownTopologyBase):
     IPATrustAD = SSSDTopologyMark(
         name="ipa-trust-ad",
         topology=Topology(TopologyDomain("sssd", client=1, ipa=1, ad=1)),
+        controller=IPATrustADTopologyController(),
         domains=dict(test="sssd.ipa[0]"),
         fixtures=dict(client="sssd.client[0]", ipa="sssd.ipa[0]", ad="sssd.ad[0]", trusted="sssd.ad[0]"),
     )
@@ -95,6 +110,7 @@ class KnownTopology(KnownTopologyBase):
     IPATrustSamba = SSSDTopologyMark(
         name="ipa-trust-samba",
         topology=Topology(TopologyDomain("sssd", client=1, ipa=1, samba=1)),
+        controller=IPATrustSambaTopologyController(),
         domains=dict(test="sssd.ipa[0]"),
         fixtures=dict(client="sssd.client[0]", ipa="sssd.ipa[0]", samba="sssd.samba[0]", trusted="sssd.samba[0]"),
     )
