@@ -7,14 +7,14 @@ from typing import Any
 
 from pytest_mh.ssh import SSHLog
 
-from .base import BaseBackupHost
+from .base import BaseBackupHost, BaseLinuxHost
 
 __all__ = [
     "ClientHost",
 ]
 
 
-class ClientHost(BaseBackupHost):
+class ClientHost(BaseBackupHost, BaseLinuxHost):
     """
     SSSD client host object.
 

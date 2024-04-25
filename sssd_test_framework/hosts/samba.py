@@ -5,14 +5,14 @@ from __future__ import annotations
 from pathlib import PurePosixPath
 from typing import Any
 
-from .base import BaseLDAPDomainHost
+from .base import BaseLDAPDomainHost, BaseLinuxHost
 
 __all__ = [
     "SambaHost",
 ]
 
 
-class SambaHost(BaseLDAPDomainHost):
+class SambaHost(BaseLDAPDomainHost, BaseLinuxHost):
     """
     Samba host object.
 

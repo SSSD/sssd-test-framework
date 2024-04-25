@@ -5,14 +5,14 @@ from __future__ import annotations
 from pathlib import PurePosixPath
 from typing import Any
 
-from .base import BaseDomainHost
+from .base import BaseDomainHost, BaseLinuxHost
 
 __all__ = [
     "KDCHost",
 ]
 
 
-class KDCHost(BaseDomainHost):
+class KDCHost(BaseDomainHost, BaseLinuxHost):
     """
     Kerberos KDC server host object.
 
