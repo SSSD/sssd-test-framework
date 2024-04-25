@@ -8,14 +8,14 @@ from typing import Any
 
 from pytest_mh.ssh import SSHProcessError
 
-from .base import BaseDomainHost
+from .base import BaseDomainHost, BaseLinuxHost
 
 __all__ = [
     "KeycloakHost",
 ]
 
 
-class KeycloakHost(BaseDomainHost):
+class KeycloakHost(BaseDomainHost, BaseLinuxHost):
     """
     Keycloak host object.
 

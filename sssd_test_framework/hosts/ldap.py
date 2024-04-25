@@ -7,14 +7,14 @@ from typing import Any
 import ldap
 from pytest_mh.ssh import SSHLog
 
-from .base import BaseLDAPDomainHost
+from .base import BaseLDAPDomainHost, BaseLinuxHost
 
 __all__ = [
     "LDAPHost",
 ]
 
 
-class LDAPHost(BaseLDAPDomainHost):
+class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
     """
     LDAP host object.
 

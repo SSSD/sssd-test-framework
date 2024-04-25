@@ -5,14 +5,14 @@ from __future__ import annotations
 from pathlib import PurePosixPath
 from typing import Any
 
-from .base import BaseBackupHost
+from .base import BaseBackupHost, BaseLinuxHost
 
 __all__ = [
     "NFSHost",
 ]
 
 
-class NFSHost(BaseBackupHost):
+class NFSHost(BaseBackupHost, BaseLinuxHost):
     """
     NFS server host object.
 

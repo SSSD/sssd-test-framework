@@ -10,6 +10,8 @@ import ldap
 from ldap.ldapobject import ReconnectLDAPObject
 from pytest_mh import MultihostHost
 from pytest_mh.ssh import SSHPowerShellProcess
+from pytest_mh.utils.fs import LinuxFileSystem
+from pytest_mh.utils.services import SystemdServices
 
 from ..config import SSSDMultihostDomain
 
@@ -255,3 +257,17 @@ class BaseLDAPDomainHost(BaseDomainHost):
         :rtype: dict[str, dict[str, list[bytes]]]
         """
         return dict((dn, attrs) for dn, attrs in result if dn is not None)
+
+
+class BaseLinuxHost(MultihostHost[SSSDMultihostDomain]):
+    """
+    Base Linux host.
+
+    Adds linux specific reentrant utilities.
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.fs: LinuxFileSystem = LinuxFileSystem(self)
+        self.svc: SystemdServices = SystemdServices(self)

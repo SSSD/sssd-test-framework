@@ -7,14 +7,14 @@ from typing import Any
 
 from pytest_mh.ssh import SSHLog
 
-from .base import BaseDomainHost
+from .base import BaseDomainHost, BaseLinuxHost
 
 __all__ = [
     "IPAHost",
 ]
 
 
-class IPAHost(BaseDomainHost):
+class IPAHost(BaseDomainHost, BaseLinuxHost):
     """
     IPA host object.
 
