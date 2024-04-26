@@ -95,6 +95,8 @@ class ClientHost(BaseBackupHost, BaseLinuxHost):
             }
 
             path=`mktemp -d`
+            backup /etc/krb5.conf "$path/krb5.conf"
+            backup /etc/krb5.keytab "$path/krb5.keytab"
             backup /etc/sssd "$path/config"
             backup /var/log/sssd "$path/logs"
             backup /var/lib/sss "$path/lib"
@@ -134,6 +136,8 @@ class ClientHost(BaseBackupHost, BaseLinuxHost):
             }}
 
             rm --force --recursive /etc/sssd /var/lib/sss /var/log/sssd
+            restore "{backup_path}/krb5.conf" /etc/krb5.conf
+            restore "{backup_path}/krb5.keytab" /etc/krb5.keytab
             restore "{backup_path}/config" /etc/sssd
             restore "{backup_path}/logs" /var/log/sssd
             restore "{backup_path}/lib" /var/lib/sss

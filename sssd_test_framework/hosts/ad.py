@@ -38,6 +38,9 @@ class ADHost(BaseDomainHost):
 
         self._features: dict[str, bool] | None = None
 
+        self.adminpw: str = self.config.get("adminpw", "Secret123")
+        """Password of the Administrator user, defaults to ``Secret123``."""
+
         # Additional client configuration
         self.client.setdefault("id_provider", "ad")
         self.client.setdefault("access_provider", "ad")
