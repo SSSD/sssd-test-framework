@@ -1108,7 +1108,6 @@ class IPASudoRule(IPAObject):
         :rtype: IPASudoRule
         """
         self.delete()
-        print(self.__rule)
         self.add(
             user=user if user is not None else self.__rule.get("user", None),
             host=host if host is not None else self.__rule.get("host", None),
