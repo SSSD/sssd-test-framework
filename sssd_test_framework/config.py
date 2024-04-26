@@ -132,6 +132,11 @@ class SSSDTopologyMark(TopologyMark):
 
 class SSSDMultihostConfig(MultihostConfig):
     @property
+    def provisioned_topologies(self) -> list[str]:
+        out = self.confdict.get("provisioned_topologies", [])
+        return out if out is not None else []
+
+    @property
     def TopologyMarkClass(self) -> Type[TopologyMark]:
         return SSSDTopologyMark
 
