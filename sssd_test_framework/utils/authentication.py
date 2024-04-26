@@ -340,7 +340,9 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
 
         return result.rc == 0
 
-    def passkey(self, username: str, *, pin: str | int, device: str, ioctl: str, script: str) -> bool:
+    def passkey_with_output(
+        self, username: str, *, pin: str | int, device: str, ioctl: str, script: str, command: str = "exit 0"
+    ) -> tuple[int, int, str, str]:
         """
         Call ``su - $username`` and authenticate the user with passkey.
 
@@ -354,10 +356,10 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
         :type ioctl: str
         :param script: Path to local umockdev script file
         :type script: str
-        :return: Generated passkey mapping string.
-        :rtype: str
-        :return: True if authentication was successful, False otherwise.
-        :rtype: bool
+        :param command: Command executed after user is authenticated, defaults to "exit 0"
+        :type command: str
+        :return: Tuple containing [return code, command code, stdout, stderr].
+        :rtype: Tuple[int, int, str, str]
         """
         self.fs.backup("/usr/libexec/sssd/passkey_child")
         self.fs.copy("/usr/libexec/sssd/passkey_child", "/usr/libexec/sssd/passkey_child.orig")
@@ -379,7 +381,7 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
                 chmod 755 /usr/libexec/sssd/passkey_child
                 chmod -R a+rwx $UMOCKDEV_DIR
 
-                su --shell /bin/sh nobody -c "su - '{username}'"
+                su --shell /bin/sh nobody -c "su - '{username}' -c '{command}'"
                 """,
             mode="a=rx",
         )
@@ -399,34 +401,52 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
 
         result = self.host.ssh.expect(
             rf"""
+            # Disable debug output
+            # exp_internal 0
+
+            proc exitmsg {{ msg code }} {{
+                # Close spawned program, if we are in the prompt
+                catch close
+
+                # Wait for the exit code
+                lassign [wait] pid spawnid os_error_flag rc
+
+                puts ""
+                puts "expect result: $msg"
+                puts "expect exit code: $code"
+                puts "expect spawn exit code: $rc"
+                exit $code
+            }}
+
             # It takes some time to get authentication failure
             set timeout {DEFAULT_AUTHENTICATION_TIMEOUT}
             set prompt "\n.*\[#\$>\] $"
+            set command "{command}"
 
             spawn "{playback_umockdev}"
 
             expect {{
-                "Insert your passkey device, then press ENTER*" {{send -- "\r"}}
-                timeout {{puts "expect result: Unexpected output"; exit 201}}
-                eof {{puts "expect result: Unexpected end of file"; exit 202}}
+                "Insert your passkey device, then press ENTER*" {{send -- "\n"}}
+                timeout {{exitmsg "Unexpected output" 201}}
+                eof {{exitmsg "Unexpected end of file" 202}}
             }}
 
             expect {{
                 "Enter PIN:*" {{send -- "{pin}\r"}}
-                timeout {{puts "expect result: Unexpected output"; exit 201}}
-                eof {{puts "expect result: Unexpected end of file"; exit 202}}
+                timeout {{exitmsg "Unexpected output" 201}}
+                eof {{exitmsg "Unexpected end of file" 202}}
             }}
 
             expect {{
-                -re $prompt {{puts "expect result: Password authentication successful"; exit 0}}
-                "Authentication failure" {{puts "expect result: Authentication failure"; exit 1}}
-                timeout {{puts "expect result: Unexpected output"; exit 201}}
-                eof {{puts "expect result: Unexpected end of file"; exit 202}}
+                "Authentication failure" {{exitmsg "Authentication failure" 1}}
+                eof {{exitmsg "Password authentication successful" 0}}
+                timeout {{exitmsg "Unexpected output" 201}}
             }}
 
-            puts "expect result: Unexpected code path"
-            exit 203
-            """
+            exitmsg "Unexpected code path" 203
+
+            """,
+            verbose=False,
         )
 
         self.fs.restore("/usr/libexec/sssd/passkey_child")
@@ -434,7 +454,43 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
         if result.rc > 200:
             raise ExpectScriptError(result.rc)
 
-        return result.rc == 0
+        expect_data = result.stdout_lines[-3:]
+
+        # Get command exit code.
+        cmdrc = int(expect_data[2].split(":")[1].strip())
+
+        # Alter stdout, first line is spawned command, the last three are our expect output.
+        stdout = "\n".join(result.stdout_lines[1:-3])
+
+        return result.rc, cmdrc, stdout, result.stderr
+
+    def passkey(
+        self, username: str, *, pin: str | int, device: str, ioctl: str, script: str, command: str = "exit 0"
+    ) -> bool:
+        """
+        Call ``su - $username`` and authenticate the user with passkey.
+
+        :param username: Username
+        :type username: str
+        :param pin: Passkey PIN.
+        :type pin: str | int
+        :param device: Path to local umockdev device file.
+        :type device: str
+        :param ioctl: Path to local umockdev ioctl file.
+        :type ioctl: str
+        :param script: Path to local umockdev script file
+        :type script: str
+        :return: Generated passkey mapping string.
+        :rtype: str
+        :param command: Command executed after user is authenticated, defaults to "exit 0"
+        :type command: str
+        :return: True if authentication was successful, False otherwise.
+        :rtype: bool
+        """
+        rc, _, _, _ = self.passkey_with_output(
+            username=username, pin=pin, device=device, ioctl=ioctl, script=script, command=command
+        )
+        return rc == 0
 
 
 class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
