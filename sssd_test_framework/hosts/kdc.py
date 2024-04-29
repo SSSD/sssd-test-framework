@@ -45,6 +45,12 @@ class KDCHost(BaseDomainHost, BaseLinuxHost):
 
         self.client["auth_provider"] = "krb5"
 
+    def start(self) -> None:
+        self.svc.start("krb5kdc.service")
+
+    def stop(self) -> None:
+        self.svc.stop("krb5kdc.service")
+
     def backup(self) -> Any:
         """
         Backup KDC server.

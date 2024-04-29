@@ -58,12 +58,17 @@ class BaseBackupHost(BaseHost, ABC):
         """Backup data of vanilla state of this host."""
 
     def pytest_setup(self) -> None:
-        super().pytest_setup()
+        # Make sure required services are running
+        try:
+            self.start()
+        except NotImplementedError:
+            pass
+
+        # Create backup of initial state
         self.backup_data = self.backup()
 
     def pytest_teardown(self) -> None:
         self.remove_backup(self.backup_data)
-        super().pytest_teardown()
 
     def remove_backup(self, backup_data: Any | None) -> None:
         """
@@ -84,6 +89,24 @@ class BaseBackupHost(BaseHost, ABC):
             self.ssh.exec(["Remove-Item", "-Force", "-Recurse", path])
         else:
             self.ssh.exec(["rm", "-fr", path])
+
+    @abstractmethod
+    def start(self) -> None:
+        """
+        Start required services.
+
+        :raises NotImplementedError: If start operation is not supported.
+        """
+        pass
+
+    @abstractmethod
+    def stop(self) -> None:
+        """
+        Stop required services.
+
+        :raises NotImplementedError: If stop operation is not supported.
+        """
+        pass
 
     @abstractmethod
     def backup(self) -> Any:

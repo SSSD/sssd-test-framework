@@ -63,6 +63,18 @@ class ClientHost(BaseBackupHost, BaseLinuxHost):
 
         return self._features
 
+    def start(self) -> None:
+        """
+        Not supported.
+
+        :raises NotImplementedError: _description_
+        """
+        # SSSD might not be configured properly at this time. We start and stop SSSD in tests.
+        raise NotImplementedError("Starting Active Directory service is not implemented.")
+
+    def stop(self) -> None:
+        self.svc.stop("sssd.service")
+
     def backup(self) -> Any:
         """
         Backup all SSSD data.

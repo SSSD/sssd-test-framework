@@ -25,10 +25,6 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         Full backup and restore is supported.
     """
 
-    def _start(self) -> None:
-        # start ldap if it is not running
-        self.ssh.run(f"systemctl start {self._ldap_service_name}")
-
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
@@ -38,11 +34,6 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         # Additional client configuration
         self.client.setdefault("id_provider", "ldap")
         self.client.setdefault("ldap_uri", f"ldap://{self.hostname}")
-
-    def setup(self) -> None:
-        # Make sure ldap is running for each test
-        super().setup()
-        self._start()
 
     @property
     def features(self) -> dict[str, bool]:
@@ -83,6 +74,12 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         # Nothing to do since we store backup in memory
         pass
 
+    def start(self) -> None:
+        self.svc.start(self._ldap_service_name)
+
+    def stop(self) -> None:
+        self.svc.stop(self._ldap_service_name)
+
     def backup(self) -> Any:
         """
         Backup all directory server data.
@@ -94,7 +91,6 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         :return: Backup data.
         :rtype: Any
         """
-        self._start()
         data = self.conn.search_s(self.naming_context, ldap.SCOPE_SUBTREE)
         config = self.conn.search_s("cn=config", ldap.SCOPE_BASE)
         nc = self.conn.search_s(self.naming_context, ldap.SCOPE_BASE, attrlist=["aci"])
@@ -124,7 +120,6 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         if not isinstance(backup_data, dict):
             raise TypeError(f"Expected dict, got {type(backup_data)}")
 
-        self._start()
         data = self.conn.search_s(self.naming_context, ldap.SCOPE_SUBTREE)
         config = self.conn.search_s("cn=config", ldap.SCOPE_BASE)
         nc = self.conn.search_s(self.naming_context, ldap.SCOPE_BASE, attrlist=["aci"])
