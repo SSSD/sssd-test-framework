@@ -61,6 +61,20 @@ class SambaHost(BaseLDAPDomainHost, BaseLinuxHost):
 
         return self._features
 
+    def start(self) -> None:
+        self.svc.start("samba.service")
+
+        # systemctl finishes before Samba is really listening, we need to wait
+        self.ssh.run(
+            """
+            timeout 60s bash -c 'until netstat -ltp 2> /dev/null | grep :ldap &> /dev/null; do :; done'
+            timeout 60s bash -c 'until netstat -ltp 2> /dev/null | grep :kerberos &> /dev/null; do :; done'
+            """
+        )
+
+    def stop(self) -> None:
+        self.svc.stop("samba.service")
+
     def backup(self) -> Any:
         """
         Backup all Samba server data.
@@ -71,22 +85,16 @@ class SambaHost(BaseLDAPDomainHost, BaseLinuxHost):
         :return: Backup data.
         :rtype: Any
         """
+        self.stop()
         result = self.ssh.run(
             """
             set -e
-
             path=`mktemp -d`
-
-            systemctl stop samba
             rm -fr "$path" && cp -r /var/lib/samba "$path"
-            systemctl start samba
-
-            # systemctl finishes before samba is fully started, wait for it to start listening on ldap port
-            timeout 60s bash -c 'until netstat -ltp 2> /dev/null | grep :ldap &> /dev/null; do :; done'
-
             echo $path
             """
         )
+        self.start()
 
         return PurePosixPath(result.stdout_lines[-1].strip())
 
@@ -109,17 +117,13 @@ class SambaHost(BaseLDAPDomainHost, BaseLinuxHost):
         backup_path = str(backup_data)
 
         self.disconnect()
+        self.stop()
         self.ssh.run(
             f"""
             set -e
-            systemctl stop samba
             rm -fr /var/lib/samba
             cp -r "{backup_path}" /var/lib/samba
-            systemctl start samba
             samba-tool ntacl sysvolreset
-
-            # systemctl finishes before samba is fully started, wait for it to start listening on ldap port
-            timeout 60s bash -c 'until netstat -ltp 2> /dev/null | grep :ldap &> /dev/null; do :; done'
             """
         )
-        self.disconnect()
+        self.start()

@@ -66,11 +66,6 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
         if "realm" not in self.config:
             self.realm = self.domain.upper()
 
-    def setup(self) -> None:
-        # Make sure ipa is running for each test
-        self.ssh.run("ipactl start")
-        super().setup()
-
     @property
     def features(self) -> dict[str, bool]:
         """
@@ -109,6 +104,12 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
         Obtain ``admin`` user Kerberos TGT.
         """
         self.ssh.exec(["kinit", "admin"], input=self.adminpw)
+
+    def start(self) -> None:
+        self.svc.start("ipa.service")
+
+    def stop(self) -> None:
+        self.svc.stop("ipa.service")
 
     def backup(self) -> Any:
         """

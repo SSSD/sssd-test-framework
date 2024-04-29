@@ -95,6 +95,12 @@ class ADHost(BaseDomainHost):
     def disconnect(self) -> None:
         return
 
+    def start(self) -> None:
+        raise NotImplementedError("Starting Active Directory service is not implemented.")
+
+    def stop(self) -> None:
+        raise NotImplementedError("Stopping Active Directory service is not implemented.")
+
     def backup(self) -> Any:
         """
         Perform limited backup of the domain controller data. Content under

@@ -76,6 +76,12 @@ class KeycloakHost(BaseDomainHost, BaseLinuxHost):
             else:
                 break
 
+    def start(self) -> None:
+        self.svc.start("keycloak.service")
+
+    def stop(self) -> None:
+        self.svc.stop("keycloak.service")
+
     def backup(self) -> Any:
         """
         Backup all Keycloak server data.
@@ -86,18 +92,16 @@ class KeycloakHost(BaseDomainHost, BaseLinuxHost):
         :return: Backup data.
         :rtype: Any
         """
+        self.stop()
         cmd = self.ssh.run(
             """
             set -e
-
             path=`mktemp -d`
-            systemctl stop keycloak
             /opt/keycloak/bin/kc.sh export --dir "$path"
-            systemctl start keycloak
-
             echo $path
             """
         )
+        self.start()
 
         return PurePosixPath(cmd.stdout_lines[-1].strip())
 
@@ -119,11 +123,11 @@ class KeycloakHost(BaseDomainHost, BaseLinuxHost):
 
         backup_path = str(backup_data)
 
+        self.stop()
         self.ssh.run(
             f"""
             set -e
-            systemctl stop keycloak
             /opt/keycloak/bin/kc.sh import --dir '{backup_path}'
-            systemctl start keycloak
             """
         )
+        self.start()

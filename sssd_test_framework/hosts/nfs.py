@@ -41,6 +41,12 @@ class NFSHost(BaseBackupHost, BaseLinuxHost):
         self.exports_dir: str = self.config.get("exports_dir", "/exports").rstrip("/")
         """Top level NFS exports directory, defaults to ``/exports``."""
 
+    def start(self) -> None:
+        self.svc.start("nfs-server.service")
+
+    def stop(self) -> None:
+        self.svc.stop("nfs-server.service")
+
     def backup(self) -> Any:
         """
         Backup NFS server.
