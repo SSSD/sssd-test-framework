@@ -144,6 +144,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
     def start(
         self,
         service="sssd",
+        service_user = "sssd",
         *,
         raise_on_error: bool = True,
         apply_config: bool = True,
@@ -166,6 +167,8 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         :return: SSH process result.
         :rtype: SSHProcessResult
         """
+        self.set_service_user(service_user)
+
         if apply_config:
             self.config_apply(check_config=check_config, debug_level=debug_level)
 
@@ -307,15 +310,44 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
 
         :param user: Option value to set.
         :type user: str
-        :raises ValueError: If required feature wasn't built.
+        :raises ValueError: in case error happens.
         """
         if isinstance(self.host, BaseHost):
-            if (user != "root") and (not self.host.features["non-privileged"]):
-                raise ValueError("SSSD was built without support of running under non-root")
+            if not self.host.features["non-privileged"]:
+                return
         else:
             raise ValueError("Unexpected host type")
 
-        self.sssd["user"] = user
+        if (user != "sssd") and (user != "root"):
+            raise ValueError(f"Unsupported user {user}")
+
+        current_user = self.svc.get_property("sssd", "User")
+        if current_user == user:
+            return
+
+        if current_user == "sssd":
+            reverse_user = "root"
+            current_hash = "#"
+            reverse_hash = ""
+        else if current_user == "root":
+            reverse_user = "sssd"
+            current_hash = ""
+            reverse_hash = "#"
+        else:
+            raise ValueError(f"Unexpected current user '{current_user}'")
+
+        self.host.ssh.run(
+            f"""
+            set -ex
+
+            sed -i 's/User={current_user}/User={reverse_user}/g' /etc/systemd/system/multi-user.target.wants/sssd.service
+            sed -i 's/Group={current_user}/Group={reverse_user}/g' /etc/systemd/system/multi-user.target.wants/sssd.service
+            sed -i 's/{current_hash}SupplementaryGroups=sssd/{reverse_hash}SupplementaryGroups=sssd/g' sssd.service
+            chown {reverse_user}:{reverse_user} /var/lib/sss/db/*.ldb
+            """
+        )
+
+        return self.svc.reload_daemon()
 
     def enable_responder(self, responder: str) -> None:
         """
