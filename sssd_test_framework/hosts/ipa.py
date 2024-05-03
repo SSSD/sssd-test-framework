@@ -125,14 +125,35 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
 
         # Race condition: https://pagure.io/freeipa/issue/9584
         @retry_command(delay=0, match_stderr="Unable to add LDIF task: This entry already exists")
-        def _run_ipa_backup():
-            return self.ssh.run("ipa-backup --data --online")
+        def _backup():
+            return self.ssh.run(
+                """
+                set -ex
 
-        _run_ipa_backup()
-        cmd = self.ssh.run("ls /var/lib/ipa/backup | tail -n 1")
-        path = cmd.stdout.strip()
+                function backup {
+                    if [ -d "$1" ] || [ -f "$1" ]; then
+                        cp --force --archive "$1" "$2"
+                    fi
+                }
 
-        return PurePosixPath(path)
+                ipa-backup --data --online
+
+                path=`mktemp -d`
+                mv `find /var/lib/ipa/backup -maxdepth 1 -type d | tail -n 1` $path/ipa
+                backup /etc/krb5.conf "$path/krb5.conf"
+                backup /etc/krb5.keytab "$path/krb5.keytab"
+                backup /etc/sssd "$path/config"
+                backup /var/log/sssd "$path/logs"
+                backup /var/lib/sss "$path/lib"
+
+                echo $path
+                """,
+                log_level=SSHLog.Error,
+            )
+
+        self.logger.info("Creating backup of IPA server")
+        result = _backup()
+        return PurePosixPath(result.stdout_lines[-1].strip())
 
     def restore(self, backup_data: Any | None) -> None:
         """
@@ -151,5 +172,28 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
             raise TypeError(f"Expected PurePosixPath, got {type(backup_data)}")
 
         backup_path = str(backup_data)
+        self.logger.info(f"Restoring IPA server from {backup_path}")
 
-        self.ssh.exec(["ipa-restore", "--unattended", "--password", self.adminpw, "--data", "--online", backup_path])
+        self.ssh.run(
+            f"""
+            set -ex
+
+            function restore {{
+                rm --force --recursive "$2"
+                if [ -d "$1" ] || [ -f "$1" ]; then
+                    cp --force --archive "$1" "$2"
+                fi
+            }}
+
+            ipa-restore --unattended --password "{self.adminpw}" --data --online "{backup_path}/ipa"
+
+            rm --force --recursive /etc/sssd /var/lib/sss /var/log/sssd
+            restore "{backup_path}/krb5.conf" /etc/krb5.conf
+            restore "{backup_path}/krb5.keytab" /etc/krb5.keytab
+            restore "{backup_path}/config" /etc/sssd
+            restore "{backup_path}/logs" /var/log/sssd
+            restore "{backup_path}/lib" /var/lib/sss
+            """,
+            log_level=SSHLog.Error,
+        )
+        self.svc.restart("sssd.service")
