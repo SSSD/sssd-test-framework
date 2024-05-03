@@ -14,6 +14,7 @@ from pytest_mh.utils.fs import LinuxFileSystem
 from pytest_mh.utils.services import SystemdServices
 
 from ..config import SSSDMultihostDomain
+from ..misc import retry
 
 __all__ = [
     "BaseHost",
@@ -216,6 +217,7 @@ class BaseLDAPDomainHost(BaseDomainHost):
         self.__naming_context: str | None = None
 
     @property
+    @retry(on=ldap.SERVER_DOWN)
     def conn(self) -> ReconnectLDAPObject:
         """
         LDAP connection (``python-ldap`` library).
