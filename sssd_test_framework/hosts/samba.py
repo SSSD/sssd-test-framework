@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import PurePosixPath
 from typing import Any
 
+from pytest_mh.ssh import SSHLog
+
 from .base import BaseLDAPDomainHost, BaseLinuxHost
 
 __all__ = [
@@ -88,6 +90,8 @@ class SambaHost(BaseLDAPDomainHost, BaseLinuxHost):
         :return: Backup data.
         :rtype: Any
         """
+        self.logger.info("Creating backup of Samba DC")
+
         self.stop()
         result = self.ssh.run(
             """
@@ -95,7 +99,8 @@ class SambaHost(BaseLDAPDomainHost, BaseLinuxHost):
             path=`mktemp -d`
             rm -fr "$path" && cp -r /var/lib/samba "$path"
             echo $path
-            """
+            """,
+            log_level=SSHLog.Error,
         )
         self.start()
 
@@ -118,6 +123,7 @@ class SambaHost(BaseLDAPDomainHost, BaseLinuxHost):
             raise TypeError(f"Expected PurePosixPath, got {type(backup_data)}")
 
         backup_path = str(backup_data)
+        self.logger.info(f"Restoring Samba DC from {backup_path}")
 
         self.disconnect()
         self.stop()
@@ -127,6 +133,7 @@ class SambaHost(BaseLDAPDomainHost, BaseLinuxHost):
             rm -fr /var/lib/samba
             cp -r "{backup_path}" /var/lib/samba
             samba-tool ntacl sysvolreset
-            """
+            """,
+            log_level=SSHLog.Error,
         )
         self.start()

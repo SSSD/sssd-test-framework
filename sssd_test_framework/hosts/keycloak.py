@@ -6,7 +6,7 @@ import time
 from pathlib import PurePosixPath
 from typing import Any
 
-from pytest_mh.ssh import SSHProcessError
+from pytest_mh.ssh import SSHLog, SSHProcessError
 
 from .base import BaseDomainHost, BaseLinuxHost
 
@@ -92,6 +92,8 @@ class KeycloakHost(BaseDomainHost, BaseLinuxHost):
         :return: Backup data.
         :rtype: Any
         """
+        self.logger.info("Creating backup of Keycloak")
+
         self.stop()
         cmd = self.ssh.run(
             """
@@ -99,7 +101,8 @@ class KeycloakHost(BaseDomainHost, BaseLinuxHost):
             path=`mktemp -d`
             /opt/keycloak/bin/kc.sh export --dir "$path"
             echo $path
-            """
+            """,
+            log_level=SSHLog.Error,
         )
         self.start()
 
@@ -122,12 +125,14 @@ class KeycloakHost(BaseDomainHost, BaseLinuxHost):
             raise TypeError(f"Expected PurePosixPath, got {type(backup_data)}")
 
         backup_path = str(backup_data)
+        self.logger.info(f"Restoring Keycloak from {backup_path}")
 
         self.stop()
         self.ssh.run(
             f"""
             set -e
             /opt/keycloak/bin/kc.sh import --dir '{backup_path}'
-            """
+            """,
+            log_level=SSHLog.Error,
         )
         self.start()

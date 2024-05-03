@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import PureWindowsPath
 from typing import Any
 
+from pytest_mh.ssh import SSHLog
+
 from .base import BaseDomainHost
 
 __all__ = [
@@ -114,6 +116,8 @@ class ADHost(BaseDomainHost):
         :return: Backup data.
         :rtype: Any
         """
+        self.logger.info("Creating backup of Active Directory")
+
         result = self.ssh.run(
             rf"""
             $basedn = '{self.naming_context}'
@@ -146,7 +150,8 @@ class ADHost(BaseDomainHost):
             }}
 
             Write-Output $tmpdir.FullName
-            """
+            """,
+            log_level=SSHLog.Error,
         )
 
         return PureWindowsPath(result.stdout.strip())
@@ -178,6 +183,7 @@ class ADHost(BaseDomainHost):
             raise TypeError(f"Expected PureWindowsPath, got {type(backup_data)}")
 
         backup_path = str(backup_data)
+        self.logger.info(f"Restoring Active Directory from {backup_path}")
 
         self.ssh.run(
             rf"""
@@ -246,5 +252,6 @@ class ADHost(BaseDomainHost):
 
             # If we got here, make sure we exit with 0
             Exit 0
-            """
+            """,
+            log_level=SSHLog.Error,
         )
