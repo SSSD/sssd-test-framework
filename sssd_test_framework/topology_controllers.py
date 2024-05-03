@@ -4,6 +4,7 @@ from functools import partial, wraps
 from typing import Any
 
 from pytest_mh import TopologyController
+from pytest_mh.ssh import SSHProcessResult
 
 from .config import SSSDMultihostConfig
 from .hosts.ad import ADHost
@@ -12,6 +13,7 @@ from .hosts.client import ClientHost
 from .hosts.ipa import IPAHost
 from .hosts.nfs import NFSHost
 from .hosts.samba import SambaHost
+from .misc.ssh import retry_command
 
 __all__ = [
     "LDAPTopologyController",
@@ -211,10 +213,7 @@ class IPATrustADTopologyController(BackupTopologyController):
         # Create trust
         self.logger.info(f"Establishing trust between {ipa.domain} and {trusted.domain}")
         ipa.kinit()
-        ipa.ssh.exec(
-            ["ipa", "trust-add", trusted.domain, "--admin", "Administrator", "--password"],
-            input=trusted.adminpw,
-        )
+        self.trust_add(ipa, trusted)
 
         # Do not enroll client into IPA domain if it is already joined
         if "ipa" not in self.multihost.provisioned_topologies:
@@ -235,6 +234,14 @@ class IPATrustADTopologyController(BackupTopologyController):
         self.backup_data[ipa] = ipa.backup()
         self.backup_data[trusted] = trusted.backup()
         self.backup_data[client] = client.backup()
+
+    # If this command is run on freshly started containers, it is possible the IPA is not yet
+    # fully ready to create the trust. It takes a while for it to start working.
+    @retry_command(max_retries=20, delay=5, match_stderr='CIFS server communication error: code "3221225581"')
+    def trust_add(self, ipa: IPAHost, trusted: ADHost | SambaHost) -> SSHProcessResult:
+        return ipa.ssh.exec(
+            ["ipa", "trust-add", trusted.domain, "--admin", "Administrator", "--password"], input=trusted.adminpw
+        )
 
 
 class IPATrustSambaTopologyController(IPATrustADTopologyController):

@@ -7,6 +7,7 @@ from typing import Any
 
 from pytest_mh.ssh import SSHLog
 
+from ..misc.ssh import retry_command
 from .base import BaseDomainHost, BaseLinuxHost
 
 __all__ = [
@@ -121,7 +122,13 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
         :return: Backup data.
         :rtype: Any
         """
-        self.ssh.run("ipa-backup --data --online")
+
+        # Race condition: https://pagure.io/freeipa/issue/9584
+        @retry_command(delay=0, match_stderr="Unable to add LDIF task: This entry already exists")
+        def _run_ipa_backup():
+            return self.ssh.run("ipa-backup --data --online")
+
+        _run_ipa_backup()
         cmd = self.ssh.run("ls /var/lib/ipa/backup | tail -n 1")
         path = cmd.stdout.strip()
 
