@@ -91,6 +91,8 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         :return: Backup data.
         :rtype: Any
         """
+        self.logger.info("Creating backup of LDAP server")
+
         data = self.conn.search_s(self.naming_context, ldap.SCOPE_SUBTREE)
         config = self.conn.search_s("cn=config", ldap.SCOPE_BASE)
         nc = self.conn.search_s(self.naming_context, ldap.SCOPE_BASE, attrlist=["aci"])
@@ -116,6 +118,8 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         """
         if backup_data is None:
             return
+
+        self.logger.info("Restoring LDAP server from memory")
 
         if not isinstance(backup_data, dict):
             raise TypeError(f"Expected dict, got {type(backup_data)}")
