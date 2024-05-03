@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import itertools
-from typing import Any
+from functools import wraps
+from time import sleep
+from typing import Any, Callable, ParamSpec, TypeVar
 
 
 def attrs_parse(lines: list[str], attrs: list[str] | None = None) -> dict[str, list[str]]:
@@ -153,3 +155,49 @@ def attrs_to_hash(attrs: dict[str, Any]) -> str | None:
         return None
 
     return "@{" + out.rstrip(";") + "}"
+
+
+Param = ParamSpec("Param")
+RetType = TypeVar("RetType")
+
+
+def retry(
+    max_retries: int = 5,
+    delay: float = 1,
+    on: type[Exception] | list[type[Exception]] | None = None,
+) -> Callable[[Callable[Param, RetType]], Callable[Param, RetType]]:
+    """
+    Decorated function will be retried if it raises an exception.
+
+    :param max_retries: Maximum number of retry attempts, defaults to 5
+    :type max_retries: int, optional
+    :param delay: Delay in seconds between each retry, defaults to 1
+    :type delay: float, optional
+    :param on: If set, retry only on given exceptions, defaults to None
+    :type on: type[Exception] | list[type[Exception]] | None, optional
+
+    :return: Decorated function.
+    :rtype: Callable
+    """
+    if on is None:
+        on = [Exception]
+
+    types = tuple(to_list(on))
+
+    def decorator(func: Callable[Param, RetType]) -> Callable[Param, RetType]:
+        @wraps(func)
+        def wrapper(*args, **kwargs) -> RetType:
+            retry: int = 0
+            while True:
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    if retry >= max_retries or not isinstance(e, types):
+                        raise
+
+                    retry += 1
+                    sleep(delay)
+
+        return wrapper
+
+    return decorator
