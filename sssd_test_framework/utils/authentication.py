@@ -341,7 +341,8 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
         return result.rc == 0
 
     def passkey_with_output(
-        self, username: str, *, pin: str | int, device: str, ioctl: str, script: str, command: str = "exit 0"
+        self, username: str, *, device: str, ioctl: str, script: str, pin: str | int | None = None,
+            interactive_prompt: str | None = None, touch_prompt: str | None = None, command: str = "exit 0"
     ) -> tuple[int, int, str, str]:
         """
         Call ``su - $username`` and authenticate the user with passkey.
@@ -385,7 +386,6 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
                 """,
             mode="a=rx",
         )
-
         playback_umockdev = self.fs.mktmp(
             rf"""
             #!/bin/bash
@@ -422,28 +422,78 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
             set timeout {DEFAULT_AUTHENTICATION_TIMEOUT}
             set prompt "\n.*\[#\$>\] $"
             set command "{command}"
+            set pin "{pin}"
 
             spawn "{playback_umockdev}"
 
-            expect {{
-                "Insert your passkey device, then press ENTER*" {{send -- "\n"}}
-                timeout {{exitmsg "Unexpected output" 201}}
-                eof {{exitmsg "Unexpected end of file" 202}}
+            if {{$interactive_prompt ne "None"}} {{
+                expect {{
+                    "{interactive_prompt}*" {{ send -- "\n"}}
+                    timeout {{exitmsg "Unexpected output" 201}}
+                    eof {{exitmsg "Unexpected end of file" 202}}
+                }}
+            }} else {{
+                expect {{
+                    "Insert your passkey device, then press ENTER*" {{send -- "\n"}}
+                    timeout {{exitmsg "Unexpected output" 201}}
+                    eof {{exitmsg "Unexpected end of file" 202}}
+                }}
             }}
 
-            expect {{
-                "Enter PIN:*" {{send -- "{pin}\r"}}
-                timeout {{exitmsg "Unexpected output" 201}}
-                eof {{exitmsg "Unexpected end of file" 202}}
+            if {{$pin ne "None"}} {{
+                expect {{
+                    "Enter PIN:*" {{send -- "{pin}\r"}}
+                    timeout {{exitmsg "Unexpected output" 201}}
+                    eof {{exitmsg "Unexpected end of file" 202}}
+                }}
+            }} else {{
+                expect {{
+                "Authentication failure" {{exitmsg "Authentication failure" 1}}
+                eof {{exitmsg "Password authentication successful" 0}}
+                timeout {{exitmsg "Unexpected output" 301}}
+                }}
+            }}
+
+            if {{$pin eq "\r"}} {{
+                expect {{
+                    "Enter PIN:*" {{send -- "{pin}\r"}}
+                    timeout {{exitmsg "Unexpected output" 201}}
+                    eof {{exitmsg "Unexpected end of file" 202}}
+                }}
+                expect {{
+                    "Password:*" {{send -- "Secret123\r"}}
+                    timeout {{exitmsg "Unexpected output" 201}}
+                    eof {{exitmsg "Unexpected end of file" 202}}
+                }}
+            }} else {{
+                expect {{
+                    "Authentication failure" {{exitmsg "Authentication failure" 1}}
+                    eof {{exitmsg "Password authentication successful" 0}}
+                    timeout {{exitmsg "Unexpected output" 301}}
+                }}
+            }}
+
+            if {{$touch_prompt ne "None"}} {{
+                expect {{
+                    "{touch_prompt}*" {{ send -- "\n"}}
+                    timeout {{exitmsg "Unexpected output" 201}}
+                    eof {{exitmsg "Unexpected end of file" 202}}
+                }}
+            }} else {{
+                expect {{
+                    "Authentication failure" {{exitmsg "Authentication failure" 1}}
+                    timeout {{exitmsg "Unexpected output" 201}}
+                    eof {{exitmsg "Unexpected end of file" 202}}
+                }}
             }}
 
             expect {{
                 "Authentication failure" {{exitmsg "Authentication failure" 1}}
                 eof {{exitmsg "Password authentication successful" 0}}
-                timeout {{exitmsg "Unexpected output" 201}}
+                timeout {{exitmsg "Unexpected output" 401}}
             }}
 
-            exitmsg "Unexpected code path" 203
+            exitmsg "Unexpected code path" 503
 
             """,
             verbose=False,
@@ -464,9 +514,7 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
 
         return result.rc, cmdrc, stdout, result.stderr
 
-    def passkey(
-        self, username: str, *, pin: str | int, device: str, ioctl: str, script: str, command: str = "exit 0"
-    ) -> bool:
+    def passkey(self, username: str, *, device: str, ioctl: str, script: str, pin: str | int | None = None, command: str = "exit 0") -> bool:
         """
         Call ``su - $username`` and authenticate the user with passkey.
 
