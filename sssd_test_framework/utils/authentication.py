@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import Enum
 from typing import Any
 
 from pytest_mh import MultihostHost, MultihostUtility
@@ -21,6 +22,18 @@ __all__ = [
 
 DEFAULT_AUTHENTICATION_TIMEOUT: int = 60
 """Default timeout for authentication failure."""
+
+
+class PasskeyAuthenticationUseCases(Enum):
+    """
+    Authentication methods for passkey authentication.
+    """
+
+    PASSKEY_PIN = 0
+    PASSKEY_PIN_AND_PROMPTS = 1
+    PASSKEY_PROMPTS_NO_PIN = 2
+    PASSKEY_NO_PIN_NO_PROMPTS = 3
+    PASSKEY_FALLBACK_TO_PASSWORD = 4
 
 
 class AuthenticationUtils(MultihostUtility[MultihostHost]):
@@ -341,23 +354,39 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
         return result.rc == 0
 
     def passkey_with_output(
-        self, username: str, *, pin: str | int, device: str, ioctl: str, script: str, command: str = "exit 0"
+        self,
+        username: str,
+        *,
+        device: str,
+        ioctl: str,
+        script: str,
+        pin: str | int | None = None,
+        interactive_prompt: str = "Insert your passkey device, then press ENTER.",
+        touch_prompt: str = "Please touch the device.",
+        command: str = "exit 0",
+        auth_method: PasskeyAuthenticationUseCases = PasskeyAuthenticationUseCases.PASSKEY_PIN,
     ) -> tuple[int, int, str, str]:
         """
         Call ``su - $username`` and authenticate the user with passkey.
 
         :param username: Username
         :type username: str
-        :param pin: Passkey PIN.
-        :type pin: str | int
         :param device: Path to local umockdev device file.
         :type device: str
         :param ioctl: Path to local umockdev ioctl file.
         :type ioctl: str
         :param script: Path to local umockdev script file
         :type script: str
+        :param pin: Passkey PIN, defaults to None
+        :type pin: str | int | None
+        :param interactive_prompt: Interactive prompt, defaults to "Insert your passkey device, then press ENTER."
+        :type interactive_prompt: str
+        :param touch_prompt: Touch prompt, defaults to "Can you touch this device"
+        :type touch_prompt: str
         :param command: Command executed after user is authenticated, defaults to "exit 0"
         :type command: str
+        :param auth_method: Authentication method, defaults to PasskeyAuthenticationUseCases.PASSKEY_WITH_PIN
+        :type auth_method: PasskeyAuthenticationUseCases
         :return: Tuple containing [return code, command code, stdout, stderr].
         :rtype: Tuple[int, int, str, str]
         """
@@ -367,6 +396,18 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
         device_path = self.fs.upload_to_tmp(device, mode="a=r")
         ioctl_path = self.fs.upload_to_tmp(ioctl, mode="a=r")
         script_path = self.fs.upload_to_tmp(script, mode="a=r")
+
+        match auth_method:
+            case (PasskeyAuthenticationUseCases.PASSKEY_PIN, PasskeyAuthenticationUseCases.PASSKEY_PIN_AND_PROMPTS):
+                if pin is None:
+                    raise ValueError(f"PIN is required for {str(auth_method)}")
+            case (
+                PasskeyAuthenticationUseCases.PASSKEY_PROMPTS_NO_PIN,
+                PasskeyAuthenticationUseCases.PASSKEY_FALLBACK_TO_PASSWORD,
+                PasskeyAuthenticationUseCases.PASSKEY_NO_PIN_NO_PROMPTS,
+            ):
+                if pin is not None:
+                    raise ValueError(f"PIN is not required for {str(auth_method)}")
 
         run_su = self.fs.mktmp(
             rf"""
@@ -422,19 +463,62 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
             set timeout {DEFAULT_AUTHENTICATION_TIMEOUT}
             set prompt "\n.*\[#\$>\] $"
             set command "{command}"
+            set auth_method "{auth_method}"
 
             spawn "{playback_umockdev}"
 
-            expect {{
-                "Insert your passkey device, then press ENTER*" {{send -- "\n"}}
-                timeout {{exitmsg "Unexpected output" 201}}
-                eof {{exitmsg "Unexpected end of file" 202}}
+            # If the authentication method set without entering the PIN, it will directly ask
+            # prompt, if we set prompting options in sssd.conf it will ask interactive and touch prompt.
+
+            if {{ ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_NO_PIN_NO_PROMPTS}")
+                || ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_PROMPTS_NO_PIN}") }}  {{
+                expect {{
+                    "{interactive_prompt}*" {{ send -- "\n" }}
+                    timeout {{exitmsg "Unexpected output" 201 }}
+                    eof {{exitmsg "Unexpected end of file" 202 }}
+                }}
+                # If prompt options are set
+                if {{ ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_PROMPTS_NO_PIN}") }} {{
+                    expect {{
+                        "{touch_prompt}*" {{ send -- "\n" }}
+                        timeout {{exitmsg "Unexpected output" 201 }}
+                        eof {{exitmsg "Unexpected end of file" 202 }}
+                    }}
+                }}
             }}
 
-            expect {{
-                "Enter PIN:*" {{send -- "{pin}\r"}}
-                timeout {{exitmsg "Unexpected output" 201}}
-                eof {{exitmsg "Unexpected end of file" 202}}
+            # If authentication method set with PIN, after interactive prompt always ask to Enter the PIN.
+            # If PIN is correct with prompt options in sssd.conf it will ask interactive and touch prompt.
+            # If we press Enter key for PIN, sssd will fallback to next auth method, here it will ask
+            # for Password.
+
+            if {{ ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_PIN}")
+                || ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_PIN_AND_PROMPTS}")
+                || ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_FALLBACK_TO_PASSWORD}")}} {{
+                expect {{
+                    "{interactive_prompt}*" {{ send -- "\n" }}
+                    timeout {{exitmsg "Unexpected output" 201 }}
+                    eof {{exitmsg "Unexpected end of file" 202 }}
+                }}
+                expect {{
+                    "Enter PIN:*" {{send -- "{pin}\r"}}
+                    timeout {{exitmsg "Unexpected output" 201}}
+                    eof {{exitmsg "Unexpected end of file" 202}}
+                }}
+                if {{ ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_FALLBACK_TO_PASSWORD}") }} {{
+                    expect {{
+                        "Password:*" {{send -- "Secret123\r"}}
+                        timeout {{exitmsg "Unexpected output" 201}}
+                        eof {{exitmsg "Unexpected end of file" 202}}
+                    }}
+                }}
+                if {{ ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_PIN_AND_PROMPTS}") }} {{
+                    expect {{
+                        "{touch_prompt}*" {{ send -- "\n" }}
+                        timeout {{exitmsg "Unexpected output" 201 }}
+                        eof {{exitmsg "Unexpected end of file" 202 }}
+                    }}
+                }}
             }}
 
             expect {{
@@ -444,7 +528,6 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
             }}
 
             exitmsg "Unexpected code path" 203
-
             """,
             verbose=False,
         )
@@ -465,7 +548,14 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
         return result.rc, cmdrc, stdout, result.stderr
 
     def passkey(
-        self, username: str, *, pin: str | int, device: str, ioctl: str, script: str, command: str = "exit 0"
+        self,
+        username: str,
+        *,
+        device: str,
+        ioctl: str,
+        script: str,
+        pin: str | int | None = None,
+        command: str = "exit 0",
     ) -> bool:
         """
         Call ``su - $username`` and authenticate the user with passkey.
