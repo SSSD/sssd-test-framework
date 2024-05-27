@@ -408,7 +408,7 @@ class IPAUser(IPAObject):
         gecos: str | None = None,
         shell: str | None = None,
         require_password_reset: bool = False,
-        user_auth_type: list[str] | None = None,
+        user_auth_type: str | list[str] | None = None,
     ) -> IPAUser:
         """
         Create new IPA user.
@@ -430,7 +430,7 @@ class IPAUser(IPAObject):
         :param require_password_reset: Require password reset on first login, defaults to False
         :type require_password_reset: bool, optional
         :param user_auth_type: Types of supported user authentication, defaults to None
-        :type user_auth_type: list[str] | None, optional
+        :type user_auth_type: str | list[str] | None, optional
         :return: Self.
         :rtype: IPAUser
         """
@@ -461,7 +461,7 @@ class IPAUser(IPAObject):
         home: str | None = None,
         gecos: str | None = None,
         shell: str | None = None,
-        user_auth_type: list[str] | None = None,
+        user_auth_type: str | list[str] | None = None,
     ) -> IPAUser:
         """
         Modify existing IPA user.
@@ -481,7 +481,7 @@ class IPAUser(IPAObject):
         :param shell: Login shell, defaults to None
         :type shell: str | None, optional
         :param user_auth_type: Types of supported user authentication, defaults to None
-        :type user_auth_type: list[str] | None, optional
+        :type user_auth_type: str | list[str] | None, optional
         :return: Self.
         :rtype: IPAUser
         """
