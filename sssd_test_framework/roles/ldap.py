@@ -735,6 +735,7 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         shadowMax: int | DeleteAttribute | None = None,
         shadowWarning: int | DeleteAttribute | None = None,
         shadowLastChange: int | DeleteAttribute | None = None,
+        cn: str | DeleteAttribute | None = None,
         sn: str | DeleteAttribute | None = None,
         mail: str | DeleteAttribute | None = None,
     ) -> LDAPUser:
@@ -762,6 +763,8 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         :type shadowWarning: int | DeleteAttribute | None, optional
         :param shadowLastChange: shadowlastchage LDAP attribute, defaults to None
         :type shadowLastChange: int | DeleteAttribute | None, optional
+        :param cn: common name LDAP attribute, defaults to None
+        :type cn: str | DeleteAttribute | None, optional
         :param sn: surname LDAP attribute, defaults to None
         :type sn: str | DeleteAttribute | None, optional
         :param mail: mail LDAP attribute, defaults to None
@@ -780,6 +783,7 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
             "shadowMax": shadowMax,
             "shadowWarning": shadowWarning,
             "shadowLastChange": shadowLastChange,
+            "cn": cn,
             "sn": sn,
             "mail": mail,
         }
