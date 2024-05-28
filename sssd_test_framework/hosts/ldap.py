@@ -35,6 +35,14 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         self.client.setdefault("id_provider", "ldap")
         self.client.setdefault("ldap_uri", f"ldap://{self.hostname}")
 
+        # Use different default for domain
+        if "domain" not in self.config and "dns_discovery_domain" in self.client:
+            self.domain = self.client["dns_discovery_domain"]
+
+        # Use different default for realm
+        if "realm" not in self.config:
+            self.realm = self.domain.upper()
+
     @property
     def features(self) -> dict[str, bool]:
         """
