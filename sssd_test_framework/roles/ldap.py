@@ -183,7 +183,7 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
         """
         return LDAPOrganizationalUnit[LDAPHost, LDAP](self, name, basedn)
 
-    def user(self, name: str, basedn: LDAPObject | str | None = "ou=users") -> LDAPUser:
+    def user(self, name: str, basedn: LDAPObject | str | None = "ou=users", rdn_attr: str | None = "cn") -> LDAPUser:
         """
         Get user object.
 
@@ -210,10 +210,12 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
         :type name: str
         :param basedn: Base dn, defaults to ``ou=users``
         :type basedn: LDAPObject | str | None, optional
+        :param rdn_attr: RDN Attribute (uid, cn, etc)
+        :type rdn_attr: str, defaults to 'cn'
         :return: New user object.
         :rtype: LDAPUser
         """
-        return LDAPUser(self, name, basedn)
+        return LDAPUser(self, name, basedn, rdn_attr)
 
     def group(
         self, name: str, basedn: LDAPObject | str | None = "ou=groups", *, rfc2307bis: bool = False
@@ -401,7 +403,12 @@ class LDAPObject(BaseObject[HostType, LDAPRoleType]):
         if basedn.lower() != f"ou={default_ou}" or default_ou in self.role.auto_ou:
             return
 
-        self.role.ou(default_ou).add()
+        try:
+            self.role.ou(default_ou).add()
+        except ldap.ALREADY_EXISTS:
+            pass
+        except Exception as err:
+            raise err
         self.role.auto_ou[default_ou] = True
 
     def _dn(self, rdn: str, basedn: LDAPObject | str | None = None) -> str:
@@ -623,7 +630,7 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
     LDAP user management.
     """
 
-    def __init__(self, role: LDAP, name: str, basedn: LDAPObject | str | None = "ou=users") -> None:
+    def __init__(self, role: LDAP, name: str, basedn: LDAPObject | str | None = "ou=users", rdn_attr: str | None = "cn") -> None:
         """
         :param role: LDAP role object.
         :type role: LDAP
@@ -631,8 +638,10 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         :type name: str
         :param basedn: Base dn, defaults to ``ou=users``
         :type basedn: LDAPObject | str | None, optional
+        :param rdn_attr: RDN Attribute (uid, cn, etc)
+        :type rdn_attr: str, defaults to 'cn'
         """
-        super().__init__(role, name, f"cn={name}", basedn, default_ou="users")
+        super().__init__(role, name, f"{rdn_attr}={name}", basedn, default_ou="users")
 
         self.first_passkey_add = False
         """Whether the 'passkeyUser' objectClass has already been added."""
@@ -651,6 +660,7 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         shadowWarning: int | None = None,
         shadowLastChange: int | None = None,
         sn: str | None = None,
+        givenName: str | None = None,
         mail: str | None = None,
     ) -> LDAPUser:
         """
@@ -681,6 +691,8 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         :type shadowLastChange: int | None, optional
         :param sn: surname LDAP attribute, defaults to None
         :type sn: str | None, optional
+        :param givenName: givenName LDAP attribute, defaults to None
+        :type givenName: str | None, optional
         :param mail: mail LDAP attribute, defaults to None
         :type mail: str | None, optional
         :return: Self.
@@ -709,6 +721,7 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
             "shadowWarning": shadowWarning,
             "shadowLastChange": shadowLastChange,
             "sn": sn,
+            "givenName": givenName,
             "mail": mail,
         }
 
@@ -735,7 +748,9 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         shadowMax: int | DeleteAttribute | None = None,
         shadowWarning: int | DeleteAttribute | None = None,
         shadowLastChange: int | DeleteAttribute | None = None,
+        cn: str | DeleteAttribute | None = None,
         sn: str | DeleteAttribute | None = None,
+        givenName: str | DeleteAttribute | None = None,
         mail: str | DeleteAttribute | None = None,
     ) -> LDAPUser:
         """
@@ -762,8 +777,12 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         :type shadowWarning: int | DeleteAttribute | None, optional
         :param shadowLastChange: shadowlastchage LDAP attribute, defaults to None
         :type shadowLastChange: int | DeleteAttribute | None, optional
+        :param cn: common name LDAP attribute, defaults to None
+        :type cn: str | DeleteAttribute | None, optional
         :param sn: surname LDAP attribute, defaults to None
         :type sn: str | DeleteAttribute | None, optional
+        :param givenName: givenName LDAP attribute, defaults to None
+        :type givenName: str | DeleteAttribute | None, optional
         :param mail: mail LDAP attribute, defaults to None
         :type mail: str | DeleteAttribute | None, optional
         :return: Self.
@@ -780,7 +799,9 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
             "shadowMax": shadowMax,
             "shadowWarning": shadowWarning,
             "shadowLastChange": shadowLastChange,
+            "cn": cn,
             "sn": sn,
+            "givenName": givenName,
             "mail": mail,
         }
 
