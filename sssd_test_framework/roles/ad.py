@@ -796,6 +796,8 @@ class ADUser(ADObject):
         gecos: str | DeleteAttribute | None = None,
         shell: str | DeleteAttribute | None = None,
         email: str | DeleteAttribute | None = None,
+        given_name: str | DeleteAttribute | None = None,
+        sur_name: str | DeleteAttribute | None = None,
     ) -> ADUser:
         """
         Modify existing AD user.
@@ -815,6 +817,10 @@ class ADUser(ADObject):
         :type shell: str | DeleteAttribute | None, optional
         :param email: Email address, defaults to None
         :type email: str | DeleteAttribute | None, optional
+        :param given_name: Given name of user, defaults to None
+        :type given_name: str | DeleteAttribute | None, optional
+        :param sur_name: Sur name of user, defaults to None
+        :type sur_name: str | DeleteAttribute | None, optional
         :return: Self.
         :rtype: ADUser
         """
@@ -826,7 +832,11 @@ class ADUser(ADObject):
             "loginShell": shell,
         }
 
-        ad_attrs = {"emailAddress": email}
+        ad_attrs = {
+            "emailAddress": email,
+            "GivenName": given_name,
+            "SurName": sur_name,
+        }
         all_attrs = {**unix_attrs, **ad_attrs}
 
         clear = [key for key, value in all_attrs.items() if isinstance(value, DeleteAttribute)]
@@ -843,6 +853,7 @@ class ADUser(ADObject):
         }
 
         self._modify(attrs)
+
         return self
 
     def passkey_add(self, passkey_mapping: str) -> ADUser:
