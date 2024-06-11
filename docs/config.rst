@@ -88,6 +88,7 @@ Additional configuration (host/config section)
 ----------------------------------------------
 
 * :ref:`config-artifacts`
+* :ref:`config-auditd`
 
 .. seealso::
 
@@ -118,6 +119,7 @@ Additional configuration (host/config section)
 * :ref:`config-artifacts`
 * :ref:`config-ldap`
 * :ref:`config-providers-client`
+* :ref:`config-auditd`
 
 .. seealso::
 
@@ -145,6 +147,7 @@ Additional configuration (host/config section)
 
 * :ref:`config-artifacts`
 * :ref:`config-providers-client`
+* :ref:`config-auditd`
 
 .. seealso::
 
@@ -213,6 +216,7 @@ Additional configuration (host/config section)
 * :ref:`config-artifacts`
 * :ref:`config-ldap`
 * :ref:`config-providers-client`
+* :ref:`config-auditd`
 
 .. seealso::
 
@@ -240,6 +244,7 @@ Additional configuration (host/config section)
   containers, this should be ``/dev/shm/exports`` or other writable location
   that runs on ``tmpfs`` file system.
 * :ref:`config-artifacts`
+* :ref:`config-auditd`
 
 .. seealso::
 
@@ -264,6 +269,7 @@ Additional configuration (host/config section)
 * ``realm``: Default Kerberos realm.
 * :ref:`config-artifacts`
 * :ref:`config-providers-client`
+* :ref:`config-auditd`
 
 .. seealso::
 
@@ -339,3 +345,32 @@ the role using :meth:`sssd_test_framework.utils.sssd.HostSSSD.import_domain`.
 The example above will add the given options to ``sssd.conf``, these are
 required by the client to successfully connect to the IPA server. The keytab
 paths are local paths on the client host.
+
+.. _config-auditd:
+
+Auditd and automatic AVC denials detection
+==========================================
+
+Linux-based roles has access to Auditd utility that automatically collects
+audit.log when a test ends. It can also automatically detect AVC denials and
+fail the test if required conditions are met.
+
+It is possible to set that AVC detection mode to one of ``fail`` (test is marked
+as failed if AVC denial is detected), ``warn`` (result of a test is used but the
+test is marked as ``AVC DENIAL`` if denial is detected) or ``ignore``
+(auto-detection is turned off, default).
+
+It is also possible to set a regular expression that is used to filter the AVC
+denials in order to fail only if any of the AVC denial records match the
+provided filter. This expression is evaluated on top of the full output of
+``ausearch`` command.
+
+.. code-block:: yaml
+    :caption: Config example
+
+    - hostname: master.ipa.test
+      role: ipa
+      config:
+        auditd:
+          avc_mode: fail|warn|ignore
+          avc_filter: <regex>

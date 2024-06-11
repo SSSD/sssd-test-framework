@@ -7,6 +7,7 @@ from typing import Any, Generic, TypeGuard, TypeVar
 
 from pytest_mh import MultihostRole
 from pytest_mh.cli import CLIBuilder
+from pytest_mh.utils.auditd import Auditd
 from pytest_mh.utils.firewall import Firewalld, WindowsFirewall
 from pytest_mh.utils.fs import LinuxFileSystem
 from pytest_mh.utils.journald import JournaldUtils
@@ -155,6 +156,15 @@ class BaseLinuxRole(BaseRole[HostType]):
         self.sshd: SSHDUtils = SSHDUtils(self.host, self.fs, self.svc)
         """
         Configuring SSH daemon
+        """
+
+        auditd_config = self.host.config.get("auditd", {})
+        auditd_avc_mode = auditd_config.get("avc_mode", "ignore")
+        auditd_avc_filter = auditd_config.get("avc_filter", None)
+
+        self.auditd: Auditd = Auditd(self.host, avc_mode=auditd_avc_mode, avc_filter=auditd_avc_filter)
+        """
+        Auditd utilities.
         """
 
 
