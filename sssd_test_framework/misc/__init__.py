@@ -22,7 +22,7 @@ def attrs_parse(lines: list[str], attrs: list[str] | None = None) -> dict[str, l
     out: dict[str, list[str]] = {}
     i = 0
     while i < len(lines):
-        line = lines[i]
+        line = lines[i].rstrip("\r")
         if not line:
             i += 1
             continue
