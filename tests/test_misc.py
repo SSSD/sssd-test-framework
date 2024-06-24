@@ -72,6 +72,10 @@ def test_attrs_parse__filter():
             ["cn: sudorules", "numbers: one,", "  two,", "  three"],
             {"cn": ["sudorules"], "numbers": ["one, two, three"]},
         ),
+        (
+            ["\r", "\r", "DistinguishedName: CN=user1,CN=Users,DC=ad-n97b,DC=test\r"],
+            {"DistinguishedName": ["CN=user1,CN=Users,DC=ad-n97b,DC=test"]},
+        ),
     ],
 )
 def test_attrs_parse__long_line(input, expected):
