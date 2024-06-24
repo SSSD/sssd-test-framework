@@ -71,11 +71,10 @@ provider host.
 
     - hostname: client.test
       role: client
-      config:
-        artifacts:
-        - /etc/sssd/*
-        - /var/log/sssd/*
-        - /var/lib/sss/db/*
+      artifacts:
+      - /etc/sssd/*
+      - /var/log/sssd/*
+      - /var/lib/sss/db/*
 
 Additional configuration (host/config section)
 ----------------------------------------------
@@ -280,11 +279,10 @@ example:
 
   - hostname: client.test
     role: client
-    config:
-      artifacts:
-      - /etc/sssd/*
-      - /var/log/sssd/*
-      - /var/lib/sss/db/*
+    artifacts:
+    - /etc/sssd/*
+    - /var/log/sssd/*
+    - /var/lib/sss/db/*
 
 .. _config-ldap:
 
