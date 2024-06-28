@@ -8,6 +8,7 @@ from typing import Any, Generic, TypeGuard, TypeVar
 from pytest_mh import MultihostRole
 from pytest_mh.cli import CLIBuilder
 from pytest_mh.utils.auditd import Auditd
+from pytest_mh.utils.coredumpd import Coredumpd
 from pytest_mh.utils.firewall import Firewalld, WindowsFirewall
 from pytest_mh.utils.fs import LinuxFileSystem
 from pytest_mh.utils.journald import JournaldUtils
@@ -165,6 +166,15 @@ class BaseLinuxRole(BaseRole[HostType]):
         self.auditd: Auditd = Auditd(self.host, avc_mode=auditd_avc_mode, avc_filter=auditd_avc_filter)
         """
         Auditd utilities.
+        """
+
+        coredumpd_config = self.host.config.get("coredumpd", {})
+        coredumpd_mode = coredumpd_config.get("mode", "ignore")
+        coredumpd_filter = coredumpd_config.get("filter", None)
+
+        self.coredumpd: Coredumpd = Coredumpd(self.host, self.fs, mode=coredumpd_mode, filter=coredumpd_filter)
+        """
+        Coredumpd utilities.
         """
 
 
