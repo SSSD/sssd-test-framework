@@ -148,6 +148,7 @@ Additional configuration (host/config section)
 * :ref:`config-artifacts`
 * :ref:`config-providers-client`
 * :ref:`config-auditd`
+* :ref:`config-coredumpd`
 
 .. seealso::
 
@@ -217,6 +218,7 @@ Additional configuration (host/config section)
 * :ref:`config-ldap`
 * :ref:`config-providers-client`
 * :ref:`config-auditd`
+* :ref:`config-coredumpd`
 
 .. seealso::
 
@@ -245,6 +247,7 @@ Additional configuration (host/config section)
   that runs on ``tmpfs`` file system.
 * :ref:`config-artifacts`
 * :ref:`config-auditd`
+* :ref:`config-coredumpd`
 
 .. seealso::
 
@@ -270,6 +273,7 @@ Additional configuration (host/config section)
 * :ref:`config-artifacts`
 * :ref:`config-providers-client`
 * :ref:`config-auditd`
+* :ref:`config-coredumpd`
 
 .. seealso::
 
@@ -374,3 +378,31 @@ provided filter. This expression is evaluated on top of the full output of
         auditd:
           avc_mode: fail|warn|ignore
           avc_filter: <regex>
+
+.. _config-coredumpd:
+
+Coredumpd and automatic core files collection
+=============================================
+
+Linux-based roles has access to Coredumpd utility that automatically collects
+any core files generated during a test. If any core file is produced, it can
+optionally fail the test if required conditions are met.
+
+It is possible to set the core file detection mode to one of ``fail`` (test is
+marked as failed if core file is generated), ``warn`` (result of a test is used
+but the test is marked as ``COREDUMP`` if core file is detected) or ``ignore``
+(auto-detection is turned off, default).
+
+It is also possible to set regular expression that is used to filter the core
+files names in order to fail only if the core file was produced by certain
+process. This expression is evaluated on each name of generated core file.
+
+.. code-block:: yaml
+    :caption: Config example
+
+    - hostname: master.ipa.test
+      role: ipa
+      config:
+        coredumpd:
+          mode: fail|warn|ignore
+          filter: <regex>
