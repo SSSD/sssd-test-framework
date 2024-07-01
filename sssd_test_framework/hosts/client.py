@@ -43,7 +43,9 @@ class ClientHost(BaseBackupHost):
 
             [ -f "/usr/lib64/sssd/libsss_files.so" ] && echo "files-provider" || :
             [ -f "/usr/libexec/sssd/passkey_child" ] && echo "passkey" || :
+            [ -f "/usr/bin/sss_ssh_knownhostsproxy" ] && echo "knownhostsproxy" || :
             man sssd.conf | grep -q "user (string)" && echo "non-privileged" || :
+            man sssd-ldap | grep -q "ldap_use_ppolicy (boolean)" && echo "ldap_use_ppolicy" || :
             """,
             log_level=SSHLog.Error,
         )
@@ -53,6 +55,8 @@ class ClientHost(BaseBackupHost):
             "files-provider": False,
             "passkey": False,
             "non-privileged": False,
+            "ldap_use_ppolicy": False,
+            "knownhostsproxy": False,
         }
 
         self._features.update({k: True for k in result.stdout_lines})
