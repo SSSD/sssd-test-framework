@@ -9,6 +9,7 @@ from ..topology import SSSDTopologyMark
 from ..utils.automount import AutomountUtils
 from ..utils.ldb import LDBUtils
 from ..utils.local_users import LocalUsersUtils
+from ..utils.sbus import DBUSDestination, DBUSKnownBus
 from ..utils.sss_override import SSSOverrideUtils
 from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
@@ -70,6 +71,13 @@ class Client(BaseLinuxRole[ClientHost]):
         self.sss_override: SSSOverrideUtils = SSSOverrideUtils(self.host, self.fs)
         """
         Managing local overrides users and groups.
+        """
+
+        self.ifp: DBUSDestination = DBUSDestination(
+            self.host, dest="org.freedesktop.sssd.infopipe", bus=DBUSKnownBus.SYSTEM
+        )
+        """
+        The D-bus destination for infopipe.
         """
 
     def setup(self) -> None:

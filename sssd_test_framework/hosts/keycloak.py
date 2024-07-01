@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import time
+from pathlib import PurePosixPath
+from typing import Any
 
-from pytest_mh.ssh import SSHProcessError
+from pytest_mh.ssh import SSHLog, SSHProcessError
 
-from .base import BaseDomainHost
+from .base import BaseDomainHost, BaseLinuxHost
 
 __all__ = [
     "KeycloakHost",
 ]
 
 
-class KeycloakHost(BaseDomainHost):
+class KeycloakHost(BaseDomainHost, BaseLinuxHost):
     """
     Keycloak host object.
 
@@ -43,9 +45,6 @@ class KeycloakHost(BaseDomainHost):
         super().__init__(*args, **kwargs)
 
         self.adminpw = self.config.get("adminpw", "Secret123")
-
-        # Backup of original data
-        self.__backup: str | None = None
 
     def kclogin(self) -> None:
         """
@@ -77,35 +76,63 @@ class KeycloakHost(BaseDomainHost):
             else:
                 break
 
-    def backup(self) -> None:
+    def start(self) -> None:
+        self.svc.start("keycloak.service")
+
+    def stop(self) -> None:
+        self.svc.stop("keycloak.service")
+
+    def backup(self) -> Any:
         """
         Backup all Keycloak server data.
 
         This is done by calling ``kc.sh export`` on the server
         and can take several seconds to finish.
+
+        :return: Backup data.
+        :rtype: Any
         """
-        if self.__backup is not None:
-            return
+        self.logger.info("Creating backup of Keycloak")
 
+        self.stop()
         cmd = self.ssh.run(
-            "set -e; systemctl stop keycloak;"
-            "/opt/keycloak/bin/kc.sh export --dir /tmp/kcbackup"
-            "> /tmp/kcbackup.log;"
-            "systemctl start keycloak;"
-            "ls -1 /tmp/kcbackup| tail -n 1"
+            """
+            set -e
+            path=`mktemp -d`
+            /opt/keycloak/bin/kc.sh export --dir "$path"
+            echo $path
+            """,
+            log_level=SSHLog.Error,
         )
-        self.__backup = cmd.stdout.strip()
+        self.start()
 
-    def restore(self) -> None:
+        return PurePosixPath(cmd.stdout_lines[-1].strip())
+
+    def restore(self, backup_data: Any | None) -> None:
         """
         Restore all Keycloak server data to its original state.
 
         This is done by calling ``kc.sh import`` on the server
         and can take several seconds to finish.
+
+        :return: Backup data.
+        :rtype: Any
         """
-        if self.__backup is None:
+        if backup_data is None:
             return
 
+        if not isinstance(backup_data, PurePosixPath):
+            raise TypeError(f"Expected PurePosixPath, got {type(backup_data)}")
+
+        backup_path = str(backup_data)
+        self.logger.info(f"Restoring Keycloak from {backup_path}")
+
+        self.stop()
         self.ssh.run(
-            "systemctl stop keycloak; /opt/keycloak/bin/kc.sh import --dir /tmp/kcbackup; systemctl start keycloak"
+            f"""
+            set -e
+            /opt/keycloak/bin/kc.sh import --dir '{backup_path}'
+            """,
+            log_level=SSHLog.Error,
         )
+        self.start()

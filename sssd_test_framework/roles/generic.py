@@ -503,8 +503,8 @@ class GenericGroup(ABC, BaseObject):
         """
         Add multiple group members.
 
-        :param member: List of users or groups to add as members.
-        :type member: list[GenericUser | GenericGroup]
+        :param members: List of users or groups to add as members.
+        :type members: list[GenericUser | GenericGroup]
         :return: Self.
         :rtype: GenericGroup
         """
@@ -527,8 +527,8 @@ class GenericGroup(ABC, BaseObject):
         """
         Remove multiple group members.
 
-        :param member: List of users or groups to remove from the group.
-        :type member: list[GenericUser | GenericGroup]
+        :param members: List of users or groups to remove from the group.
+        :type members: list[GenericUser | GenericGroup]
         :return: Self.
         :rtype: GenericGroup
         """
@@ -604,8 +604,8 @@ class GenericNetgroup(ABC, BaseObject):
         """
         Add multiple netgroup members at once.
 
-        :param member: List of netgroup members to add.
-        :type member: list[GenericNetgroupMember]
+        :param members: List of netgroup members to add.
+        :type members: list[GenericNetgroupMember]
         :return: Self.
         :rtype: GenericNetgroup
         """
@@ -638,8 +638,8 @@ class GenericNetgroup(ABC, BaseObject):
         """
         Remove multiple group members.
 
-        :param member: List of netgroup members to add.
-        :type member: list[GenericNetgroupMember]
+        :param members: List of netgroup members to add.
+        :type members: list[GenericNetgroupMember]
         :return: Self.
         :rtype: GenericNetroup
         """

@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
-from .base import BaseDomainHost
+from pathlib import PurePosixPath
+from typing import Any
+
+from pytest_mh.ssh import SSHLog
+
+from .base import BaseDomainHost, BaseLinuxHost
 
 __all__ = [
     "KDCHost",
 ]
 
 
-class KDCHost(BaseDomainHost):
+class KDCHost(BaseDomainHost, BaseLinuxHost):
     """
     Kerberos KDC server host object.
 
@@ -42,18 +47,46 @@ class KDCHost(BaseDomainHost):
 
         self.client["auth_provider"] = "krb5"
 
-    def backup(self) -> None:
+    def start(self) -> None:
+        self.svc.start("krb5kdc.service")
+
+    def stop(self) -> None:
+        self.svc.stop("krb5kdc.service")
+
+    def backup(self) -> Any:
         """
         Backup KDC server.
-        """
-        self.ssh.run('kdb5_util dump /tmp/mh.kdc.kdb.backup && rm -f "/tmp/mh.kdc.kdb.backup.dump_ok"')
-        self._backup_location = "/tmp/mh.kdc.kdb.backup"
 
-    def restore(self) -> None:
+        :return: Backup data.
+        :rtype: Any
+        """
+        self.logger.info("Creating backup of KDC")
+
+        result = self.ssh.run(
+            """
+            set -e
+            path=`mktemp`
+            kdb5_util dump $path && rm -f "$path.dump_ok"
+            echo $path
+            """,
+            log_level=SSHLog.Error,
+        )
+        return PurePosixPath(result.stdout_lines[-1].strip())
+
+    def restore(self, backup_data: Any | None) -> None:
         """
         Restore KDC server to its initial contents.
+
+        :return: Backup data.
+        :rtype: Any
         """
-        if not self._backup_location:
+        if backup_data is None:
             return
 
-        self.ssh.run(f'kdb5_util load "{self._backup_location}"')
+        if not isinstance(backup_data, PurePosixPath):
+            raise TypeError(f"Expected PurePosixPath, got {type(backup_data)}")
+
+        backup_path = str(backup_data)
+        self.logger.info(f"Restoring KDC from {backup_path}")
+
+        self.ssh.run(f'kdb5_util load "{backup_path}"', log_level=SSHLog.Error)

@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import textwrap
+import time
 
 import pytest
 
 from sssd_test_framework.misc import (
     attrs_include_value,
     attrs_parse,
+    attrs_to_hash,
     parse_ldif,
+    retry,
     to_list,
     to_list_of_strings,
     to_list_without_none,
@@ -68,6 +71,10 @@ def test_attrs_parse__filter():
         (
             ["cn: sudorules", "numbers: one,", "  two,", "  three"],
             {"cn": ["sudorules"], "numbers": ["one, two, three"]},
+        ),
+        (
+            ["\r", "\r", "DistinguishedName: CN=user1,CN=Users,DC=ad-n97b,DC=test\r"],
+            {"DistinguishedName": ["CN=user1,CN=Users,DC=ad-n97b,DC=test"]},
         ),
     ],
 )
@@ -221,3 +228,108 @@ def test_to_list_without_none(value, expected):
 def test_parse_ldif(value, expected):
     value = textwrap.dedent(value).strip()
     assert parse_ldif(value) == expected
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            {"key1": "value1", "key2": "value2 value2.1", "key3": "value3", "key4": "value4, value4.1"},
+            """@{"key1"="value1";"key2"="value2 value2.1";"key3"="value3";"key4"="value4, value4.1"}""",
+        )
+    ],
+)
+def test_attrs_to_hash(value, expected):
+    assert attrs_to_hash(value) == expected
+
+
+def test_retry__all_exceptions():
+    rounds = []
+
+    @retry(max_retries=5, delay=0)
+    def test():
+        if len(rounds) < 4:
+            rounds.append(True)
+            raise Exception("My exception")
+
+        return len(rounds)
+
+    assert test() == 4
+
+
+def test_retry__single_exception__positive():
+    rounds = []
+
+    @retry(max_retries=5, delay=0, on=ValueError)
+    def test():
+        if len(rounds) < 4:
+            rounds.append(True)
+            raise ValueError("My exception")
+
+        return len(rounds)
+
+    assert test() == 4
+
+
+def test_retry__single_exception__negative():
+    rounds = []
+
+    @retry(max_retries=5, delay=0, on=ValueError)
+    def test():
+        if len(rounds) < 4:
+            rounds.append(True)
+            raise KeyError("My exception")
+
+        return len(rounds)
+
+    with pytest.raises(KeyError):
+        test()
+
+
+def test_retry__multiple_exceptions__positive():
+    rounds = []
+
+    @retry(max_retries=5, delay=0, on=(ValueError, KeyError))
+    def test():
+        if len(rounds) < 2:
+            rounds.append(True)
+            raise KeyError("My exception")
+
+        if len(rounds) < 4:
+            rounds.append(True)
+            raise ValueError("My exception")
+
+        return len(rounds)
+
+    assert test() == 4
+
+
+def test_retry__multiple_exceptions__negative():
+    rounds = []
+
+    @retry(max_retries=5, delay=0, on=(TypeError, KeyError))
+    def test():
+        if len(rounds) < 2:
+            rounds.append(True)
+            raise KeyError("My exception")
+
+        if len(rounds) < 4:
+            rounds.append(True)
+            raise ValueError("My exception")
+
+        return len(rounds)
+
+    with pytest.raises(ValueError):
+        test()
+
+
+def test_retry__delay():
+    @retry(max_retries=5, delay=1)
+    def test():
+        raise ValueError("My exception")
+
+    now = time.time()
+    with pytest.raises(ValueError):
+        test()
+
+    assert time.time() - now >= 5

@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
-from .base import BaseLDAPDomainHost
+from pathlib import PurePosixPath
+from typing import Any
+
+from pytest_mh.ssh import SSHLog
+
+from .base import BaseLDAPDomainHost, BaseLinuxHost
 
 __all__ = [
     "SambaHost",
 ]
 
 
-class SambaHost(BaseLDAPDomainHost):
+class SambaHost(BaseLDAPDomainHost, BaseLinuxHost):
     """
     Samba host object.
 
@@ -24,6 +29,9 @@ class SambaHost(BaseLDAPDomainHost):
         super().__init__(*args, **kwargs)
 
         self._features: dict[str, bool] | None = None
+
+        self.adminpw: str = self.config.get("adminpw", self.bindpw)
+        """Password of the admin user, defaults to value of ``bindpw``."""
 
         # Additional client configuration
         self.client.setdefault("id_provider", "ad")
@@ -58,49 +66,74 @@ class SambaHost(BaseLDAPDomainHost):
 
         return self._features
 
-    def backup(self) -> None:
+    def start(self) -> None:
+        self.svc.start("samba.service")
+
+        # systemctl finishes before Samba is really listening, we need to wait
+        self.ssh.run(
+            """
+            timeout 60s bash -c 'until netstat -ltp 2> /dev/null | grep :ldap &> /dev/null; do :; done'
+            timeout 60s bash -c 'until netstat -ltp 2> /dev/null | grep :kerberos &> /dev/null; do :; done'
+            """
+        )
+
+    def stop(self) -> None:
+        self.svc.stop("samba.service")
+
+    def backup(self) -> Any:
         """
         Backup all Samba server data.
 
         This is done by creating a backup of Samba database. This operation
         is usually very fast.
+
+        :return: Backup data.
+        :rtype: Any
         """
-        self.ssh.run(
+        self.logger.info("Creating backup of Samba DC")
+
+        self.stop()
+        result = self.ssh.run(
             """
             set -e
-            systemctl stop samba
-            rm -fr /var/lib/samba.bak
-            cp -r /var/lib/samba /var/lib/samba.bak
-            systemctl start samba
-
-            # systemctl finishes before samba is fully started, wait for it to start listening on ldap port
-            timeout 60s bash -c 'until netstat -ltp 2> /dev/null | grep :ldap &> /dev/null; do :; done'
-        """
+            path=`mktemp -d`
+            rm -fr "$path" && cp -r /var/lib/samba "$path"
+            echo $path
+            """,
+            log_level=SSHLog.Error,
         )
-        self._backup_location = "/var/lib/samba.bak"
+        self.start()
 
-    def restore(self) -> None:
+        return PurePosixPath(result.stdout_lines[-1].strip())
+
+    def restore(self, backup_data: Any | None) -> None:
         """
         Restore all Samba server data to its original value.
 
         This is done by overriding current database with the backup created
         by :func:`backup`. This operation is usually very fast.
+
+        :return: Backup data.
+        :rtype: Any
         """
-        if not self._backup_location:
+        if backup_data is None:
             return
 
+        if not isinstance(backup_data, PurePosixPath):
+            raise TypeError(f"Expected PurePosixPath, got {type(backup_data)}")
+
+        backup_path = str(backup_data)
+        self.logger.info(f"Restoring Samba DC from {backup_path}")
+
         self.disconnect()
+        self.stop()
         self.ssh.run(
             f"""
             set -e
-            systemctl stop samba
             rm -fr /var/lib/samba
-            cp -r "{self._backup_location}" /var/lib/samba
-            systemctl start samba
+            cp -r "{backup_path}" /var/lib/samba
             samba-tool ntacl sysvolreset
-
-            # systemctl finishes before samba is fully started, wait for it to start listening on ldap port
-            timeout 60s bash -c 'until netstat -ltp 2> /dev/null | grep :ldap &> /dev/null; do :; done'
-        """
+            """,
+            log_level=SSHLog.Error,
         )
-        self.disconnect()
+        self.start()

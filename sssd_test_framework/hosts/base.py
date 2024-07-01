@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from pathlib import PurePath
 from typing import Any
 
 import ldap
 from ldap.ldapobject import ReconnectLDAPObject
 from pytest_mh import MultihostHost
 from pytest_mh.ssh import SSHPowerShellProcess
+from pytest_mh.utils.fs import LinuxFileSystem
+from pytest_mh.utils.services import SystemdServices
 
 from ..config import SSSDMultihostDomain
+from ..misc import retry
 
 __all__ = [
     "BaseHost",
@@ -51,59 +55,82 @@ class BaseBackupHost(BaseHost, ABC):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-        self.__backup_created: bool = False
-        """True if backup of the backend was already created."""
+        self.backup_data: Any | None = None
+        """Backup data of vanilla state of this host."""
 
-        self._backup_location: str | None = None
-        """Backup file or folder location."""
+    def pytest_setup(self) -> None:
+        # Make sure required services are running
+        try:
+            self.start()
+        except NotImplementedError:
+            pass
+
+        # Create backup of initial state
+        self.backup_data = self.backup()
 
     def pytest_teardown(self) -> None:
-        """
-        Called once after all tests are finished.
-        """
-        if self._backup_location is not None:
-            if self.ssh.shell is SSHPowerShellProcess:
-                self.ssh.exec(["Remove-Item", "-Force", "-Recurse", self._backup_location])
-            else:
-                self.ssh.exec(["rm", "-fr", self._backup_location])
+        self.remove_backup(self.backup_data)
 
-        super().pytest_teardown()
-
-    def setup(self) -> None:
+    def remove_backup(self, backup_data: Any | None) -> None:
         """
-        Called before execution of each test.
+        Remove backup data from the host.
 
-        Perform backup of the backend.
+        :param backup_data: Backup data.
+        :type backup_data: Any | None
         """
-        super().setup()
+        if backup_data is None:
+            return
 
-        # Make sure to backup the data only once
-        if not self.__backup_created:
-            self.backup()
-            self.__backup_created = True
+        if isinstance(backup_data, PurePath):
+            path = str(backup_data)
+        else:
+            raise TypeError(f"Only PurePath is supported as backup_data, got {type(backup_data)}")
 
-    def teardown(self) -> None:
-        """
-        Called after execution of each test.
-
-        Perform teardown of the backend, the backend is restored to its original
-        state where is was before the test was executed.
-        """
-        if self.__backup_created:
-            self.restore()
-        super().teardown()
+        if self.ssh.shell is SSHPowerShellProcess:
+            self.ssh.exec(["Remove-Item", "-Force", "-Recurse", path])
+        else:
+            self.ssh.exec(["rm", "-fr", path])
 
     @abstractmethod
-    def backup(self) -> None:
+    def start(self) -> None:
         """
-        Backup backend data.
+        Start required services.
+
+        :raises NotImplementedError: If start operation is not supported.
         """
         pass
 
     @abstractmethod
-    def restore(self) -> None:
+    def stop(self) -> None:
+        """
+        Stop required services.
+
+        :raises NotImplementedError: If stop operation is not supported.
+        """
+        pass
+
+    @abstractmethod
+    def backup(self) -> Any:
+        """
+        Backup backend data.
+
+        Returns directory or file path where the backup is stored (as PurePath)
+        or any Python data relevant for the backup. This data is passed to
+        :meth:`restore` which will use this information to restore the host to
+        its original state.
+
+        :return: Backup data.
+        :rtype: Any
+        """
+        pass
+
+    @abstractmethod
+    def restore(self, backup_data: Any | None) -> None:
         """
         Restore backend data.
+
+        :param backup_data: Backup data.
+        :type backup_data: Any | None
         """
         pass
 
@@ -190,6 +217,7 @@ class BaseLDAPDomainHost(BaseDomainHost):
         self.__naming_context: str | None = None
 
     @property
+    @retry(on=ldap.SERVER_DOWN)
     def conn(self) -> ReconnectLDAPObject:
         """
         LDAP connection (``python-ldap`` library).
@@ -254,3 +282,17 @@ class BaseLDAPDomainHost(BaseDomainHost):
         :rtype: dict[str, dict[str, list[bytes]]]
         """
         return dict((dn, attrs) for dn, attrs in result if dn is not None)
+
+
+class BaseLinuxHost(MultihostHost[SSSDMultihostDomain]):
+    """
+    Base Linux host.
+
+    Adds linux specific reentrant utilities.
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.fs: LinuxFileSystem = LinuxFileSystem(self)
+        self.svc: SystemdServices = SystemdServices(self)

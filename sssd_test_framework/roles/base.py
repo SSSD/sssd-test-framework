@@ -17,7 +17,6 @@ from ..hosts.base import BaseHost, BaseLDAPDomainHost
 from ..utils.authentication import AuthenticationUtils
 from ..utils.authselect import AuthselectUtils
 from ..utils.ldap import LDAPUtils
-from ..utils.pam import PAMUtils
 from ..utils.sshd import SSHDUtils
 from ..utils.tools import LinuxToolsUtils
 
@@ -128,12 +127,12 @@ class BaseLinuxRole(BaseRole[HostType]):
         Systemd service management.
         """
 
-        self.firewall: Firewalld = Firewalld(self.host)
+        self.firewall: Firewalld = Firewalld(self.host).postpone_setup()
         """
         Configure firewall using firewalld.
         """
 
-        self.tc: LinuxTrafficControl = LinuxTrafficControl(self.host)
+        self.tc: LinuxTrafficControl = LinuxTrafficControl(self.host).postpone_setup()
         """
         Traffic control manipulation.
         """
@@ -146,11 +145,6 @@ class BaseLinuxRole(BaseRole[HostType]):
         self.auth: AuthenticationUtils = AuthenticationUtils(self.host, self.fs)
         """
         Authentication helpers.
-        """
-
-        self.pam: PAMUtils = PAMUtils(self.host, self.fs)
-        """
-        Configuring various PAM modules.
         """
 
         self.journald: JournaldUtils = JournaldUtils(self.host)
@@ -191,7 +185,7 @@ class BaseWindowsRole(BaseRole[HostType]):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-        self.firewall: WindowsFirewall = WindowsFirewall(self.host)
+        self.firewall: WindowsFirewall = WindowsFirewall(self.host).postpone_setup()
         """
         Configure Windows firewall.
         """

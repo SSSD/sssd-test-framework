@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import itertools
-from typing import Any
+from functools import wraps
+from time import sleep
+from typing import Any, Callable, ParamSpec, TypeVar
 
 
 def attrs_parse(lines: list[str], attrs: list[str] | None = None) -> dict[str, list[str]]:
@@ -20,7 +22,7 @@ def attrs_parse(lines: list[str], attrs: list[str] | None = None) -> dict[str, l
     out: dict[str, list[str]] = {}
     i = 0
     while i < len(lines):
-        line = lines[i]
+        line = lines[i].rstrip("\r")
         if not line:
             i += 1
             continue
@@ -129,3 +131,73 @@ def parse_ldif(ldif: str) -> dict[str, dict[str, list[str]]]:
         output[result["dn"][0]] = result
 
     return output
+
+
+def attrs_to_hash(attrs: dict[str, Any]) -> str | None:
+    """
+    Convert attributes into an Powershell hash table records.
+
+    :param attrs: Attributes names and values.
+    :type attrs: dict[str, Any]
+    :return: Attributes in powershell hash record format.
+    :rtype: str | None
+    """
+    out = ""
+    for key, value in attrs.items():
+        if value is not None:
+            if isinstance(value, list):
+                values = [f'"{x}"' for x in value]
+                out += f'"{key}"={",".join(values)};'
+            else:
+                out += f'"{key}"="{value}";'
+
+    if not out:
+        return None
+
+    return "@{" + out.rstrip(";") + "}"
+
+
+Param = ParamSpec("Param")
+RetType = TypeVar("RetType")
+
+
+def retry(
+    max_retries: int = 5,
+    delay: float = 1,
+    on: type[Exception] | list[type[Exception]] | None = None,
+) -> Callable[[Callable[Param, RetType]], Callable[Param, RetType]]:
+    """
+    Decorated function will be retried if it raises an exception.
+
+    :param max_retries: Maximum number of retry attempts, defaults to 5
+    :type max_retries: int, optional
+    :param delay: Delay in seconds between each retry, defaults to 1
+    :type delay: float, optional
+    :param on: If set, retry only on given exceptions, defaults to None
+    :type on: type[Exception] | list[type[Exception]] | None, optional
+
+    :return: Decorated function.
+    :rtype: Callable
+    """
+    if on is None:
+        on = [Exception]
+
+    types = tuple(to_list(on))
+
+    def decorator(func: Callable[Param, RetType]) -> Callable[Param, RetType]:
+        @wraps(func)
+        def wrapper(*args, **kwargs) -> RetType:
+            retry: int = 0
+            while True:
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    if retry >= max_retries or not isinstance(e, types):
+                        raise
+
+                    retry += 1
+                    sleep(delay)
+
+        return wrapper
+
+    return decorator

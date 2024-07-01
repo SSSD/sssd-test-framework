@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
-from .base import BaseBackupHost
+from pathlib import PurePosixPath
+from typing import Any
+
+from pytest_mh.ssh import SSHLog
+
+from .base import BaseBackupHost, BaseLinuxHost
 
 __all__ = [
     "NFSHost",
 ]
 
 
-class NFSHost(BaseBackupHost):
+class NFSHost(BaseBackupHost, BaseLinuxHost):
     """
     NFS server host object.
 
@@ -38,29 +43,56 @@ class NFSHost(BaseBackupHost):
         self.exports_dir: str = self.config.get("exports_dir", "/exports").rstrip("/")
         """Top level NFS exports directory, defaults to ``/exports``."""
 
-    def backup(self) -> None:
+    def start(self) -> None:
+        self.svc.start("nfs-server.service")
+
+    def stop(self) -> None:
+        self.svc.stop("nfs-server.service")
+
+    def backup(self) -> Any:
         """
         Backup NFS server.
-        """
-        self.ssh.run(
-            rf"""
-        tar --ignore-failed-read -czvf /tmp/mh.nfs.backup.tgz "{self.exports_dir}" /etc/exports /etc/exports.d
-        """
-        )
-        self._backup_location = "/tmp/mh.nfs.backup.tgz"
 
-    def restore(self) -> None:
+        :return: Backup data.
+        :rtype: Any
+        """
+        self.logger.info("Creating backup of NFS server")
+
+        result = self.ssh.run(
+            rf"""
+            set -e
+            path=`mktemp`
+            tar --ignore-failed-read -czvf "$path" "{self.exports_dir}" /etc/exports /etc/exports.d
+            echo $path
+            """,
+            log_level=SSHLog.Error,
+        )
+
+        return PurePosixPath(result.stdout_lines[-1].strip())
+
+    def restore(self, backup_data: Any | None) -> None:
         """
         Restore NFS server to its initial contents.
+
+        :return: Backup data.
+        :rtype: Any
         """
-        if not self._backup_location:
+        if backup_data is None:
             return
+
+        if not isinstance(backup_data, PurePosixPath):
+            raise TypeError(f"Expected PurePosixPath, got {type(backup_data)}")
+
+        backup_path = str(backup_data)
+        self.logger.info(f"Restoring NFS server from {backup_path}")
 
         self.ssh.run(
             rf"""
-        rm -fr "{self.exports_dir}/*"
-        rm -fr /etc/exports.d/*
-        tar -xf "{self._backup_location}" -C /
-        exportfs -r
-        """
+            set -e
+            rm -fr "{self.exports_dir}/*"
+            rm -fr /etc/exports.d/*
+            tar -xf "{backup_path}" -C /
+            exportfs -r
+            """,
+            log_level=SSHLog.Error,
         )

@@ -408,6 +408,7 @@ class IPAUser(IPAObject):
         gecos: str | None = None,
         shell: str | None = None,
         require_password_reset: bool = False,
+        user_auth_type: str | list[str] | None = None,
     ) -> IPAUser:
         """
         Create new IPA user.
@@ -428,6 +429,8 @@ class IPAUser(IPAObject):
         :type shell: str | None, optional
         :param require_password_reset: Require password reset on first login, defaults to False
         :type require_password_reset: bool, optional
+        :param user_auth_type: Types of supported user authentication, defaults to None
+        :type user_auth_type: str | list[str] | None, optional
         :return: Self.
         :rtype: IPAUser
         """
@@ -440,6 +443,7 @@ class IPAUser(IPAObject):
             "gecos": (self.cli.option.VALUE, gecos),
             "shell": (self.cli.option.VALUE, shell),
             "password": (self.cli.option.SWITCH, True) if password is not None else None,
+            "user-auth-type": (self.cli.option.VALUE, user_auth_type),
         }
 
         if not require_password_reset:
@@ -457,6 +461,7 @@ class IPAUser(IPAObject):
         home: str | None = None,
         gecos: str | None = None,
         shell: str | None = None,
+        user_auth_type: str | list[str] | None = None,
     ) -> IPAUser:
         """
         Modify existing IPA user.
@@ -475,6 +480,8 @@ class IPAUser(IPAObject):
         :type gecos: str | None, optional
         :param shell: Login shell, defaults to None
         :type shell: str | None, optional
+        :param user_auth_type: Types of supported user authentication, defaults to None
+        :type user_auth_type: str | list[str] | None, optional
         :return: Self.
         :rtype: IPAUser
         """
@@ -485,6 +492,7 @@ class IPAUser(IPAObject):
             "gecos": (self.cli.option.VALUE, gecos),
             "shell": (self.cli.option.VALUE, shell),
             "password": (self.cli.option.SWITCH, True) if password is not None else None,
+            "user-auth-type": (self.cli.option.VALUE, user_auth_type),
         }
 
         self._modify(attrs, input=password)
@@ -675,8 +683,8 @@ class IPAGroup(IPAObject):
         Member can be either IPAUser, IPAGroup or a string in which case it
         is added as an external member.
 
-        :param member: List of users or groups to add as members.
-        :type member: list[IPAUser | IPAGroup | str]
+        :param members: List of users or groups to add as members.
+        :type members: list[IPAUser | IPAGroup | str]
         :return: Self.
         :rtype: IPAGroup
         """
@@ -704,8 +712,8 @@ class IPAGroup(IPAObject):
         Member can be either IPAUser, IPAGroup or a string in which case
         an external member is removed.
 
-        :param member: List of users or groups to remove from the group.
-        :type member: list[IPAUser | IPAGroup | str]
+        :param members: List of users or groups to remove from the group.
+        :type members: list[IPAUser | IPAGroup | str]
         :return: Self.
         :rtype: IPAGroup
         """
@@ -1100,7 +1108,6 @@ class IPASudoRule(IPAObject):
         :rtype: IPASudoRule
         """
         self.delete()
-        print(self.__rule)
         self.add(
             user=user if user is not None else self.__rule.get("user", None),
             host=host if host is not None else self.__rule.get("host", None),
@@ -1137,7 +1144,7 @@ class IPASudoRule(IPAObject):
 
             allow_commands.append(cmd)
 
-        return (allow_commands, deny_commands, category)
+        return allow_commands, deny_commands, category
 
     def __get_hosts(self, value: str | list[str] | None) -> tuple[list[str], str]:
         hosts = []
@@ -1149,7 +1156,7 @@ class IPASudoRule(IPAObject):
 
             hosts.append(host)
 
-        return (hosts, category)
+        return hosts, category
 
     def __get_users_and_groups(
         self, value: str | IPAUser | IPAGroup | list[str | IPAUser | IPAGroup] | None
@@ -1180,7 +1187,7 @@ class IPASudoRule(IPAObject):
 
             raise ValueError(f"Unsupported type: {type(item)}")
 
-        return (users, groups, category)
+        return users, groups, category
 
     def __get_run_as_user(
         self, value: str | IPAUser | IPAGroup | list[str | IPAUser | IPAGroup] | None
@@ -1189,7 +1196,7 @@ class IPASudoRule(IPAObject):
         if category:
             category = "--runasusercat=all"
 
-        return (users, groups, category)
+        return users, groups, category
 
     def __get_run_as_group(self, value: str | IPAGroup | list[str | IPAGroup] | None) -> tuple[list[str], str]:
         groups = []
@@ -1209,7 +1216,7 @@ class IPASudoRule(IPAObject):
 
             raise ValueError(f"Unsupported type: {type(item)}")
 
-        return (groups, category)
+        return groups, category
 
     def __args_from_list(self, option: str, value: list[str]) -> str:
         if not value:

@@ -10,6 +10,8 @@ Basic definition
 
 .. code-block:: yaml
 
+    provisioned_topologies:
+    - <list-of-topologies>
     domains:
     - id: <domain id>
       hosts:
@@ -23,8 +25,14 @@ Basic definition
         config: <additional configuration> (optional, defaults to {})
         artifacts: <list of produced artifacts> (optional, defaults to {})
 
-The top level element of the configuration is list of ``domains``. Each domain
-has ``id`` attribute and defines the list of available hosts.
+Optionally, a list of topologies that are already provisioned my be specified in
+``provisioned_topologies`` field. If a topology name is given, it is considered
+fully provisioned and tests are run directly. If a topology is not found in this
+list, it is provisioned via a topology controller before any test for this
+topology is executed.
+
+The main element of the multihost configuration is list of ``domains``. Each
+domain has ``id`` attribute and defines the list of available hosts.
 
 * ``id``: domain identifier which is used in the path inside ``mh`` fixture, see
   :ref:`mh-fixture`
@@ -71,11 +79,10 @@ provider host.
 
     - hostname: client.test
       role: client
-      config:
-        artifacts:
-        - /etc/sssd/*
-        - /var/log/sssd/*
-        - /var/lib/sss/db/*
+      artifacts:
+      - /etc/sssd/*
+      - /var/log/sssd/*
+      - /var/lib/sss/db/*
 
 Additional configuration (host/config section)
 ----------------------------------------------
@@ -280,11 +287,10 @@ example:
 
   - hostname: client.test
     role: client
-    config:
-      artifacts:
-      - /etc/sssd/*
-      - /var/log/sssd/*
-      - /var/lib/sss/db/*
+    artifacts:
+    - /etc/sssd/*
+    - /var/log/sssd/*
+    - /var/lib/sss/db/*
 
 .. _config-ldap:
 

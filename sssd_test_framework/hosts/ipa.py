@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+from pathlib import PurePosixPath
+from typing import Any
+
 from pytest_mh.ssh import SSHLog
 
-from .base import BaseDomainHost
+from ..misc.ssh import retry_command
+from .base import BaseDomainHost, BaseLinuxHost
 
 __all__ = [
     "IPAHost",
 ]
 
 
-class IPAHost(BaseDomainHost):
+class IPAHost(BaseDomainHost, BaseLinuxHost):
     """
     IPA host object.
 
@@ -102,28 +106,94 @@ class IPAHost(BaseDomainHost):
         """
         self.ssh.exec(["kinit", "admin"], input=self.adminpw)
 
-    def backup(self) -> None:
+    def start(self) -> None:
+        self.svc.start("ipa.service")
+
+    def stop(self) -> None:
+        self.svc.stop("ipa.service")
+
+    def backup(self) -> Any:
         """
         Backup all IPA server data.
 
         This is done by calling ``ipa-backup --data --online`` on the server
         and can take several seconds to finish.
-        """
-        self.ssh.run("ipa-backup --data --online")
-        cmd = self.ssh.run("ls /var/lib/ipa/backup | tail -n 1")
-        self._backup_location = cmd.stdout.strip()
 
-    def restore(self) -> None:
+        :return: Backup data.
+        :rtype: Any
+        """
+
+        # Race condition: https://pagure.io/freeipa/issue/9584
+        @retry_command(delay=0, match_stderr="Unable to add LDIF task: This entry already exists")
+        def _backup():
+            return self.ssh.run(
+                """
+                set -ex
+
+                function backup {
+                    if [ -d "$1" ] || [ -f "$1" ]; then
+                        cp --force --archive "$1" "$2"
+                    fi
+                }
+
+                ipa-backup --data --online
+
+                path=`mktemp -d`
+                mv `find /var/lib/ipa/backup -maxdepth 1 -type d | tail -n 1` $path/ipa
+                backup /etc/krb5.conf "$path/krb5.conf"
+                backup /etc/krb5.keytab "$path/krb5.keytab"
+                backup /etc/sssd "$path/config"
+                backup /var/log/sssd "$path/logs"
+                backup /var/lib/sss "$path/lib"
+
+                echo $path
+                """,
+                log_level=SSHLog.Error,
+            )
+
+        self.logger.info("Creating backup of IPA server")
+        result = _backup()
+        return PurePosixPath(result.stdout_lines[-1].strip())
+
+    def restore(self, backup_data: Any | None) -> None:
         """
         Restore all IPA server data to its original state.
 
         This is done by calling ``ipa-restore --data --online`` on the server
         and can take several seconds to finish.
+
+        :return: Backup data.
+        :rtype: Any
         """
-        if not self._backup_location:
+        if backup_data is None:
             return
 
-        self.ssh.exec(
-            ["ipa-restore", "--unattended", "--password", self.adminpw, "--data", "--online", self._backup_location]
+        if not isinstance(backup_data, PurePosixPath):
+            raise TypeError(f"Expected PurePosixPath, got {type(backup_data)}")
+
+        backup_path = str(backup_data)
+        self.logger.info(f"Restoring IPA server from {backup_path}")
+
+        self.ssh.run(
+            f"""
+            set -ex
+
+            function restore {{
+                rm --force --recursive "$2"
+                if [ -d "$1" ] || [ -f "$1" ]; then
+                    cp --force --archive "$1" "$2"
+                fi
+            }}
+
+            ipa-restore --unattended --password "{self.adminpw}" --data --online "{backup_path}/ipa"
+
+            rm --force --recursive /etc/sssd /var/lib/sss /var/log/sssd
+            restore "{backup_path}/krb5.conf" /etc/krb5.conf
+            restore "{backup_path}/krb5.keytab" /etc/krb5.keytab
+            restore "{backup_path}/config" /etc/sssd
+            restore "{backup_path}/logs" /var/log/sssd
+            restore "{backup_path}/lib" /var/lib/sss
+            """,
+            log_level=SSHLog.Error,
         )
-        self.ssh.exec(["systemctl", "restart", "ipa"])
+        self.svc.restart("sssd.service")
