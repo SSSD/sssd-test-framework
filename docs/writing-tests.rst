@@ -1,5 +1,5 @@
-Writing new test
-################
+Writing new tests
+#################
 
 The tests are written using the `pytest`_ framework, `pytest-mh`_ plugin and
 SSSD specific extensions that implements related

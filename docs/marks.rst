@@ -5,7 +5,7 @@ Additional test metadata
 ************************
 
 The following metadata are **required** to be present in docstring of each test.
-These metadata are used to organize test in Polarion to provide evidency and
+These metadata are used to organize test in Polarion to provide evidence and
 traceability for enterprise releases.
 
 .. code-block:: python
@@ -34,6 +34,8 @@ traceability for enterprise releases.
         """
 
 * **title**: Simple test case description.
+* **description** (optional): Any information that is beneficial to understand
+  the user scenario or any uniqueness pertaining to the test.
 * **setup**: All steps required to setup the environment before assertions (e.g.
   what users are created).
 * **steps**: Individual test or assertion steps.

@@ -40,7 +40,7 @@ Supported features
 * ``non-privileged`` - SSSD is built with support of running under non-root
 
 Checking supported functionality in other roles
-###############################################
+===============================================
 
 Even though the main purpose and default setting of the
 ``@pytest.mark.builtwith`` marker is to check built functionality of SSSD on the
