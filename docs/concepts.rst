@@ -44,20 +44,20 @@ Core concepts
 Naming tests
 ************
 
-Name your tests as ``test_feature__case``. For example:
+Name your tests as ``test_feature__case``, or ``test_role__case``. For example:
 
 .. code-block:: python
 
     @pytest.mark.topology(KnownTopologyGroup.AnyProvider)
-    def test_id__shortname():
+    def test_identity__lookup_user_using_their_shortname():
         pass
 
     @pytest.mark.topology(KnownTopologyGroup.AnyProvider)
-    def test_id__fqn():
+    def test_identity__lookup_user_using_their_fully_qualified_name():
         pass
 
-    @pytest.mark.topology(KnownTopologyGroup.AnyProvider)
-    def test_id__name_with_space():
+    @pytest.mark.topology(KnownTopology.IPA)
+    def test_ipa_trust__lookup_user_in_ad():
         pass
 
 About using fixtures
@@ -104,6 +104,10 @@ inside a module (a function starting with `test_`). Even though it might be
 logical to organize tests inside a class, it does not give you any benefit over
 plain function and it create just one more level of organization that must be
 correctly kept and maintained.
+
+Tests are organized by user stories, also referred to as customer scenarios.
+For example, tests related to verifying a user's *identity* will reside in
+test_identity.py. Tests related to logins, will reside in test_authentication.py.
 
 .. warning::
 

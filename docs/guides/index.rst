@@ -3,11 +3,9 @@ How to guides
 
 .. toctree::
 
-   using-roles
    check-sssd-functionality
-   ssh-client
-   sss_override
-   pam
+   using-roles
+   using-ssh
    testing-authentication
    testing-autofs
    testing-dbus
@@ -15,7 +13,9 @@ How to guides
    testing-identity
    testing-ldap-krb5
    testing-netgroups
+   testing-sss_override
    testing-offline
    testing-passkey
+   testing-pam
    testing-ipa-trust
-   local-users
+   testing-local-users
