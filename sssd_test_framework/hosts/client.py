@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import PurePosixPath
 from typing import Any
 
-from pytest_mh.ssh import SSHLog
+from pytest_mh.conn import ProcessLogLevel
 
 from .base import BaseBackupHost, BaseLinuxHost
 
@@ -39,7 +39,7 @@ class ClientHost(BaseBackupHost, BaseLinuxHost):
             return self._features
 
         self.logger.info(f"Detecting SSSD's features on {self.hostname}")
-        result = self.ssh.run(
+        result = self.conn.run(
             """
             set -ex
 
@@ -52,7 +52,7 @@ class ClientHost(BaseBackupHost, BaseLinuxHost):
             MANWIDTH=10000 man sssd.conf | grep -q "id_provider = ldap or id_provider = proxy" && \
             echo "limited_enumeration" || :
             """,
-            log_level=SSHLog.Error,
+            log_level=ProcessLogLevel.Error,
         )
 
         # Set default values
@@ -91,7 +91,7 @@ class ClientHost(BaseBackupHost, BaseLinuxHost):
         """
         self.logger.info("Creating backup of SSSD client")
 
-        result = self.ssh.run(
+        result = self.conn.run(
             """
             set -ex
 
@@ -110,7 +110,7 @@ class ClientHost(BaseBackupHost, BaseLinuxHost):
 
             echo $path
             """,
-            log_level=SSHLog.Error,
+            log_level=ProcessLogLevel.Error,
         )
 
         return PurePosixPath(result.stdout_lines[-1].strip())
@@ -131,7 +131,7 @@ class ClientHost(BaseBackupHost, BaseLinuxHost):
         backup_path = str(backup_data)
 
         self.logger.info(f"Restoring SSSD data from {backup_path}")
-        self.ssh.run(
+        self.conn.run(
             f"""
             set -ex
 
@@ -149,5 +149,5 @@ class ClientHost(BaseBackupHost, BaseLinuxHost):
             restore "{backup_path}/logs" /var/log/sssd
             restore "{backup_path}/lib" /var/lib/sss
             """,
-            log_level=SSHLog.Error,
+            log_level=ProcessLogLevel.Error,
         )

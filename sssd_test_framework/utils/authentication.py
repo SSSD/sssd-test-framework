@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from pytest_mh import MultihostHost, MultihostUtility
-from pytest_mh.ssh import SSHClient, SSHProcessResult
+from pytest_mh.conn import Connection, ProcessResult
 from pytest_mh.utils.fs import LinuxFileSystem
 
 from ..misc.errors import ExpectScriptError
@@ -144,7 +144,7 @@ class AuthenticationUtils(MultihostUtility[MultihostHost]):
 
         return getattr(self, method)
 
-    def kerberos(self, ssh: SSHClient) -> KerberosAuthenticationUtils:
+    def kerberos(self, ssh: Connection) -> KerberosAuthenticationUtils:
         """
         Test authentication and authorization via Kerberos.
 
@@ -164,7 +164,7 @@ class AuthenticationUtils(MultihostUtility[MultihostHost]):
                         assert krb.has_tgt(kdc.realm)
 
         :param ssh: SSH connection for the target user.
-        :type ssh: SSHClient
+        :type ssh: Connection
         :return: Kerberos authentication object.
         :rtype: KerberosAuthenticationUtils
         """
@@ -199,7 +199,7 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
         :rtype: Tuple[int, int, str, str]
         """
 
-        result = self.host.ssh.expect_nobody(
+        result = self.host.conn.expect_nobody(
             rf"""
             # Disable debug output
             # exp_internal 0
@@ -284,7 +284,7 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
         :return: True if authentication and password change was successful, False otherwise.
         :rtype: bool
         """
-        result = self.host.ssh.expect_nobody(
+        result = self.host.conn.expect_nobody(
             rf"""
             # It takes some time to get authentication failure
             set timeout {DEFAULT_AUTHENTICATION_TIMEOUT}
@@ -399,7 +399,7 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
             mode="a=rx",
         )
 
-        result = self.host.ssh.expect(
+        result = self.host.conn.expect(
             rf"""
             # Disable debug output
             # exp_internal 0
@@ -520,7 +520,7 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
         :rtype: Tuple[int, int, str, str]
         """
 
-        result = self.host.ssh.expect_nobody(
+        result = self.host.conn.expect_nobody(
             rf"""
             # Disable debug output
             exp_internal 0
@@ -610,7 +610,7 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
         :return: True if authentication and password change was successful, False otherwise.
         :rtype: bool
         """
-        result = self.host.ssh.expect_nobody(
+        result = self.host.conn.expect_nobody(
             rf"""
             # It takes some time to get authentication failure
             set timeout {DEFAULT_AUTHENTICATION_TIMEOUT}
@@ -693,7 +693,7 @@ class SudoAuthenticationUtils(MultihostUtility[MultihostHost]):
         :return: True if the command was successful, False if the command failed or the user can not run sudo.
         :rtype: bool
         """
-        result = self.host.ssh.run(
+        result = self.host.conn.run(
             f'su - "{username}" -c "sudo --stdin {command}"', input=password, raise_on_error=False
         )
 
@@ -712,7 +712,7 @@ class SudoAuthenticationUtils(MultihostUtility[MultihostHost]):
         :return: True if the user can run sudo and allowed commands match expected commands (if set), False otherwise.
         :rtype: bool
         """
-        result = self.host.ssh.run(f'su - "{username}" -c "sudo --stdin -l"', input=password, raise_on_error=False)
+        result = self.host.conn.run(f'su - "{username}" -c "sudo --stdin -l"', input=password, raise_on_error=False)
         if result.rc != 0:
             return False
 
@@ -741,21 +741,21 @@ class KerberosAuthenticationUtils(MultihostUtility[MultihostHost]):
     Methods for testing Kerberos authentication and KCM.
     """
 
-    def __init__(self, host: MultihostHost, ssh: SSHClient | None = None) -> None:
+    def __init__(self, host: MultihostHost, ssh: Connection | None = None) -> None:
         """
         :param host: Multihost host.
         :type host: MultihostHost
         :param ssh: SSH client for the target user, defaults to None
-        :type ssh: SSHClient | None, optional
+        :type ssh: Connection | None, optional
         """
         super().__init__(host)
 
-        self.ssh: SSHClient = ssh if ssh is not None else host.ssh
+        self.conn: Connection = ssh if ssh is not None else host.conn
         """SSH client for the target user."""
 
     def kinit(
         self, principal: str, *, password: str, realm: str | None = None, args: list[str] | None = None
-    ) -> SSHProcessResult:
+    ) -> ProcessResult:
         """
         Run ``kinit`` command.
 
@@ -774,7 +774,7 @@ class KerberosAuthenticationUtils(MultihostUtility[MultihostHost]):
         :param args: Additional parameters to ``klist``, defaults to None
         :type args: list[str] | None, optional
         :return: Command result.
-        :rtype: SSHProcessResult
+        :rtype: ProcessResult
         """
         if args is None:
             args = []
@@ -782,9 +782,9 @@ class KerberosAuthenticationUtils(MultihostUtility[MultihostHost]):
         if realm is not None:
             principal = f"{principal}@{realm}"
 
-        return self.ssh.exec(["kinit", *args, principal], input=password)
+        return self.conn.exec(["kinit", *args, principal], input=password)
 
-    def kvno(self, principal: str, *, realm: str | None = None, args: list[str] | None = None) -> SSHProcessResult:
+    def kvno(self, principal: str, *, realm: str | None = None, args: list[str] | None = None) -> ProcessResult:
         """
         Run ``kvno`` command.
 
@@ -801,7 +801,7 @@ class KerberosAuthenticationUtils(MultihostUtility[MultihostHost]):
         :param args: Additional parameters to ``klist``, defaults to None
         :type args: list[str] | None, optional
         :return: Command result.
-        :rtype: SSHProcessResult
+        :rtype: ProcessResult
         """
         if args is None:
             args = []
@@ -809,23 +809,23 @@ class KerberosAuthenticationUtils(MultihostUtility[MultihostHost]):
         if realm is not None:
             principal = f"{principal}@{realm}"
 
-        return self.ssh.exec(["kvno", *args, principal])
+        return self.conn.exec(["kvno", *args, principal])
 
-    def klist(self, *, args: list[str] | None = None) -> SSHProcessResult:
+    def klist(self, *, args: list[str] | None = None) -> ProcessResult:
         """
         Run ``klist`` command.
 
         :param args: Additional parameters to ``klist``, defaults to None
         :type args: list[str] | None, optional
         :return: Command result.
-        :rtype: SSHProcessResult
+        :rtype: ProcessResult
         """
         if args is None:
             args = []
 
-        return self.ssh.exec(["klist", *args])
+        return self.conn.exec(["klist", *args])
 
-    def kswitch(self, principal: str, realm: str) -> SSHProcessResult:
+    def kswitch(self, principal: str, realm: str) -> ProcessResult:
         """
         Run ``kswitch -p principal@realm`` command.
 
@@ -834,16 +834,16 @@ class KerberosAuthenticationUtils(MultihostUtility[MultihostHost]):
         :param realm: Kerberos realm that is appended to the principal (``$principal@$realm``)
         :type realm: str
         :return: Command result.
-        :rtype: SSHProcessResult
+        :rtype: ProcessResult
         """
         if "@" not in principal:
             principal = f"{principal}@{realm}"
 
-        return self.ssh.exec(["kswitch", "-p", principal])
+        return self.conn.exec(["kswitch", "-p", principal])
 
     def kdestroy(
         self, *, all: bool = False, ccache: str | None = None, principal: str | None = None, realm: str | None = None
-    ) -> SSHProcessResult:
+    ) -> ProcessResult:
         """
         Run ``kdestroy`` command.
 
@@ -862,7 +862,7 @@ class KerberosAuthenticationUtils(MultihostUtility[MultihostHost]):
         :param realm: Kerberos realm that is appended to the principal (``$principal@$realm``), defaults to None
         :type realm: str | None, optional
         :return: Command result.
-        :rtype: SSHProcessResult
+        :rtype: ProcessResult
         """
         args = []
 
@@ -880,7 +880,7 @@ class KerberosAuthenticationUtils(MultihostUtility[MultihostHost]):
             args.append("-p")
             args.append(principal)
 
-        return self.ssh.exec(["kdestroy", *args])
+        return self.conn.exec(["kdestroy", *args])
 
     def has_tgt(self, principal: str | None, realm: str) -> bool:
         """
@@ -915,7 +915,7 @@ class KerberosAuthenticationUtils(MultihostUtility[MultihostHost]):
         :return: True if the ccache for given principal is the primary one.
         :rtype: bool
         """
-        result = self.ssh.exec(["klist", "-l"], raise_on_error=False)
+        result = self.conn.exec(["klist", "-l"], raise_on_error=False)
         if result.rc != 0:
             return False
 
@@ -957,7 +957,7 @@ class KerberosAuthenticationUtils(MultihostUtility[MultihostHost]):
         :return: Number of existing ccaches.
         :rtype: int
         """
-        result = self.ssh.exec(["klist", "-l"], raise_on_error=False)
+        result = self.conn.exec(["klist", "-l"], raise_on_error=False)
         if result.rc != 0:
             return 0
 
@@ -976,7 +976,7 @@ class KerberosAuthenticationUtils(MultihostUtility[MultihostHost]):
         :rtype: dict[str, list[str]]
         """
 
-        def __parse_output(result: SSHProcessResult) -> dict[str, list[str]]:
+        def __parse_output(result: ProcessResult) -> dict[str, list[str]]:
             ccache_principal: str | None = None
             ccache: dict[str, list[str]] = dict()
 
@@ -992,7 +992,7 @@ class KerberosAuthenticationUtils(MultihostUtility[MultihostHost]):
 
             return ccache
 
-        result = self.ssh.exec(["klist", "-A"], env=env, raise_on_error=False)
+        result = self.conn.exec(["klist", "-A"], env=env, raise_on_error=False)
         if result.rc != 0:
             return dict()
 
@@ -1006,7 +1006,7 @@ class KerberosAuthenticationUtils(MultihostUtility[MultihostHost]):
         :rtype: dict[str, str]
         """
 
-        def __parse_output(result: SSHProcessResult) -> dict[str, str]:
+        def __parse_output(result: ProcessResult) -> dict[str, str]:
             if len(result.stdout_lines) <= 2:
                 return dict()
 
@@ -1017,7 +1017,7 @@ class KerberosAuthenticationUtils(MultihostUtility[MultihostHost]):
 
             return ccaches
 
-        result = self.ssh.exec(["klist", "-l"], raise_on_error=False)
+        result = self.conn.exec(["klist", "-l"], raise_on_error=False)
         if result.rc != 0:
             return dict()
 
@@ -1066,7 +1066,7 @@ class KerberosAuthenticationUtils(MultihostUtility[MultihostHost]):
         :return: Self..
         :rtype: HostKerberos
         """
-        self.ssh.connect()
+        self.conn.connect()
         return self
 
     def __exit__(self, exception_type, exception_value, traceback) -> None:
@@ -1105,7 +1105,7 @@ class PasswdUtils(MultihostUtility[MultihostHost]):
         if retyped is None:
             retyped = new_password
 
-        result = self.host.ssh.expect(
+        result = self.host.conn.expect(
             rf"""
             set timeout {DEFAULT_AUTHENTICATION_TIMEOUT}
             set prompt "\n.*\[#\$>\] $"

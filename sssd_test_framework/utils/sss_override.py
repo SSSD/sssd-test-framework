@@ -25,7 +25,7 @@ class SSSOverrideUtils(MultihostUtility[MultihostHost]):
         """
         super().__init__(host)
 
-        self.cli: CLIBuilder = CLIBuilder(host.ssh)
+        self.cli: CLIBuilder = CLIBuilder(host.conn)
         self.fs: LinuxFileSystem = fs
 
     def user(self, name: str) -> SSSOverrideUser:
@@ -120,12 +120,12 @@ class SSSOverrideUtils(MultihostUtility[MultihostHost]):
         if users:
             self.logger.info(f"Exporting user local overrides data to {users} on {self.host.hostname}")
             self.fs.backup(users)
-            self.host.ssh.exec(["sss_override", "user-export", users])
+            self.host.conn.exec(["sss_override", "user-export", users])
 
         if groups:
             self.logger.info(f"Exporting group local overrides data to {groups} on {self.host.hostname}")
             self.fs.backup(groups)
-            self.host.ssh.exec(["sss_override", "group-export", groups])
+            self.host.conn.exec(["sss_override", "group-export", groups])
 
     def import_data(
         self,
@@ -148,12 +148,12 @@ class SSSOverrideUtils(MultihostUtility[MultihostHost]):
         if users:
             self.logger.info(f"Importing user local overrides data from {users} on {self.host.hostname}")
             self.fs.backup(users)
-            self.host.ssh.exec(["sss_override", "user-import", users])
+            self.host.conn.exec(["sss_override", "user-import", users])
 
         if groups:
             self.logger.info(f"Importing group local overrides data from {groups} on {self.host.hostname}")
             self.fs.backup(groups)
-            self.host.ssh.exec(["sss_override", "group-import", groups])
+            self.host.conn.exec(["sss_override", "group-import", groups])
 
 
 class SSSOverrideUser:
@@ -213,7 +213,7 @@ class SSSOverrideUser:
         }
 
         self.util.logger.info(f"Creating local override for user {self.user} on {self.util.host.hostname}")
-        self.util.host.ssh.exec(["sss_override", "user-add", self.user] + self.util.cli.args(args))
+        self.util.host.conn.exec(["sss_override", "user-add", self.user] + self.util.cli.args(args))
 
         return self
 
@@ -222,7 +222,7 @@ class SSSOverrideUser:
         Delete the local override for user.
         """
         self.util.logger.info(f"Deleting local override for user {self.user} on {self.util.host.hostname}")
-        self.util.host.ssh.exec(["sss_override", "user-del", self.user])
+        self.util.host.conn.exec(["sss_override", "user-del", self.user])
 
         return self
 
@@ -237,7 +237,7 @@ class SSSOverrideUser:
         """
 
         self.util.logger.info(f"Fetching local override data for user {self.user} on {self.util.host.hostname}")
-        output = self.util.host.ssh.exec(["sss_override", "user-show", self.user])
+        output = self.util.host.conn.exec(["sss_override", "user-show", self.user])
         if not output.stdout:
             return None
 
@@ -298,7 +298,7 @@ class SSSOverrideGroup:
         }
 
         self.util.logger.info(f"Creating local override for group {self.group} on {self.util.host.hostname}")
-        self.util.host.ssh.exec(["sss_override", "group-add", self.group] + self.util.cli.args(args))
+        self.util.host.conn.exec(["sss_override", "group-add", self.group] + self.util.cli.args(args))
 
         return self
 
@@ -307,7 +307,7 @@ class SSSOverrideGroup:
         Delete the local override for group.
         """
         self.util.logger.info(f"Deleting local override for group {self.group} on {self.util.host.hostname}")
-        self.util.host.ssh.exec(["sss_override", "group-del", self.group])
+        self.util.host.conn.exec(["sss_override", "group-del", self.group])
 
         return self
 
@@ -321,7 +321,7 @@ class SSSOverrideGroup:
         :rtype: dict[str, list[str]]
         """
         self.util.logger.info(f"Fetching local override group {self.group} on {self.util.host.hostname}")
-        output = self.util.host.ssh.exec(["sss_override", "group-show", self.group])
+        output = self.util.host.conn.exec(["sss_override", "group-show", self.group])
         if not output.stdout:
             return None
 

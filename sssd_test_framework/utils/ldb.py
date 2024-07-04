@@ -58,5 +58,5 @@ class LDBUtils(MultihostUtility[MultihostHost]):
         if filter is not None:
             additional.append(filter)
 
-        result = self.host.ssh.exec(["ldbsearch", *args, "-H", path, *additional])
+        result = self.host.conn.exec(["ldbsearch", *args, "-H", path, *additional])
         return parse_ldif(result.stdout)

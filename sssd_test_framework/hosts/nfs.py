@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import PurePosixPath
 from typing import Any
 
-from pytest_mh.ssh import SSHLog
+from pytest_mh.conn import ProcessLogLevel
 
 from .base import BaseBackupHost, BaseLinuxHost
 
@@ -58,14 +58,14 @@ class NFSHost(BaseBackupHost, BaseLinuxHost):
         """
         self.logger.info("Creating backup of NFS server")
 
-        result = self.ssh.run(
+        result = self.conn.run(
             rf"""
             set -e
             path=`mktemp`
             tar --ignore-failed-read -czvf "$path" "{self.exports_dir}" /etc/exports /etc/exports.d
             echo $path
             """,
-            log_level=SSHLog.Error,
+            log_level=ProcessLogLevel.Error,
         )
 
         return PurePosixPath(result.stdout_lines[-1].strip())
@@ -86,7 +86,7 @@ class NFSHost(BaseBackupHost, BaseLinuxHost):
         backup_path = str(backup_data)
         self.logger.info(f"Restoring NFS server from {backup_path}")
 
-        self.ssh.run(
+        self.conn.run(
             rf"""
             set -e
             rm -fr "{self.exports_dir}/*"
@@ -94,5 +94,5 @@ class NFSHost(BaseBackupHost, BaseLinuxHost):
             tar -xf "{backup_path}" -C /
             exportfs -r
             """,
-            log_level=SSHLog.Error,
+            log_level=ProcessLogLevel.Error,
         )

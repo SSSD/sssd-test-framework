@@ -5,7 +5,7 @@ from __future__ import annotations
 import jc
 from pytest_mh import MultihostHost, MultihostUtility
 from pytest_mh.cli import CLIBuilder, CLIBuilderArgs
-from pytest_mh.ssh import SSHLog
+from pytest_mh.conn import ProcessLogLevel
 from pytest_mh.utils.fs import LinuxFileSystem
 
 __all__ = [
@@ -31,7 +31,7 @@ class LocalUsersUtils(MultihostUtility[MultihostHost]):
         """
         super().__init__(host)
 
-        self.cli: CLIBuilder = CLIBuilder(host.ssh)
+        self.cli: CLIBuilder = CLIBuilder(host.conn)
         self.fs: LinuxFileSystem = fs
         self._users: list[str] = []
         self._groups: list[str] = []
@@ -51,7 +51,7 @@ class LocalUsersUtils(MultihostUtility[MultihostHost]):
             cmd += "\n"
 
         if cmd:
-            self.host.ssh.run("set -e\n\n" + cmd)
+            self.host.conn.run("set -e\n\n" + cmd)
 
         super().teardown()
 
@@ -171,7 +171,9 @@ class LocalUser(object):
 
         passwd = f" && passwd --stdin '{self.name}'" if password else ""
         self.util.logger.info(f'Creating local user "{self.name}" on {self.util.host.hostname}')
-        self.util.host.ssh.run(self.util.cli.command("useradd", args) + passwd, input=password, log_level=SSHLog.Error)
+        self.util.host.conn.run(
+            self.util.cli.command("useradd", args) + passwd, input=password, log_level=ProcessLogLevel.Error
+        )
 
         self.util._users.append(self.name)
         return self
@@ -216,7 +218,9 @@ class LocalUser(object):
 
         passwd = f" && passwd --stdin '{self.name}'" if password else ""
         self.util.logger.info(f'Modifying local user "{self.name}" on {self.util.host.hostname}')
-        self.util.host.ssh.run(self.util.cli.command("usermod", args) + passwd, input=password, log_level=SSHLog.Error)
+        self.util.host.conn.run(
+            self.util.cli.command("usermod", args) + passwd, input=password, log_level=ProcessLogLevel.Error
+        )
 
         return self
 
@@ -225,7 +229,7 @@ class LocalUser(object):
         Delete the user.
         """
         self.util.logger.info(f'Deleting local user "{self.name}" on {self.util.host.hostname}')
-        self.util.host.ssh.run(f"userdel '{self.name}' --force --remove", log_level=SSHLog.Error)
+        self.util.host.conn.run(f"userdel '{self.name}' --force --remove", log_level=ProcessLogLevel.Error)
         self.util._users.remove(self.name)
 
     def get(self, attrs: list[str] | None = None) -> dict[str, list[str]]:
@@ -238,7 +242,9 @@ class LocalUser(object):
         :rtype: dict[str, list[str]]
         """
         self.util.logger.info(f'Fetching local user "{self.name}" on {self.util.host.hostname}')
-        result = self.util.host.ssh.exec(["getent", "passwd", self.name], raise_on_error=False, log_level=SSHLog.Error)
+        result = self.util.host.conn.exec(
+            ["getent", "passwd", self.name], raise_on_error=False, log_level=ProcessLogLevel.Error
+        )
         if result.rc != 0:
             return {}
 
@@ -289,7 +295,7 @@ class LocalGroup(object):
         }
 
         self.util.logger.info(f'Creating local group "{self.name}" on {self.util.host.hostname}')
-        self.util.host.ssh.run(self.util.cli.command("groupadd", args), log_level=SSHLog.Silent)
+        self.util.host.conn.run(self.util.cli.command("groupadd", args), log_level=ProcessLogLevel.Silent)
         self.util._groups.append(self.name)
 
         return self
@@ -316,7 +322,7 @@ class LocalGroup(object):
         }
 
         self.util.logger.info(f'Modifying local group "{self.name}" on {self.util.host.hostname}')
-        self.util.host.ssh.run(self.util.cli.command("groupmod", args), log_level=SSHLog.Error)
+        self.util.host.conn.run(self.util.cli.command("groupmod", args), log_level=ProcessLogLevel.Error)
 
         return self
 
@@ -325,7 +331,7 @@ class LocalGroup(object):
         Delete the group.
         """
         self.util.logger.info(f'Deleting local group "{self.name}" on {self.util.host.hostname}')
-        self.util.host.ssh.run(f"groupdel '{self.name}' -f", log_level=SSHLog.Error)
+        self.util.host.conn.run(f"groupdel '{self.name}' -f", log_level=ProcessLogLevel.Error)
         self.util._groups.remove(self.name)
 
     def get(self, attrs: list[str] | None = None) -> dict[str, list[str]]:
@@ -338,7 +344,9 @@ class LocalGroup(object):
         :rtype: dict[str, list[str]]
         """
         self.util.logger.info(f'Fetching local group "{self.name}" on {self.util.host.hostname}')
-        result = self.util.host.ssh.exec(["getent", "group", self.name], raise_on_error=False, log_level=SSHLog.Silent)
+        result = self.util.host.conn.exec(
+            ["getent", "group", self.name], raise_on_error=False, log_level=ProcessLogLevel.Silent
+        )
         if result.rc != 0:
             return {}
 
@@ -380,7 +388,7 @@ class LocalGroup(object):
             return self
 
         cmd = "\n".join([f"groupmems --group '{self.name}' --add '{x.name}'" for x in members])
-        self.util.host.ssh.run("set -ex\n" + cmd, log_level=SSHLog.Error)
+        self.util.host.conn.run("set -ex\n" + cmd, log_level=ProcessLogLevel.Error)
 
         return self
 
@@ -410,6 +418,6 @@ class LocalGroup(object):
             return self
 
         cmd = "\n".join([f"groupmems --group '{self.name}' --delete '{x.name}'" for x in members])
-        self.util.host.ssh.run("set -ex\n" + cmd, log_level=SSHLog.Error)
+        self.util.host.conn.run("set -ex\n" + cmd, log_level=ProcessLogLevel.Error)
 
         return self

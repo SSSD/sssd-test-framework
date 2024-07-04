@@ -5,7 +5,7 @@ from functools import wraps
 from time import sleep
 from typing import Any, Callable, ParamSpec
 
-from pytest_mh.ssh import SSHClient, SSHLog, SSHProcess, SSHProcessError, SSHProcessResult
+from pytest_mh.conn import Connection, Process, ProcessError, ProcessLogLevel, ProcessResult
 
 from . import to_list_of_strings
 
@@ -17,18 +17,17 @@ class SSHKillableProcess(object):
 
     def __init__(
         self,
-        client: SSHClient,
+        client: Connection,
         argv: list[Any],
         *,
         cwd: str | None = None,
         env: dict[str, Any] | None = None,
         input: str | None = None,
-        read_timeout: float = 2,
-        log_level: SSHLog = SSHLog.Full,
+        log_level: ProcessLogLevel = ProcessLogLevel.Full,
     ) -> None:
         """
         :param client: SSH client.
-        :type client: SSHClient
+        :type client: Connection
         :param argv: Command to run.
         :type argv: list[Any]
         :param cwd: Working directory, defaults to None (= do not change)
@@ -37,10 +36,8 @@ class SSHKillableProcess(object):
         :type env: dict[str, Any] | None, optional
         :param input: Content of standard input, defaults to None
         :type input: str | None, optional
-        :param read_timeout: Timeout in seconds, how long should the client wait for output, defaults to 30 seconds
-        :type read_timeout: float, optional
-        :param log_level: Log level, defaults to SSHLog.Full
-        :type log_level: SSHLog, optional
+        :param log_level: Log level, defaults to ProcessLogLevel.Full
+        :type log_level: ProcessLogLevel, optional
         """
         if env is None:
             env = {}
@@ -49,8 +46,8 @@ class SSHKillableProcess(object):
         command = shlex.join(argv)
         pidfile = "/tmp/.mh.sshkillableprocess.pid"
 
-        self.client: SSHClient = client
-        self.process: SSHProcess = client.async_run(
+        self.client: Connection = client
+        self.process: Process = client.async_run(
             f"""
                 set -m
                 {command} &
@@ -60,7 +57,6 @@ class SSHKillableProcess(object):
             cwd=cwd,
             env=env,
             input=input,
-            read_timeout=read_timeout,
             log_level=log_level,
         )
 
@@ -104,7 +100,7 @@ def retry_command(
     delay: float = 1,
     match_stdout: str | None = None,
     match_stderr: str | None = None,
-) -> Callable[[Callable[Param, SSHProcessResult]], Callable[Param, SSHProcessResult]]:
+) -> Callable[[Callable[Param, ProcessResult]], Callable[Param, ProcessResult]]:
     """
     Decorated function will be retried if its return code is non zero.
 
@@ -121,10 +117,10 @@ def retry_command(
     :rtype: Callable
     """
 
-    def decorator(func: Callable[Param, SSHProcessResult]) -> Callable[Param, SSHProcessResult]:
+    def decorator(func: Callable[Param, ProcessResult]) -> Callable[Param, ProcessResult]:
         @wraps(func)
-        def wrapper(*args, **kwargs) -> SSHProcessResult:
-            error: SSHProcessError | None = None
+        def wrapper(*args, **kwargs) -> ProcessResult:
+            error: ProcessError | None = None
             retry: int = 0
             while True:
                 if retry >= max_retries:
@@ -139,7 +135,7 @@ def retry_command(
                     rc = result.rc
                     stdout = result.stdout
                     stderr = result.stderr
-                except SSHProcessError as e:
+                except ProcessError as e:
                     error = e
                     rc = e.rc
                     stdout = e.stdout

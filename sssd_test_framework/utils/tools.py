@@ -6,7 +6,7 @@ from typing import Any
 
 import jc
 from pytest_mh import MultihostHost, MultihostUtility
-from pytest_mh.ssh import SSHProcess, SSHProcessResult
+from pytest_mh.conn import Process, ProcessResult
 from pytest_mh.utils.fs import LinuxFileSystem
 
 from ..misc.ssh import SSHKillableProcess
@@ -488,7 +488,7 @@ class LinuxToolsUtils(MultihostUtility[MultihostHost]):
         :return: id data, None if not found
         :rtype: IdEntry | None
         """
-        command = self.host.ssh.exec(["id", name], raise_on_error=False)
+        command = self.host.conn.exec(["id", name], raise_on_error=False)
         if command.rc != 0:
             return None
 
@@ -511,7 +511,7 @@ class LinuxToolsUtils(MultihostUtility[MultihostHost]):
             args = []
 
         paths = [paths] if isinstance(paths, str) else paths
-        command = self.host.ssh.exec(["grep", *args, pattern, *paths])
+        command = self.host.conn.exec(["grep", *args, pattern, *paths])
 
         return command.rc == 0
 
@@ -531,61 +531,61 @@ class LinuxToolsUtils(MultihostUtility[MultihostHost]):
 
         self.__fs.backup(pcap_path)
 
-        command = SSHKillableProcess(self.host.ssh, ["tcpdump", *args, "-w", pcap_path])
+        command = SSHKillableProcess(self.host.conn, ["tcpdump", *args, "-w", pcap_path])
 
         # tcpdump requires some time to process and capture packets
         command.kill_delay = 1
 
         return command
 
-    def tshark(self, args: list[Any] | None = None) -> SSHProcessResult:
+    def tshark(self, args: list[Any] | None = None) -> ProcessResult:
         """
         Execute tshark command with given arguments.
 
         :param args: Arguments to ``tshark``, defaults to None
         :type args: list[Any] | None, optional
         :return: SSH Process result
-        :rtype: SSHProcessResult
+        :rtype: ProcessResult
         """
         if args is None:
             args = []
 
-        return self.host.ssh.exec(["tshark", *args])
+        return self.host.conn.exec(["tshark", *args])
 
-    def dnf(self, args: list[Any] | None = None) -> SSHProcessResult:
+    def dnf(self, args: list[Any] | None = None) -> ProcessResult:
         """
         Execute dnf commands with given arguments.
 
         :param args: Arguments to ``dnf``, defaults to None
         :type args: list[Any] | None, optional
         :return: SSH Process result
-        :rtype: SSHProcessResult
+        :rtype: ProcessResult
         """
         if args is None:
             args = []
 
-        dnf_id_before = self.host.ssh.exec(["dnf", "history"]).stdout.split("\n")[2].split("|")[0].strip()
+        dnf_id_before = self.host.conn.exec(["dnf", "history"]).stdout.split("\n")[2].split("|")[0].strip()
 
-        command = self.host.ssh.exec(["dnf", "-y", *args])
-        dnf_id_after = self.host.ssh.exec(["dnf", "history"]).stdout.split("\n")[2].split("|")[0].strip()
+        command = self.host.conn.exec(["dnf", "-y", *args])
+        dnf_id_after = self.host.conn.exec(["dnf", "history"]).stdout.split("\n")[2].split("|")[0].strip()
 
         if int(dnf_id_before) < int(dnf_id_after):
             self.__rollback.append(f"dnf history -y undo {dnf_id_after}")
 
         return command
 
-    def faillock(self, args: list[Any]) -> SSHProcessResult:
+    def faillock(self, args: list[Any]) -> ProcessResult:
         """
         Execute faillock command.
         :param args: Arguments to ``faillock``
         :type args: list[Any]
         :return: SSH Process result
-        :rtype: SSHProcessResult
+        :rtype: ProcessResult
         """
         if args is None:
             args = []
 
-        return self.host.ssh.exec(["faillock", *args])
+        return self.host.conn.exec(["faillock", *args])
 
     def teardown(self):
         """
@@ -595,11 +595,11 @@ class LinuxToolsUtils(MultihostUtility[MultihostHost]):
         """
         cmd = "\n".join(reversed(self.__rollback))
         if cmd:
-            self.host.ssh.run(cmd)
+            self.host.conn.run(cmd)
 
         super().teardown()
 
-    def wait_for_condition(self, condition: str, body: str = "", timeout: int = 60) -> SSHProcessResult:
+    def wait_for_condition(self, condition: str, body: str = "", timeout: int = 60) -> ProcessResult:
         """
         Wait at maximum ``timeout`` seconds until the ``condition`` is true. Execute ``body`` after each attempt.
         The condition is a bash expression, usually it is a single bash command that must succeed before a test
@@ -629,14 +629,14 @@ class LinuxToolsUtils(MultihostUtility[MultihostHost]):
         :param timeout: How long should we try the command in seconds, defaults to 60
         :type timeout: int, optional
         :return: Proccess result
-        :rtype: SSHProcessResult
+        :rtype: ProcessResult
         """
 
-        return self.host.ssh.run(f"timeout {timeout}s bash -c 'until {condition}; do : {body}; done'")
+        return self.host.conn.run(f"timeout {timeout}s bash -c 'until {condition}; do : {body}; done'")
 
 
 class KillCommand(object):
-    def __init__(self, host: MultihostHost, process: SSHProcess, pid: int) -> None:
+    def __init__(self, host: MultihostHost, process: Process, pid: int) -> None:
         self.host = host
         self.process = process
         self.pid = pid
@@ -646,7 +646,7 @@ class KillCommand(object):
         if self.__killed:
             return
 
-        self.host.ssh.exec(["kill", self.pid])
+        self.host.conn.exec(["kill", self.pid])
         self.__killed = True
 
     def __enter__(self) -> KillCommand:
@@ -728,7 +728,7 @@ class GetentUtils(MultihostUtility[MultihostHost]):
         if service is not None:
             args = ["-s", service]
 
-        command = self.host.ssh.exec(["getent", *args, cmd, name], raise_on_error=False)
+        command = self.host.conn.exec(["getent", *args, cmd, name], raise_on_error=False)
         if command.rc != 0:
             return None
 

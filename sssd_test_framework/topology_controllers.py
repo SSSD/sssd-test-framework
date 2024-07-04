@@ -4,7 +4,7 @@ from functools import partial, wraps
 from typing import Any
 
 from pytest_mh import TopologyController
-from pytest_mh.ssh import SSHProcessResult
+from pytest_mh.conn import ProcessResult
 
 from .config import SSSDMultihostConfig
 from .hosts.ad import ADHost
@@ -157,7 +157,7 @@ class IPATopologyController(BackupTopologyController):
         client.fs.backup("/var/lib/ipa-client")
 
         # Join ipa domain
-        client.ssh.exec(["realm", "join", ipa.domain], input=ipa.adminpw)
+        client.conn.exec(["realm", "join", ipa.domain], input=ipa.adminpw)
 
         # Backup so we can restore to this state after each test
         self.backup_data[ipa] = ipa.backup()
@@ -183,7 +183,7 @@ class ADTopologyController(BackupTopologyController):
         client.fs.rm("/etc/krb5.keytab")
 
         # Join AD domain
-        client.ssh.exec(["realm", "join", provider.domain], input=provider.adminpw)
+        client.conn.exec(["realm", "join", provider.domain], input=provider.adminpw)
 
         # Backup so we can restore to this state after each test
         self.backup_data[provider] = provider.backup()
@@ -228,7 +228,7 @@ class IPATrustADTopologyController(BackupTopologyController):
             client.fs.backup("/var/lib/ipa-client")
 
             # Join IPA domain)
-            client.ssh.exec(["realm", "join", ipa.domain], input=ipa.adminpw)
+            client.conn.exec(["realm", "join", ipa.domain], input=ipa.adminpw)
 
         # Backup so we can restore to this state after each test
         self.backup_data[ipa] = ipa.backup()
@@ -238,8 +238,8 @@ class IPATrustADTopologyController(BackupTopologyController):
     # If this command is run on freshly started containers, it is possible the IPA is not yet
     # fully ready to create the trust. It takes a while for it to start working.
     @retry_command(max_retries=20, delay=5, match_stderr='CIFS server communication error: code "3221225581"')
-    def trust_add(self, ipa: IPAHost, trusted: ADHost | SambaHost) -> SSHProcessResult:
-        return ipa.ssh.exec(
+    def trust_add(self, ipa: IPAHost, trusted: ADHost | SambaHost) -> ProcessResult:
+        return ipa.conn.exec(
             ["ipa", "trust-add", trusted.domain, "--admin", "Administrator", "--password"], input=trusted.adminpw
         )
 

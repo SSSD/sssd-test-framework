@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pytest_mh.ssh import SSHProcessResult
+from pytest_mh.conn import ProcessResult
 
 from ..hosts.client import ClientHost
 from ..topology import SSSDTopologyMark
@@ -105,13 +105,13 @@ class Client(BaseLinuxRole[ClientHost]):
 
                 self.sssd.import_domain(domain, role)
 
-    def sss_ssh_knownhosts(self, *args: str) -> SSHProcessResult:
+    def sss_ssh_knownhosts(self, *args: str) -> ProcessResult:
         """
         Execute sss_ssh_knownhosts.
 
         :param `*args`: Command arguments.
         :type `*args`: str
         :return: Command result.
-        :rtype: SSHProcessResult
+        :rtype: ProcessResult
         """
-        return self.host.ssh.exec(["sss_ssh_knownhosts", *args])
+        return self.host.conn.exec(["sss_ssh_knownhosts", *args])

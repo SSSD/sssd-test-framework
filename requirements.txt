@@ -1,4 +1,4 @@
 jc
 pytest
 python-ldap
-pytest-mh >= 1.0.17
+pytest-mh >= 1.0.18

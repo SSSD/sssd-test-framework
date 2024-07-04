@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import PurePosixPath
 from typing import Any
 
-from pytest_mh.ssh import SSHLog
+from pytest_mh.conn import ProcessLogLevel
 
 from ..misc.ssh import retry_command
 from .base import BaseDomainHost, BaseLinuxHost
@@ -79,7 +79,7 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
 
         self.logger.info(f"Detecting features on {self.hostname}")
 
-        result = self.ssh.run(
+        result = self.conn.run(
             """
             set -ex
 
@@ -87,7 +87,7 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
                 ipa help user | grep user-add-passkey 1> /dev/null && \
                 echo "passkey" || :
             """,
-            log_level=SSHLog.Error,
+            log_level=ProcessLogLevel.Error,
         )
 
         # Set default values
@@ -104,7 +104,7 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
         """
         Obtain ``admin`` user Kerberos TGT.
         """
-        self.ssh.exec(["kinit", "admin"], input=self.adminpw)
+        self.conn.exec(["kinit", "admin"], input=self.adminpw)
 
     def start(self) -> None:
         self.svc.start("ipa.service")
@@ -126,7 +126,7 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
         # Race condition: https://pagure.io/freeipa/issue/9584
         @retry_command(delay=0, match_stderr="Unable to add LDIF task: This entry already exists")
         def _backup():
-            return self.ssh.run(
+            return self.conn.run(
                 """
                 set -ex
 
@@ -148,7 +148,7 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
 
                 echo $path
                 """,
-                log_level=SSHLog.Error,
+                log_level=ProcessLogLevel.Error,
             )
 
         self.logger.info("Creating backup of IPA server")
@@ -174,7 +174,7 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
         backup_path = str(backup_data)
         self.logger.info(f"Restoring IPA server from {backup_path}")
 
-        self.ssh.run(
+        self.conn.run(
             f"""
             set -ex
 
@@ -194,6 +194,6 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
             restore "{backup_path}/logs" /var/log/sssd
             restore "{backup_path}/lib" /var/lib/sss
             """,
-            log_level=SSHLog.Error,
+            log_level=ProcessLogLevel.Error,
         )
         self.svc.restart("sssd.service")

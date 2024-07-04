@@ -101,7 +101,7 @@ class AutomountUtils(MultihostUtility[MultihostHost]):
         :rtype: bool
         """
 
-        result = self.host.ssh.run(
+        result = self.host.conn.run(
             rf"""
         set -ex
         pushd "{path}"
@@ -152,7 +152,7 @@ class AutomountUtils(MultihostUtility[MultihostHost]):
         :return: Parsed ``automount -m`` output.
         :rtype: dict[str, dict[str, list[str]]]
         """
-        result = self.host.ssh.run("automount -m")
+        result = self.host.conn.run("automount -m")
 
         def parse_result(lines: list[str]) -> dict[str, dict[str, str | list[str]]]:
             mountpoints: dict[str, dict[str, str | list[str]]] = {}

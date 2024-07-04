@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import PurePosixPath
 from typing import Any
 
-from pytest_mh.ssh import SSHLog
+from pytest_mh.conn import ProcessLogLevel
 
 from .base import BaseLDAPDomainHost, BaseLinuxHost
 
@@ -70,7 +70,7 @@ class SambaHost(BaseLDAPDomainHost, BaseLinuxHost):
         self.svc.start("samba.service")
 
         # systemctl finishes before Samba is really listening, we need to wait
-        self.ssh.run(
+        self.conn.run(
             """
             timeout 60s bash -c 'until netstat -ltp 2> /dev/null | grep :ldap &> /dev/null; do :; done'
             timeout 60s bash -c 'until netstat -ltp 2> /dev/null | grep :kerberos &> /dev/null; do :; done'
@@ -93,14 +93,14 @@ class SambaHost(BaseLDAPDomainHost, BaseLinuxHost):
         self.logger.info("Creating backup of Samba DC")
 
         self.stop()
-        result = self.ssh.run(
+        result = self.conn.run(
             """
             set -e
             path=`mktemp -d`
             rm -fr "$path" && cp -r /var/lib/samba "$path"
             echo $path
             """,
-            log_level=SSHLog.Error,
+            log_level=ProcessLogLevel.Error,
         )
         self.start()
 
@@ -127,13 +127,13 @@ class SambaHost(BaseLDAPDomainHost, BaseLinuxHost):
 
         self.disconnect()
         self.stop()
-        self.ssh.run(
+        self.conn.run(
             f"""
             set -e
             rm -fr /var/lib/samba
             cp -r "{backup_path}" /var/lib/samba
             samba-tool ntacl sysvolreset
             """,
-            log_level=SSHLog.Error,
+            log_level=ProcessLogLevel.Error,
         )
         self.start()

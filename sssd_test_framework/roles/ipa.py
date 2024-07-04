@@ -6,7 +6,7 @@ from textwrap import dedent
 from typing import Any
 
 from pytest_mh.cli import CLIBuilderArgs
-from pytest_mh.ssh import SSHProcessResult
+from pytest_mh.conn import ProcessResult
 
 from ..hosts.ipa import IPAHost
 from ..misc import attrs_include_value, attrs_parse, to_list, to_list_of_strings
@@ -309,7 +309,7 @@ class IPAObject(BaseObject[IPAHost, IPA]):
 
     def _exec(
         self, op: str, args: list[str] | None = None, ipaargs: list[str] | None = None, **kwargs
-    ) -> SSHProcessResult:
+    ) -> ProcessResult:
         """
         Execute IPA command.
 
@@ -325,7 +325,7 @@ class IPAObject(BaseObject[IPAHost, IPA]):
         :param ipaargs: List of additional command arguments to the ipa main command, defaults to None
         :type ipaargs: list[str] | None, optional
         :return: SSH process result.
-        :rtype: SSHProcessResult
+        :rtype: ProcessResult
         """
         if args is None:
             args = []
@@ -333,7 +333,7 @@ class IPAObject(BaseObject[IPAHost, IPA]):
         if ipaargs is None:
             ipaargs = []
 
-        return self.role.host.ssh.exec(["ipa", *ipaargs, f"{self.command_group}-{op}", self.name, *args], **kwargs)
+        return self.role.host.conn.exec(["ipa", *ipaargs, f"{self.command_group}-{op}", self.name, *args], **kwargs)
 
     def _add(self, attrs: CLIBuilderArgs | None = None, input: str | None = None):
         """
@@ -551,7 +551,7 @@ class IPAUser(IPAObject):
         )
 
         if pin is not None:
-            result = self.host.ssh.expect(
+            result = self.host.conn.expect(
                 f"""
                 spawn {command}
                 expect {{
@@ -565,7 +565,7 @@ class IPAUser(IPAObject):
                 raise_on_error=True,
             )
         else:
-            result = self.host.ssh.expect(
+            result = self.host.conn.expect(
                 f"""
                 spawn {command}
                 expect eof
@@ -1027,27 +1027,29 @@ class IPASudoRule(IPAObject):
 
         # Add commands
         for cmd in allow_commands + deny_commands:
-            self.role.host.ssh.run(f'ipa sudocmd-find "{cmd}" || ipa sudocmd-add "{cmd}"')
+            self.role.host.conn.run(f'ipa sudocmd-find "{cmd}" || ipa sudocmd-add "{cmd}"')
 
         # Add command group for commands allowed by this rule
-        self.role.host.ssh.run(f'ipa sudocmdgroup-add "{self.name}_allow"')
+        self.role.host.conn.run(f'ipa sudocmdgroup-add "{self.name}_allow"')
         args = self.__args_from_list("sudocmds", allow_commands)
         self.__exec_with_args("sudocmdgroup-add-member", f"{self.name}_allow", args)
 
         # Add command groups for commands denied by this rule
-        self.role.host.ssh.run(f'ipa sudocmdgroup-add "{self.name}_deny"')
+        self.role.host.conn.run(f'ipa sudocmdgroup-add "{self.name}_deny"')
         args = self.__args_from_list("sudocmds", deny_commands)
         self.__exec_with_args("sudocmdgroup-add-member", f"{self.name}_deny", args)
 
         # Add sudo rule
         args = "" if order is None else f'"{order}"'
         args += f" {cmdcat} {usercat} {hostcat} {runasusercat} {runasgroupcat}"
-        self.role.host.ssh.run(f'ipa sudorule-add "{self.name}" {args}')
+        self.role.host.conn.run(f'ipa sudorule-add "{self.name}" {args}')
 
         # Allow and deny commands through command groups
         if not cmdcat:
-            self.role.host.ssh.run(f'ipa sudorule-add-allow-command "{self.name}" "--sudocmdgroups={self.name}_allow"')
-            self.role.host.ssh.run(f'ipa sudorule-add-deny-command "{self.name}" "--sudocmdgroups={self.name}_deny"')
+            self.role.host.conn.run(
+                f'ipa sudorule-add-allow-command "{self.name}" "--sudocmdgroups={self.name}_allow"'
+            )
+            self.role.host.conn.run(f'ipa sudorule-add-deny-command "{self.name}" "--sudocmdgroups={self.name}_deny"')
 
         # Add hosts
         args = self.__args_from_list("hosts", hosts)
@@ -1055,7 +1057,7 @@ class IPASudoRule(IPAObject):
 
         # Add options
         for opt in options:
-            self.role.host.ssh.run(f'ipa sudorule-add-option "{self.name}" "--sudooption={opt}"')
+            self.role.host.conn.run(f'ipa sudorule-add-option "{self.name}" "--sudooption={opt}"')
 
         # Add run as user
         args_users = self.__args_from_list("users", runasuser_users)
@@ -1125,9 +1127,9 @@ class IPASudoRule(IPAObject):
         """
         Delete sudo rule from IPA.
         """
-        self.role.host.ssh.run(f'ipa sudorule-del "{self.name}"')
-        self.role.host.ssh.run(f'ipa sudocmdgroup-del "{self.name}_allow"')
-        self.role.host.ssh.run(f'ipa sudocmdgroup-del "{self.name}_deny"')
+        self.role.host.conn.run(f'ipa sudorule-del "{self.name}"')
+        self.role.host.conn.run(f'ipa sudocmdgroup-del "{self.name}_allow"')
+        self.role.host.conn.run(f'ipa sudocmdgroup-del "{self.name}_deny"')
 
     def __get_commands(self, value: str | list[str] | None) -> tuple[list[str], list[str], str]:
         allow_commands = []
@@ -1230,7 +1232,7 @@ class IPASudoRule(IPAObject):
 
     def __exec_with_args(self, cmd: str, name: str, args: str) -> None:
         if args:
-            self.role.host.ssh.run(f'ipa {cmd} "{name}" {args}')
+            self.role.host.conn.run(f'ipa {cmd} "{name}" {args}')
 
 
 class IPAAutomount(object):
@@ -1359,7 +1361,7 @@ class IPAAutomountMap(IPAObject):
 
     def _exec(
         self, op: str, args: list[str] | None = None, ipaargs: list[str] | None = None, **kwargs
-    ) -> SSHProcessResult:
+    ) -> ProcessResult:
         """
         Execute automoutmap IPA command.
 
@@ -1375,7 +1377,7 @@ class IPAAutomountMap(IPAObject):
         :param ipaargs: List of additional command arguments to the ipa main command, defaults to None
         :type ipaargs: list[str] | None, optional
         :return: SSH process result.
-        :rtype: SSHProcessResult
+        :rtype: ProcessResult
         """
         if args is None:
             args = []
@@ -1389,7 +1391,7 @@ class IPAAutomountMap(IPAObject):
                 "mapname": (self.cli.option.POSITIONAL, self.name),
             }
         )
-        return self.role.host.ssh.exec(["ipa", *ipaargs, f"{self.command_group}-{op}", *defargs, *args], **kwargs)
+        return self.role.host.conn.exec(["ipa", *ipaargs, f"{self.command_group}-{op}", *defargs, *args], **kwargs)
 
     def add(
         self,
@@ -1440,7 +1442,7 @@ class IPAAutomountKey(IPAObject):
 
     def _exec(
         self, op: str, args: list[str] | None = None, ipaargs: list[str] | None = None, **kwargs
-    ) -> SSHProcessResult:
+    ) -> ProcessResult:
         """
         Execute automoutkey IPA command.
 
@@ -1454,7 +1456,7 @@ class IPAAutomountKey(IPAObject):
         :param args: List of additional command arguments, defaults to None
         :type args: list[str] | None, optional
         :return: SSH process result.
-        :rtype: SSHProcessResult
+        :rtype: ProcessResult
         """
         if args is None:
             args = []
@@ -1469,7 +1471,7 @@ class IPAAutomountKey(IPAObject):
                 "key": (self.cli.option.VALUE, self.name),
             }
         )
-        return self.role.host.ssh.exec(["ipa", *ipaargs, f"{self.command_group}-{op}", *defargs, *args], **kwargs)
+        return self.role.host.conn.exec(["ipa", *ipaargs, f"{self.command_group}-{op}", *defargs, *args], **kwargs)
 
     def add(self, *, info: str | NFSExport | IPAAutomountMap) -> IPAAutomountKey:
         """

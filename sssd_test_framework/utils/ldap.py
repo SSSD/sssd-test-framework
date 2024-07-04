@@ -35,7 +35,7 @@ class LDAPUtils(MultihostUtility[BaseLDAPDomainHost]):
 
         :rtype: ldap.ldapobject.LDAPObject
         """
-        return self.host.conn
+        return self.host.ldap_conn
 
     @property
     def naming_context(self) -> str:

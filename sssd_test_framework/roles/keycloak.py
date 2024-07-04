@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import shlex
 
-from pytest_mh.ssh import SSHProcessResult
+from pytest_mh.conn import ProcessResult
 
 from ..hosts.keycloak import KeycloakHost
 from .base import BaseLinuxRole, BaseObject
@@ -30,7 +30,7 @@ class Keycloak(BaseLinuxRole[KeycloakHost]):
         super().setup()
         self.host.kclogin()
 
-    def kcadm(self, command: str) -> SSHProcessResult:
+    def kcadm(self, command: str) -> ProcessResult:
         """
         Run kcadm command on the Keycloak server.
 
@@ -42,7 +42,7 @@ class Keycloak(BaseLinuxRole[KeycloakHost]):
         """
         kcadm = "/opt/keycloak/bin/kcadm.sh"
         command_split = shlex.split(command)
-        result = self.host.ssh.exec([kcadm] + command_split)
+        result = self.host.conn.exec([kcadm] + command_split)
         return result
 
     def user(self, name: str) -> KeycloakUser:

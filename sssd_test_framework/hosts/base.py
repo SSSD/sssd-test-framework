@@ -9,7 +9,7 @@ from typing import Any
 import ldap
 from ldap.ldapobject import ReconnectLDAPObject
 from pytest_mh import MultihostHost
-from pytest_mh.ssh import SSHPowerShellProcess
+from pytest_mh.conn import Powershell
 from pytest_mh.utils.fs import LinuxFileSystem
 from pytest_mh.utils.services import SystemdServices
 
@@ -86,10 +86,10 @@ class BaseBackupHost(BaseHost, ABC):
         else:
             raise TypeError(f"Only PurePath is supported as backup_data, got {type(backup_data)}")
 
-        if self.ssh.shell is SSHPowerShellProcess:
-            self.ssh.exec(["Remove-Item", "-Force", "-Recurse", path])
+        if isinstance(self.conn.shell, Powershell):
+            self.conn.exec(["Remove-Item", "-Force", "-Recurse", path])
         else:
-            self.ssh.exec(["rm", "-fr", path])
+            self.conn.exec(["rm", "-fr", path])
 
     @abstractmethod
     def start(self) -> None:
@@ -213,19 +213,22 @@ class BaseLDAPDomainHost(BaseDomainHost):
         """Bind password ``config.bindpw``, defaults to ``Secret123``"""
 
         # Lazy properties.
-        self.__conn: ReconnectLDAPObject | None = None
+        self.__ldap_conn: ReconnectLDAPObject | None = None
         self.__naming_context: str | None = None
 
     @property
     @retry(on=ldap.SERVER_DOWN)
-    def conn(self) -> ReconnectLDAPObject:
+    def ldap_conn(self) -> ReconnectLDAPObject:
         """
         LDAP connection (``python-ldap`` library).
 
         :rtype: ReconnectLDAPObject
         """
-        if not self.__conn:
-            newconn = ReconnectLDAPObject(f"ldap://{self.ssh_host}")
+        if not self.__ldap_conn:
+            # Use host from SSH if possible, otherwise fallback to hostname
+            host = getattr(self.conn, "host", self.hostname)
+
+            newconn = ReconnectLDAPObject(f"ldap://{host}")
             newconn.protocol_version = ldap.VERSION3
             newconn.set_option(ldap.OPT_REFERRALS, 0)
 
@@ -235,9 +238,9 @@ class BaseLDAPDomainHost(BaseDomainHost):
                 newconn.start_tls_s()
 
             newconn.simple_bind_s(self.binddn, self.bindpw)
-            self.__conn = newconn
+            self.__ldap_conn = newconn
 
-        return self.__conn
+        return self.__ldap_conn
 
     @property
     def naming_context(self) -> str:
@@ -249,7 +252,7 @@ class BaseLDAPDomainHost(BaseDomainHost):
         """
         if not self.__naming_context:
             attr = "defaultNamingContext"
-            result = self.conn.search_s("", ldap.SCOPE_BASE, attrlist=[attr])
+            result = self.ldap_conn.search_s("", ldap.SCOPE_BASE, attrlist=[attr])
             if len(result) != 1:
                 raise ValueError(f"Unexpected number of results for rootDSE query: {len(result)}")
 
@@ -265,9 +268,9 @@ class BaseLDAPDomainHost(BaseDomainHost):
         """
         Disconnect LDAP connection.
         """
-        if self.__conn is not None:
-            self.__conn.unbind()
-            self.__conn = None
+        if self.__ldap_conn is not None:
+            self.__ldap_conn.unbind()
+            self.__ldap_conn = None
 
     def ldap_result_to_dict(
         self, result: list[tuple[str, dict[str, list[bytes]]]]

@@ -6,7 +6,7 @@ import time
 from pathlib import PurePosixPath
 from typing import Any
 
-from pytest_mh.ssh import SSHLog, SSHProcessError
+from pytest_mh.conn import ProcessError, ProcessLogLevel
 
 from .base import BaseDomainHost, BaseLinuxHost
 
@@ -53,7 +53,7 @@ class KeycloakHost(BaseDomainHost, BaseLinuxHost):
         for x in range(0, 5):
             try:
                 str_error = None
-                self.ssh.exec(
+                self.conn.exec(
                     [
                         "/opt/keycloak/bin/kcadm.sh",
                         "config",
@@ -68,7 +68,7 @@ class KeycloakHost(BaseDomainHost, BaseLinuxHost):
                         self.adminpw,
                     ]
                 )
-            except SSHProcessError as err:
+            except ProcessError as err:
                 str_error = str(err)
 
             if str_error:
@@ -95,14 +95,14 @@ class KeycloakHost(BaseDomainHost, BaseLinuxHost):
         self.logger.info("Creating backup of Keycloak")
 
         self.stop()
-        cmd = self.ssh.run(
+        cmd = self.conn.run(
             """
             set -e
             path=`mktemp -d`
             /opt/keycloak/bin/kc.sh export --dir "$path"
             echo $path
             """,
-            log_level=SSHLog.Error,
+            log_level=ProcessLogLevel.Error,
         )
         self.start()
 
@@ -128,11 +128,11 @@ class KeycloakHost(BaseDomainHost, BaseLinuxHost):
         self.logger.info(f"Restoring Keycloak from {backup_path}")
 
         self.stop()
-        self.ssh.run(
+        self.conn.run(
             f"""
             set -e
             /opt/keycloak/bin/kc.sh import --dir '{backup_path}'
             """,
-            log_level=SSHLog.Error,
+            log_level=ProcessLogLevel.Error,
         )
         self.start()
