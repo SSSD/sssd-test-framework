@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, TypeAlias
 
 from pytest_mh.cli import CLIBuilderArgs
-from pytest_mh.ssh import SSHClient, SSHPowerShellProcess, SSHProcessResult
+from pytest_mh.conn import ProcessResult
 
 from ..hosts.ad import ADHost
 from ..misc import attrs_include_value, attrs_parse, attrs_to_hash
@@ -121,21 +121,6 @@ class AD(BaseWindowsRole[ADHost]):
                     },
                 }
         """
-
-    def ssh(self, user: str, password: str, *, shell=SSHPowerShellProcess) -> SSHClient:
-        """
-        Open SSH connection to the host as given user.
-
-        :param user: Username.
-        :type user: str
-        :param password: User password.
-        :type password: str
-        :param shell: Shell that will run the commands, defaults to SSHPowerShellProcess
-        :type shell: str, optional
-        :return: SSH client connection.
-        :rtype: SSHClient
-        """
-        return super().ssh(user, password, shell=shell)
 
     def fqn(self, name: str) -> str:
         """
@@ -516,7 +501,7 @@ class ADObject(BaseObject[ADHost, AD]):
 
     def _exec(
         self, op: str, args: list[str] | str | None = None, *, format_with: str | None = None, **kwargs
-    ) -> SSHProcessResult:
+    ) -> ProcessResult:
         """
         Execute AD command.
 
@@ -533,7 +518,7 @@ class ADObject(BaseObject[ADHost, AD]):
             Format-List), defaults to None (default format of executed command)
         :type format_with: str | None
         :return: SSH process result.
-        :rtype: SSHProcessResult
+        :rtype: ProcessResult
         """
         if args is None:
             args = []
@@ -545,7 +530,7 @@ class ADObject(BaseObject[ADHost, AD]):
 
         format = "" if format_with is None else f"| {format_with}"
 
-        return self.role.host.ssh.run(
+        return self.role.host.conn.run(
             f"""
             Import-Module ActiveDirectory
             {op}-AD{self.command_group} {args} {format}
@@ -993,7 +978,7 @@ class ADGroup(ADObject):
         :return: Self.
         :rtype: ADGroup
         """
-        self.role.host.ssh.run(
+        self.role.host.conn.run(
             f"""
             Import-Module ActiveDirectory
             Add-ADGroupMember -Identity '{self.dn}' -Members {self.__get_members(members)}
@@ -1021,7 +1006,7 @@ class ADGroup(ADObject):
         :return: Self.
         :rtype: ADGroup
         """
-        self.role.host.ssh.run(
+        self.role.host.conn.run(
             f"""
             Import-Module ActiveDirectory
             Remove-ADGroupMember -Confirm:$False -Identity '{self.dn}' -Members {self.__get_members(members)}
@@ -1685,7 +1670,7 @@ class GPO(BaseObject[ADHost, AD]):
         :return: Key value.
         :rtype: str
         """
-        result = self.role.host.ssh.run(
+        result = self.role.host.conn.run(
             rf"""
             $query = "(&(ObjectClass=groupPolicyContainer)(DisplayName={self.name}))"
             Get-ADObject -SearchBase "{self._search_base}" -Properties "*" -LDAPFilter $query
@@ -1709,7 +1694,7 @@ class GPO(BaseObject[ADHost, AD]):
         """
         Delete group policy object.
         """
-        self.role.host.ssh.run(f'Remove-GPO -Guid "{self._cn}" -Confirm:$false')
+        self.role.host.conn.run(f'Remove-GPO -Guid "{self._cn}" -Confirm:$false')
 
     def add(self) -> GPO:
         """
@@ -1726,12 +1711,12 @@ class GPO(BaseObject[ADHost, AD]):
         :return: Group policy object
         :rtype: GPO
         """
-        self.role.host.ssh.run(f'New-GPO -name "{self.name}"')
+        self.role.host.conn.run(f'New-GPO -name "{self.name}"')
 
         self._cn = self.get("CN")
         self._dn = self.get("DistinguishedName")
 
-        self.role.host.ssh.run(
+        self.role.host.conn.run(
             rf"""
             Import-Module GroupPolicy, PSIni
             $path = "C:\\Windows\\SYSVOL\\domain\\Policies\\{self._cn}\\Machine\\Microsoft\\Windows NT\\SecEdit"
@@ -1784,7 +1769,7 @@ class GPO(BaseObject[ADHost, AD]):
         if target is not None and self.target is None:
             self.target = target
 
-        self.role.host.ssh.run(f'{op}-GPLink -Guid "{self._cn}" -Target "{self.target}" -LinkEnabled Yes {args}')
+        self.role.host.conn.run(f'{op}-GPLink -Guid "{self._cn}" -Target "{self.target}" -LinkEnabled Yes {args}')
 
         return self
 
@@ -1795,7 +1780,7 @@ class GPO(BaseObject[ADHost, AD]):
         :return: Group policy object
         :rtype: GPO
         """
-        self.role.host.ssh.run(f'Remove-GPLink -Guid "{self._cn}" -Target "{self.target}"')
+        self.role.host.conn.run(f'Remove-GPLink -Guid "{self._cn}" -Target "{self.target}"')
 
         return self
 
@@ -1813,7 +1798,7 @@ class GPO(BaseObject[ADHost, AD]):
         :rtype: GPO
         """
         if permission_level == "None" and target == "Authenticated Users":
-            self.role.host.ssh.run(
+            self.role.host.conn.run(
                 rf"""
                 # Some test scenarios require making the GPO unreadable. Changing the 'Authenticated Users',
                 # 'S-1-5-11' SID permissions to 'None' accomplishes that. The confirm prompt cannot be skipped
@@ -1836,7 +1821,7 @@ class GPO(BaseObject[ADHost, AD]):
                 """
             )
         else:
-            self.role.host.ssh.run(
+            self.role.host.conn.run(
                 f'Set-GPPermission -Guid "{self._cn}" '
                 f'-TargetName "{target}" '
                 f'-PermissionLevel "{permission_level}" '
@@ -1899,7 +1884,7 @@ class GPO(BaseObject[ADHost, AD]):
 
         ps_logon_rights = attrs_to_hash(_logon_rights)
 
-        self.host.ssh.run(
+        self.host.conn.run(
             rf"""
             Import-Module PSIni
             $path = "C:\\Windows\\SYSVOL\\domain\\Policies\\{self._cn}\\Machine\\Microsoft\\Windows NT\\SecEdit"
@@ -1912,7 +1897,7 @@ class GPO(BaseObject[ADHost, AD]):
 
         if cfg is not None:
             ps_cfg = attrs_to_hash(cfg)
-            self.host.ssh.run(
+            self.host.conn.run(
                 rf"""
                 Import-Module PSIni
                 $path = "C:\\Windows\\SYSVOL\\domain\\Policies\\{self._cn}\\Machine\\Microsoft\\Windows NT\\SecEdit"
@@ -1923,7 +1908,7 @@ class GPO(BaseObject[ADHost, AD]):
                 """
             )
 
-        self.host.ssh.run(
+        self.host.conn.run(
             rf"""
             $gpc = "[{{827D319E-6EAC-11D2-A4EA-00C04F79F83A}}{{803E14A0-B4FB-11D0-A0D0-00A0C90F574B}}]"
             Set-ADObject -Identity "{self._dn}" -Replace @{{gPCMachineExtensionNames=$gpc}}

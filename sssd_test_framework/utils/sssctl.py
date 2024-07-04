@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pytest_mh import MultihostHost, MultihostUtility
 from pytest_mh.cli import CLIBuilder, CLIBuilderArgs
-from pytest_mh.ssh import SSHProcessResult
+from pytest_mh.conn import ProcessResult
 from pytest_mh.utils.fs import LinuxFileSystem
 
 __all__ = [
@@ -101,7 +101,7 @@ class SSSCTLUtils(MultihostUtility[MultihostHost]):
             "domain": (self.cli.option.VALUE, domain),
         }
 
-        self.host.ssh.exec(["sssctl", "cache-expire"] + self.cli.args(args))
+        self.host.conn.exec(["sssctl", "cache-expire"] + self.cli.args(args))
 
     def passkey_register(
         self,
@@ -149,7 +149,7 @@ class SSSCTLUtils(MultihostUtility[MultihostHost]):
         )
 
         if pin is not None:
-            result = self.host.ssh.expect(
+            result = self.host.conn.expect(
                 f"""
                 spawn {command}
                 expect {{
@@ -163,7 +163,7 @@ class SSSCTLUtils(MultihostUtility[MultihostHost]):
                 raise_on_error=True,
             )
         else:
-            result = self.host.ssh.expect(
+            result = self.host.conn.expect(
                 f"""
                 spawn {command}
                 expect eof
@@ -173,7 +173,7 @@ class SSSCTLUtils(MultihostUtility[MultihostHost]):
 
         return result.stdout_lines[-1].strip()
 
-    def user_checks(self, username: str, action: str = "acct", service: str = "system-auth") -> SSHProcessResult:
+    def user_checks(self, username: str, action: str = "acct", service: str = "system-auth") -> ProcessResult:
         """
         Print information about a user and check authentication
 
@@ -184,11 +184,11 @@ class SSSCTLUtils(MultihostUtility[MultihostHost]):
         :param service: PAM service, defaults to "system-auth"
         :type service: str
         :return: Result of called command
-        :rtype: SSHProcessResult
+        :rtype: ProcessResult
         """
-        return self.host.ssh.exec(["sssctl", "user-checks", username, "-a", action, "-s", service])
+        return self.host.conn.exec(["sssctl", "user-checks", username, "-a", action, "-s", service])
 
-    def user_show(self, user: str | None = None, sid: str | None = None, uid: int | None = None) -> SSHProcessResult:
+    def user_show(self, user: str | None = None, sid: str | None = None, uid: int | None = None) -> ProcessResult:
         """
         Information about cached user
 
@@ -199,7 +199,7 @@ class SSSCTLUtils(MultihostUtility[MultihostHost]):
         :param uid: Search by user ID, defaults to None
         :type uid: int | None
         :return: Result of called command
-        :rtype: SSHProcessResult
+        :rtype: ProcessResult
         """
         options = []
         if user is not None:
@@ -209,9 +209,9 @@ class SSSCTLUtils(MultihostUtility[MultihostHost]):
         if uid is not None:
             options += ["-u", str(uid)]
 
-        return self.host.ssh.exec(["sssctl", "user-show", *options])
+        return self.host.conn.exec(["sssctl", "user-show", *options])
 
-    def config_check(self, config: str | None = None, snippet: str | None = None) -> SSHProcessResult:
+    def config_check(self, config: str | None = None, snippet: str | None = None) -> ProcessResult:
         """
         Call ``sssctl config-check`` with additional arguments
 
@@ -220,14 +220,14 @@ class SSSCTLUtils(MultihostUtility[MultihostHost]):
         :param snippet: Non default snippet dir, defaults to None
         :type snippet: str
         :return: Result of called command
-        :rtype: SSHProcessResult
+        :rtype: ProcessResult
         """
         args: CLIBuilderArgs = {
             "config": (self.cli.option.VALUE, config),
             "snippet": (self.cli.option.VALUE, snippet),
         }
 
-        return self.host.ssh.exec(["sssctl", "config-check"] + self.cli.args(args), raise_on_error=False)
+        return self.host.conn.exec(["sssctl", "config-check"] + self.cli.args(args), raise_on_error=False)
 
     def domain_status(
         self,
@@ -237,7 +237,7 @@ class SSSCTLUtils(MultihostUtility[MultihostHost]):
         active: bool = False,
         servers: bool = False,
         start: bool = False,
-    ) -> SSHProcessResult:
+    ) -> ProcessResult:
         """
         Call ``sssctl domain-status @domain`` with additional arguments.
 
@@ -252,7 +252,7 @@ class SSSCTLUtils(MultihostUtility[MultihostHost]):
         :param start: Start SSSD if it is not running, defaults to False
         :type start: bool, optional
         :return: Result of called command.
-        :rtype: SSHProcessResult
+        :rtype: ProcessResult
         """
         args: CLIBuilderArgs = {
             "online": (self.cli.option.SWITCH, online),
@@ -262,9 +262,9 @@ class SSSCTLUtils(MultihostUtility[MultihostHost]):
             "domain": (self.cli.option.POSITIONAL, domain),
         }
 
-        return self.host.ssh.exec(["sssctl", "domain-status"] + self.cli.args(args), raise_on_error=False)
+        return self.host.conn.exec(["sssctl", "domain-status"] + self.cli.args(args), raise_on_error=False)
 
-    def analyze_request(self, command: str, source: str | None = None, logdir: str | None = None) -> SSHProcessResult:
+    def analyze_request(self, command: str, source: str | None = None, logdir: str | None = None) -> ProcessResult:
         """
         Call ``sssctl analyze [arguments] request command``
 
@@ -275,13 +275,13 @@ class SSSCTLUtils(MultihostUtility[MultihostHost]):
         :param logdir: SSSD Log directory to parse log files from, defaults to None
         :type logdir: str | None, optional
         :return: Result of called command
-        :rtype: SSHProcessResult
+        :rtype: ProcessResult
         """
         args: CLIBuilderArgs = {
             "source": (self.cli.option.VALUE, source),
             "logdir": (self.cli.option.VALUE, logdir),
         }
 
-        return self.host.ssh.exec(
+        return self.host.conn.exec(
             ["sssctl", "analyze"] + self.cli.args(args) + ["request"] + command.split(), raise_on_error=False
         )

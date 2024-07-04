@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import PurePosixPath
 from typing import Any
 
-from pytest_mh.ssh import SSHLog
+from pytest_mh.conn import ProcessLogLevel
 
 from .base import BaseDomainHost, BaseLinuxHost
 
@@ -62,14 +62,14 @@ class KDCHost(BaseDomainHost, BaseLinuxHost):
         """
         self.logger.info("Creating backup of KDC")
 
-        result = self.ssh.run(
+        result = self.conn.run(
             """
             set -e
             path=`mktemp`
             kdb5_util dump $path && rm -f "$path.dump_ok"
             echo $path
             """,
-            log_level=SSHLog.Error,
+            log_level=ProcessLogLevel.Error,
         )
         return PurePosixPath(result.stdout_lines[-1].strip())
 
@@ -89,4 +89,4 @@ class KDCHost(BaseDomainHost, BaseLinuxHost):
         backup_path = str(backup_data)
         self.logger.info(f"Restoring KDC from {backup_path}")
 
-        self.ssh.run(f'kdb5_util load "{backup_path}"', log_level=SSHLog.Error)
+        self.conn.run(f'kdb5_util load "{backup_path}"', log_level=ProcessLogLevel.Error)

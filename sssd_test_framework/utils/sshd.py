@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pytest_mh import MultihostHost, MultihostUtility, mh_utility_postpone_setup
-from pytest_mh.ssh import SSHProcessResult
+from pytest_mh.conn import ProcessResult
 from pytest_mh.utils.fs import LinuxFileSystem
 from pytest_mh.utils.services import SystemdServices
 
@@ -78,7 +78,7 @@ class SSHDUtils(MultihostUtility[MultihostHost]):
         :rtype: str
         """
         self.logger.info(f"Reading {self.file} and parsing as Augeas tree")
-        result = self.host.ssh.run(f"augtool {self.args} print {self.path}")
+        result = self.host.conn.run(f"augtool {self.args} print {self.path}")
 
         return result.stdout
 
@@ -96,7 +96,7 @@ class SSHDUtils(MultihostUtility[MultihostHost]):
         self.logger.info(f"Deleting node in Augeas tree in {self.file}")
         for i in value:
             for k, v in i.items():
-                self.host.ssh.run(f"augtool {self.args} --autosave rm {self.path}/{k} {v}")
+                self.host.conn.run(f"augtool {self.args} --autosave rm {self.path}/{k} {v}")
 
     def config_set(self, value: list[dict[str, str]]) -> None:
         """
@@ -113,14 +113,14 @@ class SSHDUtils(MultihostUtility[MultihostHost]):
             for k, v in i.items():
                 self.cmd = self.cmd + f"set {self.path}/{k} {v}\n"
 
-        self.host.ssh.run(f"augtool --echo {self.args}", input=f"{self.cmd}save\n")
+        self.host.conn.run(f"augtool --echo {self.args}", input=f"{self.cmd}save\n")
 
     def reload(
         self,
         service="sshd",
         *,
         raise_on_error: bool = True,
-    ) -> SSHProcessResult:
+    ) -> ProcessResult:
         """
         Reload the SSH daemon.
 
@@ -129,6 +129,6 @@ class SSHDUtils(MultihostUtility[MultihostHost]):
         :param raise_on_error: Raise exception on error, defaults to True
         :type raise_on_error: bool, optional
         :return: SSH process result.
-        :rtype: SSHProcessResult
+        :rtype: ProcessResult
         """
         return self.svc.reload(service, raise_on_error=raise_on_error)

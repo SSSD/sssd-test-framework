@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import ldap
-from pytest_mh.ssh import SSHLog
+from pytest_mh.conn import ProcessLogLevel
 
 from .base import BaseLDAPDomainHost, BaseLinuxHost
 
@@ -45,13 +45,13 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
 
         self.logger.info(f"Detecting features on {self.hostname}")
 
-        result = self.ssh.run(
+        result = self.conn.run(
             """
             set -ex
 
             grep -r "passkey" /etc/dirsrv/ &> /dev/null && echo "passkey" || :
             """,
-            log_level=SSHLog.Error,
+            log_level=ProcessLogLevel.Error,
         )
 
         # Set default values
@@ -93,9 +93,9 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         """
         self.logger.info("Creating backup of LDAP server")
 
-        data = self.conn.search_s(self.naming_context, ldap.SCOPE_SUBTREE)
-        config = self.conn.search_s("cn=config", ldap.SCOPE_BASE)
-        nc = self.conn.search_s(self.naming_context, ldap.SCOPE_BASE, attrlist=["aci"])
+        data = self.ldap_conn.search_s(self.naming_context, ldap.SCOPE_SUBTREE)
+        config = self.ldap_conn.search_s("cn=config", ldap.SCOPE_BASE)
+        nc = self.ldap_conn.search_s(self.naming_context, ldap.SCOPE_BASE, attrlist=["aci"])
 
         dct = self.ldap_result_to_dict(data)
         dct.update(self.ldap_result_to_dict(config))
@@ -124,9 +124,9 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         if not isinstance(backup_data, dict):
             raise TypeError(f"Expected dict, got {type(backup_data)}")
 
-        data = self.conn.search_s(self.naming_context, ldap.SCOPE_SUBTREE)
-        config = self.conn.search_s("cn=config", ldap.SCOPE_BASE)
-        nc = self.conn.search_s(self.naming_context, ldap.SCOPE_BASE, attrlist=["aci"])
+        data = self.ldap_conn.search_s(self.naming_context, ldap.SCOPE_SUBTREE)
+        config = self.ldap_conn.search_s("cn=config", ldap.SCOPE_BASE)
+        nc = self.ldap_conn.search_s(self.naming_context, ldap.SCOPE_BASE, attrlist=["aci"])
 
         # Convert list of tuples to dictionary for better lookup
         data = self.ldap_result_to_dict(data)
@@ -140,18 +140,18 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
                 modlist = ldap.modlist.modifyModlist(attrs, original_attrs)
                 modlist = self.__filter_modlist(dn, modlist)
                 if modlist:
-                    self.conn.modify_s(dn, modlist)
+                    self.ldap_conn.modify_s(dn, modlist)
 
         for dn, attrs in reversed(data.items()):
             # Delete records that were added
             if dn not in backup_data:
-                self.conn.delete_s(dn)
+                self.ldap_conn.delete_s(dn)
                 continue
 
         for dn, attrs in backup_data.items():
             # Add back records that were deleted
             if dn not in data:
-                self.conn.add_s(dn, list(attrs.items()))
+                self.ldap_conn.add_s(dn, list(attrs.items()))
 
     def __filter_modlist(self, dn: str, modlist: list) -> list:
         """

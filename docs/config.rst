@@ -17,7 +17,8 @@ Basic definition
       hosts:
       - hostname: <dns host name>
         role: <host role>
-        ssh:
+        conn:
+          type: ssh
           host: <ssh host> (optional, defaults to host name)
           port: <ssh port> (optional, defaults to 22)
           username: <ssh username> (optional, defaults to "root")
@@ -41,11 +42,11 @@ domain has ``id`` attribute and defines the list of available hosts.
   * ``hostname``: DNS host name, it may not necessarily be resolvable from the
     machine that runs pytest
   * ``role``: host role
-  * ``ssh.host``: ssh host to connect to (it may be a resolvable host name or an
+  * ``conn.host``: ssh host to connect to (it may be a resolvable host name or an
     IP address), defaults to the value of ``hostname``
-  * ``ssh.port``: ssh port, defaults to 22
-  * ``ssh.username``: ssh username, defaults to ``root``
-  * ``ssh.password``: ssh password for the user, defaults to ``Secret123``
+  * ``conn.port``: ssh port, defaults to 22
+  * ``conn.username``: ssh username, defaults to ``root``
+  * ``conn.password``: ssh password for the user, defaults to ``Secret123``
   * ``config``: additional configuration, place for custom options, see
     :ref:`custom-config`
   * ``artifacts``: list of artifacts that are automatically downloaded, see

@@ -7,6 +7,8 @@ from typing import Any, Generic, TypeGuard, TypeVar
 
 from pytest_mh import MultihostRole
 from pytest_mh.cli import CLIBuilder
+from pytest_mh.conn import Bash, Powershell, Shell
+from pytest_mh.conn.ssh import SSHClient
 from pytest_mh.utils.auditd import Auditd
 from pytest_mh.utils.coredumpd import Coredumpd
 from pytest_mh.utils.firewall import Firewalld, WindowsFirewall
@@ -104,6 +106,30 @@ class BaseRole(MultihostRole[HostType]):
         Features supported by the role.
         """
         return self.host.features
+
+    def ssh(self, user: str, password: str, *, shell: Shell | None = None) -> SSHClient:
+        """
+        Open SSH connection to the host as given user.
+
+        :param user: Username.
+        :type user: str
+        :param password: User password.
+        :type password: str
+        :param shell: Shell that will run the commands, defaults to ``None`` (= ``Bash``)
+        :type shell: Shell | None, optional
+        :return: SSH client connection.
+        :rtype: SSHClient
+        """
+        if shell is None:
+            shell = Bash()
+
+        return SSHClient(
+            self.host.hostname,
+            user=user,
+            password=password,
+            shell=shell,
+            logger=self.logger,
+        )
 
 
 class BaseLinuxRole(BaseRole[HostType]):
@@ -209,3 +235,21 @@ class BaseWindowsRole(BaseRole[HostType]):
         """
         Configure Windows firewall.
         """
+
+    def ssh(self, user: str, password: str, *, shell: Shell | None = None) -> SSHClient:
+        """
+        Open SSH connection to the host as given user.
+
+        :param user: Username.
+        :type user: str
+        :param password: User password.
+        :type password: str
+        :param shell: Shell that will run the commands, defaults to ``None`` (= ``Powershell``)
+        :type shell: Shell | None, optional
+        :return: SSH client connection.
+        :rtype: SSHClient
+        """
+        if shell is None:
+            shell = Powershell()
+
+        return super().ssh(user, password, shell=shell)

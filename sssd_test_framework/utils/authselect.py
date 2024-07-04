@@ -40,8 +40,8 @@ class AuthselectUtils(MultihostUtility[MultihostHost]):
         :meta private:
         """
         if self.__backup is not None:
-            self.host.ssh.exec(["authselect", "backup-restore", self.__backup])
-            self.host.ssh.exec(["rm", "-fr", f"/var/lib/authselect/backups/{self.__backup}"])
+            self.host.conn.exec(["authselect", "backup-restore", self.__backup])
+            self.host.conn.exec(["rm", "-fr", f"/var/lib/authselect/backups/{self.__backup}"])
             self.__backup = None
 
         super().teardown()
@@ -60,7 +60,7 @@ class AuthselectUtils(MultihostUtility[MultihostHost]):
             self.__backup = "multihost.backup"
             backup = [f"--backup={self.__backup}"]
 
-        self.host.ssh.exec(["authselect", "select", profile, *features, "--force", *backup])
+        self.host.conn.exec(["authselect", "select", profile, *features, "--force", *backup])
 
     def current(self) -> str:
         """
@@ -68,7 +68,7 @@ class AuthselectUtils(MultihostUtility[MultihostHost]):
         :return: Authselect configuration
         :rtype: str
         """
-        result = self.host.ssh.exec(["authselect", "current"]).stdout
+        result = self.host.conn.exec(["authselect", "current"]).stdout
 
         return result
 
@@ -82,7 +82,7 @@ class AuthselectUtils(MultihostUtility[MultihostHost]):
         if self.__backup is None:
             self.__backup = "multihost.backup"
             backup = [f"--backup={self.__backup}"]
-        self.host.ssh.exec(["authselect", "disable-feature", *features, *backup])
+        self.host.conn.exec(["authselect", "disable-feature", *features, *backup])
 
     def enable_feature(self, features: list[str]) -> None:
         """
@@ -95,4 +95,4 @@ class AuthselectUtils(MultihostUtility[MultihostHost]):
             self.__backup = "multihost.backup"
             backup = [f"--backup={self.__backup}"]
 
-        self.host.ssh.exec(["authselect", "enable-feature", *features, *backup])
+        self.host.conn.exec(["authselect", "enable-feature", *features, *backup])

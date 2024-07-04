@@ -6,7 +6,7 @@ from typing import Any, TypeAlias
 
 import ldap.modlist
 from pytest_mh.cli import CLIBuilderArgs
-from pytest_mh.ssh import SSHProcessResult
+from pytest_mh.conn import ProcessResult
 
 from sssd_test_framework.utils.ldap import LDAPRecordAttributes
 
@@ -313,7 +313,7 @@ class SambaObject(BaseObject):
 
         self.__dn: str | None = None
 
-    def _exec(self, op: str, args: list[str] | None = None, **kwargs) -> SSHProcessResult:
+    def _exec(self, op: str, args: list[str] | None = None, **kwargs) -> ProcessResult:
         """
         Execute samba-tool command.
 
@@ -327,12 +327,12 @@ class SambaObject(BaseObject):
         :param args: List of additional command arguments, defaults to None
         :type args: list[str] | None, optional
         :return: SSH process result.
-        :rtype: SSHProcessResult
+        :rtype: ProcessResult
         """
         if args is None:
             args = []
 
-        return self.role.host.ssh.exec(["samba-tool", self.command, op, self.name, *args], **kwargs)
+        return self.role.host.conn.exec(["samba-tool", self.command, op, self.name, *args], **kwargs)
 
     def _add(self, attrs: CLIBuilderArgs) -> None:
         """
@@ -380,7 +380,7 @@ class SambaObject(BaseObject):
         # Build diff
         modlist = ldap.modlist.modifyModlist(old_attrs, new_attrs)
         if modlist:
-            self.role.host.conn.modify_s(dn, modlist)
+            self.role.host.ldap_conn.modify_s(dn, modlist)
 
     def delete(self) -> None:
         """

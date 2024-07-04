@@ -81,7 +81,7 @@ class PAMAccessUtils(MultihostUtility):
         :rtype: str
         """
         self.logger.info(f"Reading {self.file} and parsing as Augeas tree")
-        result = self.host.ssh.run(f"augtool {self.args} print {self.path}")
+        result = self.host.conn.run(f"augtool {self.args} print {self.path}")
 
         return result.stdout
 
@@ -96,9 +96,9 @@ class PAMAccessUtils(MultihostUtility):
             raise ValueError("No data!")
 
         index = 1
-        for i in self.host.ssh.run(f"augtool {self.args} match {self.path}/*").stdout_lines:
+        for i in self.host.conn.run(f"augtool {self.args} match {self.path}/*").stdout_lines:
             node = re.sub("\\d", str(index), i.split("=")[0].strip())
-            leaf = self.host.ssh.run(f"augtool {self.args} match {node}/*").stdout_lines
+            leaf = self.host.conn.run(f"augtool {self.args} match {node}/*").stdout_lines
             access = i.split("=")[1].strip()
             user = leaf[0].split("=")[1].strip()
             origin = leaf[1].split("=")[1].strip()
@@ -106,7 +106,7 @@ class PAMAccessUtils(MultihostUtility):
             for y in value:
                 if match == y:
                     self.logger.info(f"Deleting node in Augeas tree {self.file}")
-                    self.host.ssh.run(f"augtool {self.args} --autosave rm {node}")
+                    self.host.conn.run(f"augtool {self.args} --autosave rm {node}")
                 else:
                     index = +index
 
@@ -127,7 +127,7 @@ class PAMAccessUtils(MultihostUtility):
             self.cmd = self.cmd + f"set {self.path}/access[{count}]/origin " + i["origin"] + "\n"
             count = +count
 
-        self.host.ssh.run(f"augtool --echo {self.args}", input=f"{self.cmd} save\n")
+        self.host.conn.run(f"augtool --echo {self.args}", input=f"{self.cmd} save\n")
 
 
 class PAMFaillockUtils(MultihostUtility):
@@ -192,7 +192,7 @@ class PAMFaillockUtils(MultihostUtility):
         :rtype: str
         """
         self.logger.info(f"Reading {self.file} and parsing as Augeas tree")
-        result = self.host.ssh.run(f"augtool {self.args} print {self.path}").stdout
+        result = self.host.conn.run(f"augtool {self.args} print {self.path}").stdout
 
         return result
 
@@ -208,7 +208,7 @@ class PAMFaillockUtils(MultihostUtility):
 
         self.logger.info(f"Deleting node in Augeas tree in {self.file}")
         for k, v in value.items():
-            self.host.ssh.run(f"augtool {self.args} --autosave rm {self.path}/{k} {v}")
+            self.host.conn.run(f"augtool {self.args} --autosave rm {self.path}/{k} {v}")
 
     def config_set(self, value: dict[str, str]) -> None:
         """
@@ -223,4 +223,4 @@ class PAMFaillockUtils(MultihostUtility):
         for k, v in value.items():
             self.cmd = self.cmd + f"set {self.path}/{k} {v}\n"
 
-        self.host.ssh.run(f"augtool --echo {self.args}", input=f"{self.cmd}save\n")
+        self.host.conn.run(f"augtool --echo {self.args}", input=f"{self.cmd}save\n")

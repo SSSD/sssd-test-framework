@@ -7,7 +7,7 @@ from abc import ABC
 from typing import Any, Final
 
 from pytest_mh import MultihostHost, MultihostUtility
-from pytest_mh.ssh import SSHProcessResult
+from pytest_mh.conn import ProcessResult
 
 from .dbus.types import DBUSResult, DBUSSignatureReader, DBUSType, DBUSTypeString, DBUSTypeVariant
 
@@ -76,13 +76,13 @@ class ProxyObject(ABC):
         for arg in args:
             cmd += " " + arg.param()
 
-        result = self.host.ssh.run(cmd)
+        result = self.host.conn.run(cmd)
         if result.stdout_lines[0].startswith("method return"):
             lines = result.stdout_lines[1:]
         else:
             lines = result.stdout_lines
 
-        return SSHProcessResult(result.rc, lines, result.stderr_lines)
+        return ProcessResult(result.rc, lines, result.stderr_lines, result.error)
 
 
 class ProxyProperty(ProxyObject):

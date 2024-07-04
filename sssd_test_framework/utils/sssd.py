@@ -7,7 +7,7 @@ from io import StringIO
 from typing import TYPE_CHECKING, Literal
 
 from pytest_mh import MultihostHost, MultihostRole, MultihostUtility
-from pytest_mh.ssh import SSHLog, SSHProcess, SSHProcessResult
+from pytest_mh.conn import Process, ProcessLogLevel, ProcessResult
 
 from ..hosts.base import BaseDomainHost, BaseHost
 from ..misc import to_list
@@ -117,7 +117,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         apply_config: bool = True,
         check_config: bool = True,
         debug_level: str | None = "0xfff0",
-    ) -> SSHProcess:
+    ) -> Process:
         """
         Start the SSSD and KCM services. Non-blocking call.
 
@@ -130,7 +130,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         :param debug_level: Automatically set debug level to the given value, defaults to 0xfff0
         :type debug_level:  str | None, optional
         :return: Running SSH process.
-        :rtype: SSHProcess
+        :rtype: Process
         """
         if apply_config:
             self.config_apply(check_config=check_config, debug_level=debug_level)
@@ -149,7 +149,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         apply_config: bool = True,
         check_config: bool = True,
         debug_level: str | None = "0xfff0",
-    ) -> SSHProcessResult:
+    ) -> ProcessResult:
         """
         Start the SSSD and KCM services. The call will wait until the operation is finished.
 
@@ -164,7 +164,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         :param debug_level: Automatically set debug level to the given value, defaults to 0xfff0
         :type debug_level:  str | None, optional
         :return: SSH process result.
-        :rtype: SSHProcessResult
+        :rtype: ProcessResult
         """
         if apply_config:
             self.config_apply(check_config=check_config, debug_level=debug_level)
@@ -175,14 +175,14 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
 
         return self.svc.start(service, raise_on_error=raise_on_error)
 
-    def async_stop(self, service="sssd") -> SSHProcess:
+    def async_stop(self, service="sssd") -> Process:
         """
         Stop the SSSD and KCM services. Non-blocking call.
 
         :param service: Service to start, defaults to 'sssd'
         :type service: str, optional
         :return: Running SSH process.
-        :rtype: SSHProcess
+        :rtype: Process
         """
         # Also stop kcm. Nevertheless, it will be started when first used.
         if service == "sssd":
@@ -190,7 +190,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
 
         return self.svc.async_stop(service)
 
-    def stop(self, service="sssd", *, raise_on_error: bool = True) -> SSHProcessResult:
+    def stop(self, service="sssd", *, raise_on_error: bool = True) -> ProcessResult:
         """
         Stop the SSSD and KCM services. The call will wait until the operation is finished.
 
@@ -199,7 +199,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         :param raise_on_error: Raise exception on error, defaults to True
         :type raise_on_error: bool, optional
         :return: SSH process result.
-        :rtype: SSHProcess
+        :rtype: Process
         """
         # Also stop kcm. Nevertheless, it will be started when first used.
         if service == "sssd":
@@ -214,7 +214,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         apply_config: bool = True,
         check_config: bool = True,
         debug_level: str | None = "0xfff0",
-    ) -> SSHProcess:
+    ) -> Process:
         """
         Restart the SSSD and KCM services. Non-blocking call.
 
@@ -227,7 +227,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         :param debug_level: Automatically set debug level to the given value, defaults to 0xfff0
         :type debug_level:  str | None, optional
         :return: Running SSH process.
-        :rtype: SSHProcess
+        :rtype: Process
         """
         if apply_config:
             self.config_apply(check_config=check_config, debug_level=debug_level)
@@ -246,7 +246,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         apply_config: bool = True,
         check_config: bool = True,
         debug_level: str | None = "0xfff0",
-    ) -> SSHProcessResult:
+    ) -> ProcessResult:
         """
         Restart the SSSD and KCM services. The call will wait until the operation is finished.
 
@@ -261,7 +261,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         :param debug_level: Automatically set debug level to the given value, defaults to 0xfff0
         :type debug_level:  str | None, optional
         :return: SSH process result.
-        :rtype: SSHProcessResult
+        :rtype: ProcessResult
         """
         if apply_config:
             self.config_apply(check_config=check_config, debug_level=debug_level)
@@ -299,7 +299,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         if logs:
             cmd += " /var/log/sssd/*"
 
-        self.host.ssh.run(cmd)
+        self.host.conn.run(cmd)
 
     def set_service_user(self, user: str) -> None:
         """
@@ -392,7 +392,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         """
         Load remote SSSD configuration.
         """
-        result = self.host.ssh.exec(["cat", "/etc/sssd/sssd.conf"], log_level=SSHLog.Short)
+        result = self.host.conn.exec(["cat", "/etc/sssd/sssd.conf"], log_level=ProcessLogLevel.Short)
         self.config.clear()
         self.config.read_string(result.stdout)
 
@@ -413,21 +413,21 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         self.fs.write("/etc/sssd/sssd.conf", contents, mode="0600", user=service_user, group=service_user)
 
         if check_config:
-            self.host.ssh.run("sssctl config-check")
+            self.host.conn.run("sssctl config-check")
 
-    def genconf(self, section: str | None = None) -> SSHProcessResult:
+    def genconf(self, section: str | None = None) -> ProcessResult:
         """
         Exec ``sssd --genconf`` or ``sssd --genconf-section=section`` if ``section`` is not ``None``.
 
         :param section: Section that will be refreshed. Defaults to ``None``.
         :type path: str | None, optional
         :return: Result of the ran command.
-        :rtype: SSHProcessResult
+        :rtype: ProcessResult
         """
         if section is None:
-            return self.host.ssh.exec(["/usr/sbin/sssd", "--genconf"])
+            return self.host.conn.exec(["/usr/sbin/sssd", "--genconf"])
 
-        return self.host.ssh.exec(["/usr/sbin/sssd", f"--genconf-section={section}"])
+        return self.host.conn.exec(["/usr/sbin/sssd", f"--genconf-section={section}"])
 
     def bring_offline(self) -> None:
         """
@@ -435,14 +435,14 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         existing connections.
         """
         self.logger.info(f"Bringing SSSD offline on {self.host.hostname}")
-        self.host.ssh.run("pkill --signal SIGUSR1 sssd", log_level=SSHLog.Error)
+        self.host.conn.run("pkill --signal SIGUSR1 sssd", log_level=ProcessLogLevel.Error)
 
     def bring_online(self) -> None:
         """
         Send SIGUSR2 to SSSD process in order to bring it back online.
         """
         self.logger.info(f"Bringing SSSD online on {self.host.hostname}")
-        self.host.ssh.run("pkill --signal SIGUSR2 sssd", log_level=SSHLog.Error)
+        self.host.conn.run("pkill --signal SIGUSR2 sssd", log_level=ProcessLogLevel.Error)
 
     def section(self, name: str) -> configparser.SectionProxy:
         """

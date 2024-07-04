@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import PureWindowsPath
 from typing import Any
 
-from pytest_mh.ssh import SSHLog
+from pytest_mh.conn import ProcessLogLevel
 
 from .base import BaseDomainHost
 
@@ -88,7 +88,7 @@ class ADHost(BaseDomainHost):
         :rtype: str
         """
         if not self.__naming_context:
-            result = self.ssh.run("Write-Host (Get-ADRootDSE).rootDomainNamingContext")
+            result = self.conn.run("Write-Host (Get-ADRootDSE).rootDomainNamingContext")
             nc = result.stdout.strip()
             if not nc:
                 raise ValueError("Unable to find default naming context")
@@ -118,7 +118,7 @@ class ADHost(BaseDomainHost):
         """
         self.logger.info("Creating backup of Active Directory")
 
-        result = self.ssh.run(
+        result = self.conn.run(
             rf"""
             $basedn = '{self.naming_context}'
             $sitesdn = "cn=sites,cn=configuration,$basedn"
@@ -151,7 +151,7 @@ class ADHost(BaseDomainHost):
 
             Write-Output $tmpdir.FullName
             """,
-            log_level=SSHLog.Error,
+            log_level=ProcessLogLevel.Error,
         )
 
         return PureWindowsPath(result.stdout.strip())
@@ -185,7 +185,7 @@ class ADHost(BaseDomainHost):
         backup_path = str(backup_data)
         self.logger.info(f"Restoring Active Directory from {backup_path}")
 
-        self.ssh.run(
+        self.conn.run(
             rf"""
             $basedn = '{self.naming_context}'
             $sitesdn = "cn=sites,cn=configuration,$basedn"
@@ -253,5 +253,5 @@ class ADHost(BaseDomainHost):
             # If we got here, make sure we exit with 0
             Exit 0
             """,
-            log_level=SSHLog.Error,
+            log_level=ProcessLogLevel.Error,
         )
