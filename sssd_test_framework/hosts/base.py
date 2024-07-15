@@ -9,7 +9,7 @@ from typing import Any
 import ldap
 from ldap.ldapobject import ReconnectLDAPObject
 from pytest_mh import MultihostHost
-from pytest_mh.ssh import SSHPowerShellProcess
+from pytest_mh.ssh import SSHLog, SSHPowerShellProcess
 from pytest_mh.utils.fs import LinuxFileSystem
 from pytest_mh.utils.services import SystemdServices
 
@@ -296,3 +296,69 @@ class BaseLinuxHost(MultihostHost[SSSDMultihostDomain]):
 
         self.fs: LinuxFileSystem = LinuxFileSystem(self)
         self.svc: SystemdServices = SystemdServices(self)
+        self._os_release: dict = {}
+        self._distro_name: str | None = None
+        self._distro_major: int | None = None
+        self._distro_minor: int | None = None
+
+    def _distro_information(self):
+        """
+        Pulls distro information from a host from /ets/os-release
+        """
+        self.logger.info(f"Detecting distro information on {self.hostname}")
+        os_release = self.ssh.run("cat /etc/os-release", log_level=SSHLog.Error).stdout_lines
+        for line in os_release:
+            if "=" not in line:
+                continue
+            k, v = line.rstrip().split("=", maxsplit=1)
+            self._os_release[k] = v.strip('"')
+        if "NAME" in self._os_release:
+            self._distro_name = self._os_release["NAME"]
+        if "VERSION_ID" not in self._os_release:
+            return
+        if "." in self._os_release["VERSION_ID"]:
+            self._distro_major = int(self._os_release["VERSION_ID"].split(".", maxsplit=1)[0])
+            self._distro_minor = int(self._os_release["VERSION_ID"].split(".", maxsplit=1)[1])
+        else:
+            self._distro_major = int(self._os_release["VERSION_ID"])
+            self._distro_minor = 0
+
+    @property
+    def distro_name(self) -> str | None:
+        """
+        Host distribution
+
+        :return: Distribution name
+        :rtype: str | None
+        """
+        # NAME item from os-release
+        if self._distro_name is None:
+            self._distro_information()
+        return self._distro_name
+
+    @property
+    def distro_major(self) -> int | None:
+        """
+        Host distribution major version
+
+        :return: Major version
+        :rtype: int | None
+        """
+        # First part of VERSION_ID from os-release
+        if self._distro_major is None:
+            self._distro_information()
+        return self._distro_major
+
+    @property
+    def distro_minor(self) -> int | None:
+        """
+        Host distribution minor version
+
+        :return: Minor version
+        :rtype: int | None
+        """
+        # Second part of VERSION_ID from os-release
+        # Returns zero when no minor version is present
+        if self._distro_minor is None:
+            self._distro_information()
+        return self._distro_minor
