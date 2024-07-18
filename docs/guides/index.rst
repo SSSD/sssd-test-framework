@@ -1,21 +1,21 @@
-How to guides
+How-To Guides
 #############
 
 .. toctree::
 
-   check-sssd-functionality
-   using-roles
-   using-ssh
+   skipping-conditional-tests
    testing-authentication
    testing-autofs
    testing-dbus
    testing-gpo
    testing-identity
+   testing-ipa-trust
    testing-ldap-krb5
+   testing-local-overrides
+   testing-local-users
    testing-netgroups
-   testing-sss_override
    testing-offline
    testing-passkey
    testing-pam
-   testing-ipa-trust
-   testing-local-users
+   using-roles
+   using-ssh

@@ -1,5 +1,5 @@
-Local users and groups
-######################
+Testing Local Users and Groups
+##############################
 
 Class :class:`sssd_test_framework.utils.local_users.LocalUsersUtils` provides
 API to manage local users and groups. It shares the same generic API that is

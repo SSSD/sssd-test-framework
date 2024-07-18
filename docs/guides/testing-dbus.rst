@@ -1,7 +1,9 @@
 Testing D-Bus Services
 ======================
+
 Infopipe
---------
+********
+
 Access to the Infopipe services is achieved through the
 :class:`sssd_test_framework.roles.client.Client` class. It provides the
 :meth:`sssd_test_framework.roles.client.Client.infopipe()` method that

@@ -1,7 +1,7 @@
-Testing AD GPO HBAC
-###################
+Testing GPOs
+############
 
-:class:`~sssd_test_framework.roles.ad.AD.GPO`
+Class :class:`sssd_test_framework.roles.ad.GPO`
 provides Group Policy Objects (GPO) management to configure GPO policies on AD. Allowing us
 to manage Host Based Access Control(HBAC) from the domain controller. GPOs are windows policies,
 consisting of computer and user configurations, registry keys, administrative template, security

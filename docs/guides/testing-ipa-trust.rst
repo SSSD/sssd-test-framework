@@ -1,5 +1,5 @@
-Testing IPA trust with AD and Samba
-###################################
+Testing IPA Trusts
+##################
 
 To test setup with IPA server and trusted Active Directory or Samba domain,
 you can use the following topologies:
