@@ -1,5 +1,5 @@
-Using multihost roles
-#####################
+Using Roles
+###########
 
 Multihost role is the main object that gives you access to the remote host. Role
 represents a service that runs on the host and the role object provides

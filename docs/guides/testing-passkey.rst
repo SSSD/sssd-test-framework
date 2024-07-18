@@ -1,5 +1,5 @@
-Testing passkey authentication
-##############################
+Testing Passkeys
+################
 
 Passkey can be tested using passkey related methods from
 :class:`sssd_test_framework.utils.sssctl.SSSCTLUtils` and

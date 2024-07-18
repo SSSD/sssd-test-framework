@@ -1,4 +1,4 @@
-Testing netgroups
+Testing Netgroups
 #################
 
 Class :class:`sssd_test_framework.utils.tools.LinuxToolsUtils` provides access
@@ -122,7 +122,6 @@ For most simple cases, you can avoid comparing the domain part like this:
 
 .. code-block:: python
     :caption: Example with topology parametrization
-    :emphasize-lines: 15-16
 
     @pytest.mark.topology(KnownTopologyGroup.AnyProvider)
     def test_netgroup(client: Client, provider: GenericProvider):

@@ -1,5 +1,5 @@
-Pluggable Authentication Modules / PAM
-######################################
+Testing PAM Modules
+###################
 
 Class :class:`sssd_test_framework.utils.pam.PAMUtils` provides
 an API to manage PAM module configuration. Currently pam_access and pam_faillock is supported.

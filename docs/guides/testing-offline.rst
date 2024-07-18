@@ -1,4 +1,4 @@
-Testing SSSD in offline mode
+Testing When SSSD is Offline
 ############################
 
 In order to test SSSD in offline mode, we can use the firewall module from

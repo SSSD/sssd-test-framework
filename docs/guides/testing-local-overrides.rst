@@ -1,5 +1,5 @@
-Local override of users and groups
-###################################
+Testing Local Overrides
+#######################
 
 Class :class:`sssd_test_framework.utils.sss_override.SSSOverrideUtils` provides
 an API to manage local overrides for users and groups. Also known as ID views,

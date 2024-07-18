@@ -1,4 +1,4 @@
-Testing authentication and sudo
+Testing Authentication and Sudo
 ###############################
 
 Class :class:`sssd_test_framework.utils.authentication.AuthenticationUtils`

@@ -1,5 +1,5 @@
-Testing autofs / automount
-##########################
+Testing AutoFS and Automount
+############################
 
 Class :class:`sssd_test_framework.utils.automount.AutomountUtils` provides API
 that can be used to test autofs / automount functionality. It can test that the
