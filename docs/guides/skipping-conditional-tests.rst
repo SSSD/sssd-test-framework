@@ -1,5 +1,5 @@
-Skipping tests if SSSD is missing feature
-#########################################
+Skipping Conditional Tests
+##########################
 
 On some situations, SSSD code base is providing specific functionality by
 enabling it via a configure time flag. A typical example is a files provider

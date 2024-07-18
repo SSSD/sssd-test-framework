@@ -1,4 +1,4 @@
-Testing LDAP with Kerberos
+Testing LDAP With Kerberos
 ##########################
 
 SSSD's LDAP provider can be configured to use Kerberos as the authentication

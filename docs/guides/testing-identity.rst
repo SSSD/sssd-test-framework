@@ -1,4 +1,4 @@
-Testing identity
+Testing Identity
 ################
 
 Class :class:`sssd_test_framework.utils.tools.LinuxToolsUtils` provides access

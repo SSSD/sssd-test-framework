@@ -1,5 +1,5 @@
-Pluggable Authentication Modules / PAM
-######################################
+Testing PAM Modules
+###################
 
 Class :class:`sssd_test_framework.utils.pam.PAMUtils` provides
 an API to manage PAM module configuration. Currently pam_access and pam_faillock is supported.
@@ -10,8 +10,9 @@ A module for logdaemon style login access control. This is managed by /etc/secur
 
 .. code-block:: python
     :caption: Example PAM Access usage
-     @pytest.mark.topology(KnownTopologyGroup.AnyProvider)
-     def test_example(client: Client, provider: GenericProvider):
+
+    @pytest.mark.topology(KnownTopologyGroup.AnyProvider)
+    def test_example(client: Client, provider: GenericProvider):
         # Add users
         provider.user("user-1").add()
         provider.user("user-2").add()
