@@ -39,16 +39,18 @@ class ClientHost(BaseBackupHost, BaseLinuxHost):
             return self._features
 
         self.logger.info(f"Detecting SSSD's features on {self.hostname}")
-
         result = self.ssh.run(
             """
             set -ex
 
             [ -f "/usr/lib64/sssd/libsss_files.so" ] && echo "files-provider" || :
             [ -f "/usr/libexec/sssd/passkey_child" ] && echo "passkey" || :
-            [ -f "/usr/bin/sss_ssh_knownhostsproxy" ] && echo "knownhostsproxy" || :
-            man sssd.conf | grep -q "user (string)" && echo "non-privileged" || :
-            man sssd-ldap | grep -q "ldap_use_ppolicy (boolean)" && echo "ldap_use_ppolicy" || :
+            [ -f "/usr/bin/sss_ssh_knownhosts" ] && echo "knownhosts" || :
+            systemctl cat sssd.service | grep -q "If service configured to be run under" && echo "non-privileged" || :
+            strings /usr/lib64/sssd/libsss_ldap_common.so | grep ldap_use_ppolicy && echo "ldap_use_ppolicy" || :
+            # enumerate (bool) Feature is only supported for domains with id_provider = ldap or id_provider = proxy.
+            MANWIDTH=10000 man sssd.conf | grep -q "id_provider = ldap or id_provider = proxy" && \
+            echo "limited_enumeration" || :
             """,
             log_level=SSHLog.Error,
         )
@@ -59,7 +61,8 @@ class ClientHost(BaseBackupHost, BaseLinuxHost):
             "passkey": False,
             "non-privileged": False,
             "ldap_use_ppolicy": False,
-            "knownhostsproxy": False,
+            "knownhosts": False,
+            "limited_enumeration": False,
         }
 
         self._features.update({k: True for k in result.stdout_lines})
