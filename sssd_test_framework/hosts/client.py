@@ -29,6 +29,12 @@ class ClientHost(BaseBackupHost, BaseLinuxHost):
         super().__init__(*args, **kwargs)
 
         self._features: dict[str, bool] | None = None
+        self.sssd_service_user: str = ""
+        """ SSSD service user configured by default install """
+
+    def pytest_setup(self) -> None:
+        super().pytest_setup()
+        self.sssd_service_user = self.svc.get_property("sssd", "User")
 
     @property
     def features(self) -> dict[str, bool]:
