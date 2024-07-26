@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING, Literal
 from pytest_mh import MultihostHost, MultihostRole, MultihostUtility
 from pytest_mh.conn import Process, ProcessLogLevel, ProcessResult
 
-from ..hosts.base import BaseDomainHost, BaseHost
+from ..hosts.base import BaseDomainHost
+from ..hosts.client import ClientHost
 from ..misc import to_list
 
 if TYPE_CHECKING:
@@ -113,6 +114,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
     def async_start(
         self,
         service="sssd",
+        service_user="sssd",
         *,
         apply_config: bool = True,
         check_config: bool = True,
@@ -132,6 +134,8 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         :return: Running SSH process.
         :rtype: Process
         """
+        self.set_service_user(service_user)
+
         if apply_config:
             self.config_apply(check_config=check_config, debug_level=debug_level)
 
@@ -144,6 +148,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
     def start(
         self,
         service="sssd",
+        service_user="sssd",
         *,
         raise_on_error: bool = True,
         apply_config: bool = True,
@@ -166,6 +171,8 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         :return: SSH process result.
         :rtype: ProcessResult
         """
+        self.set_service_user(service_user)
+
         if apply_config:
             self.config_apply(check_config=check_config, debug_level=debug_level)
 
@@ -303,19 +310,40 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
 
     def set_service_user(self, user: str) -> None:
         """
-        Set [sssd]/user option.
+        Reconfigures 'sssd.service' systemd service description
+        to run SSSD service under 'user' (only 'root' or 'sssd'
+        are supported by SSSD).
+        Take a note, this currently doesn't handle reconfiguration
+        of socket activated services.
 
         :param user: Option value to set.
         :type user: str
-        :raises ValueError: If required feature wasn't built.
+        :raises ValueError: in case error happens.
         """
-        if isinstance(self.host, BaseHost):
-            if (user != "root") and (not self.host.features["non-privileged"]):
-                raise ValueError("SSSD was built without support of running under non-root")
+        if isinstance(self.host, ClientHost):
+            if not self.host.features["non-privileged"]:
+                return  # service user configuration isn't supported at all
         else:
             raise ValueError("Unexpected host type")
 
-        self.sssd["user"] = user
+        if user == self.host.sssd_service_user:
+            return  # requested service user matches default, nothing to do
+
+        service_file = "/usr/lib/systemd/system/sssd.service"
+        self.fs.backup(service_file)
+        cmd = f'sed -i "s/^User=.*/User={user}/g" {service_file}\n'
+        cmd += f'sed -i "s/^Group=.*/Group={user}/g" {service_file}\n'
+        if user == "root":
+            cmd += f'sed -i "s/^#SupplementaryGroups=sssd$/SupplementaryGroups=sssd/g" {service_file}\n'
+            cmd += f'sed -i "s/sssd:sssd/root:root/g" {service_file}\n'
+        elif user == "sssd":
+            cmd += f'sed -i "s/^SupplementaryGroups=sssd$/#SupplementaryGroups=sssd/g" {service_file}\n'
+            cmd += f'sed -i "s/root:root/sssd:sssd/g" {service_file}\n'
+        else:
+            raise ValueError("Unexpected value of 'user'")
+        cmd += f"chown -f {user}:{user} /var/lib/sss/db/*.ldb || true"
+        self.host.conn.run(cmd)
+        self.svc.reload_daemon()
 
     def enable_responder(self, responder: str) -> None:
         """
