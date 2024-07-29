@@ -14,6 +14,7 @@ from .topology_controllers import (
     GDMTopologyController,
     IPATopologyController,
     IPATrustADTopologyController,
+    IPATrustIPATopologyController,
     IPATrustSambaTopologyController,
     KeycloakTopologyController,
     LDAPTopologyController,
@@ -197,6 +198,17 @@ class KnownTopology(KnownTopologyBase):
     .. topology-mark:: KnownTopology.Keycloak
     """
 
+    IPATrustIPA = SSSDTopologyMark(
+        name="ipa-trust-ipa",
+        topology=Topology(TopologyDomain("sssd", client=1, ipa=1), TopologyDomain("ipa2", ipa=1)),
+        controller=IPATrustIPATopologyController(),
+        domains=dict(test="sssd.ipa[0]"),
+        fixtures=dict(client="sssd.client[0]", ipa="sssd.ipa[0]", trusted="ipa2.ipa[0]"),
+    )
+    """
+    .. topology-mark:: KnownTopology.IPATrustIPA
+    """
+
 
 class KnownTopologyGroup(KnownTopologyGroupBase):
     """
@@ -234,7 +246,12 @@ class KnownTopologyGroup(KnownTopologyGroupBase):
     ..topology-mark:: KnownTopologyGroup.AnyDC
     """
 
-    IPATrust = [KnownTopology.IPATrustAD, KnownTopology.IPATrustSamba]
+    IPATrustAD = [KnownTopology.IPATrustAD, KnownTopology.IPATrustSamba]
     """
-    .. topology-mark:: KnownTopologyGroup.IPATrust
+    .. topology-mark:: KnownTopologyGroup.IPATrustAD
+    """
+
+    AnyIPATrust = [KnownTopology.IPATrustAD, KnownTopology.IPATrustSamba, KnownTopology.IPATrustIPA]
+    """
+    .. topology-mark:: KnownTopologyGroup.AnyIPATrust
     """
