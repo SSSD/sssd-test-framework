@@ -204,6 +204,13 @@ class IPA(BaseLinuxRole[IPAHost]):
         """
         return f"{name}@{self.domain}"
 
+    @property
+    def admin_fqn(self) -> str:
+        """
+        Return fully qualified admin name in form name@domain.
+        """
+        return f"admin@{self.domain}"
+
     def user(self, name: str) -> IPAUser:
         """
         Get user object.
