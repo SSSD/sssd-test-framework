@@ -137,6 +137,19 @@ class IPA(BaseLinuxRole[IPAHost]):
         super().setup()
         self.host.kinit()
 
+    def fqn(self, name: str) -> str:
+        """
+        Return fully qualified name in form name@domain.
+        """
+        return f"{name}@{self.domain}"
+
+    @property
+    def admin_fqn(self) -> str:
+        """
+        Return fully qualified admin name in form name@domain.
+        """
+        return f"admin@{self.domain}"
+
     def user(self, name: str) -> IPAUser:
         """
         Get user object.
