@@ -134,6 +134,13 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
         """
         return f"{name}@{self.domain}"
 
+    @property
+    def admin_fqn(self) -> str:
+        """
+        Return fully qualified administrator name in form name@domain.
+        """
+        return f"administrator@{self.domain}"
+
     def user(self, name: str) -> SambaUser:
         """
         Get user object.
