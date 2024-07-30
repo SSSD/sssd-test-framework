@@ -516,6 +516,34 @@ class IPAUser(IPAObject):
         self._modify(attrs, input=password)
         return self
 
+    def reset(self, password: str | None = "Secret123") -> IPAUser:
+        """
+        Reset user password.
+
+        :param password: Password, defaults to 'Secret123'
+        :type password: str, optional
+        :return: Self.
+        :rtype: IPAUser
+        """
+        pwinput = f"{password}\n{password}"
+        self.role.host.conn.run(f"ipa passwd {self.name}", input=pwinput)
+        self.expire("20380101120000Z")
+
+        return self
+
+    def expire(self, expiration: str | None = "19700101000000Z") -> IPAUser:
+        """
+        Set user password expiration date and time.
+
+        :param expiration: Date and time for user password expiration, defaults to 19700101000000
+        :type expirataion: str, optional
+        :return: Self.
+        :rtype: IPAUser
+        """
+        self.modify(password_expiration=expiration)
+
+        return self
+
     def passkey_add(self, passkey_mapping: str) -> IPAUser:
         """
         Add passkey mapping to the user.
