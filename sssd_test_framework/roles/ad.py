@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, TypeAlias
+from datetime import datetime
 
 from pytest_mh.cli import CLIBuilderArgs
 from pytest_mh.ssh import SSHClient, SSHPowerShellProcess, SSHProcessResult
@@ -792,6 +793,7 @@ class ADUser(ADObject):
         *,
         uid: int | DeleteAttribute | None = None,
         gid: int | DeleteAttribute | None = None,
+        password: str | DeleteAttribute | None = "Secret123",
         home: str | DeleteAttribute | None = None,
         gecos: str | DeleteAttribute | None = None,
         shell: str | DeleteAttribute | None = None,
@@ -809,6 +811,8 @@ class ADUser(ADObject):
         :type uid: int | DeleteAttribute | None, optional
         :param gid: Primary group id, defaults to None
         :type gid: int | DeleteAttribute | None, optional
+        :param password: Password (cannot be None), defaults to 'Secret123'
+        :type password: str, optional
         :param home: Home directory, defaults to None
         :type home: str | DeleteAttribute | None, optional
         :param gecos: GECOS, defaults to None
@@ -854,6 +858,67 @@ class ADUser(ADObject):
 
         self._modify(attrs)
 
+        # Password changes require a different command group so special
+        # handling is needed
+        if password != None:
+            self.reset(password)
+
+        return self
+
+    def reset(
+        self,
+        password: str | None = "Secret123",
+    ) -> ADUser:
+        """
+        Reset user password
+
+        Parameters that are not set are ignored.
+
+        :param password: Password, defaults to 'Secret123'
+        :type password: str, optional
+        :return: Self.
+        :rtype: ADUser
+        """
+        attrs: CLIBuilderArgs = {
+            **self._identity,
+            "Reset": (self.cli.option.SWITCH, True),
+            "NewPassword": (self.cli.option.PLAIN, f'(ConvertTo-SecureString "{password}" -AsPlainText -force)'),
+        }
+
+        args = " ".join(self.cli.args(attrs, quote_value=True))
+        self.role.host.ssh.run(
+            f"""
+            Import-Module ActiveDirectory
+            Set-ADAccountPassword {args}
+            """
+        )
+
+        return self
+
+    def expire(self, expiration: str | None = '19700101000000') -> ADUser:
+        """
+        Set user password expiration date and time
+
+        :param expiration: Date and time for user password expiration, defaults to 19700101000000Z
+        :type expirataion: str, optional
+        :return: Self.
+        :rtype: ADUser
+        """
+        expire = datetime.strptime(expiration, "%Y%m%d%H%M%S")
+        expire_format = expire.strftime("%m/%d/%Y %H:%M:%S")
+
+        attrs: CLIBuilderArgs = {
+            **self._identity,
+            "DateTime": (self.cli.option.VALUE, f'{expire_format}')
+        }
+
+        args = " ".join(self.cli.args(attrs, quote_value=True))
+        self.role.host.ssh.run(
+            f"""
+            Import-Module ActiveDirectory
+            Set-ADAccountExpiration {args}
+            """
+        )
         return self
 
     def passkey_add(self, passkey_mapping: str) -> ADUser:

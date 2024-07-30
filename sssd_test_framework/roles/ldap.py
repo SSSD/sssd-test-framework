@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 from enum import Enum
 from typing import Any, Generic, TypeVar
+from datetime import datetime
 
 import ldap
 import ldap.ldapobject
@@ -763,6 +764,8 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         :type uid: int | DeleteAttribute | None, optional
         :param gid: Primary group id, defaults to None
         :type gid: int | DeleteAttribute | None, optional
+        :param password: Password, defaults to 'Secret123'
+        :type password: str, optional
         :param home: Home directory, defaults to None
         :type home: str | DeleteAttribute | None, optional
         :param gecos: GECOS, defaults to None
@@ -806,6 +809,39 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         }
 
         self._set(attrs)
+        return self
+
+    def reset(self, password: str | None = "Secret123") -> LDAPUser:
+        """
+        Reset user password
+
+        :param password: Password, defaults to 'Secret123'
+        :type password: str, optional
+        :return: Self.
+        :rtype: LDAPUser
+        """
+        self.modify(password=password)
+        return self
+
+    def expire(self, expiration: str | None = '19700101000000') -> IPAUser:
+        """
+        Set user password expiration date and time
+
+        :param expiration: Date and time for user password expiration, defaults to 19700101000000
+        :type expirataion: str, optional
+        :return: Self.
+        :rtype: IPAUser
+        """
+
+        start = datetime.now()
+        end = datetime.strptime(expiration, "%Y%m%d%H%M%S")
+        time_diff = end - start
+        expires_in = time_diff.total_seconds()
+        if expires_in < 0:
+            expires_in = 0
+
+        self.modify(shadowMax=expires_in)
+
         return self
 
     def passkey_add(self, passkey_mapping: str) -> LDAPUser:
