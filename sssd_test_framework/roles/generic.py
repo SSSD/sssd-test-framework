@@ -509,6 +509,30 @@ class GenericUser(ABC, BaseObject):
         pass
 
     @abstractmethod
+    def reset(self, password: str | None = "Secret123") -> GenericUser:
+        """
+        Reset user password.
+
+        :param password: Password, defaults to 'Secret123'
+        :type password: str, optional
+        :return: Self.
+        :rtype: IPAUser
+        """
+        pass
+
+    @abstractmethod
+    def expire(self, expiration: str | None = "19700101000000") -> GenericUser:
+        """
+        Set user password expiration date and time.
+
+        :param expiration: Date and time for user password expiration, defaults to 19700101000000
+        :type expirataion: str, optional
+        :return: Self.
+        :rtype: IPAUser
+        """
+        pass
+
+    @abstractmethod
     def delete(self) -> None:
         """
         Delete the user.
