@@ -19,7 +19,7 @@ __all__ = [
     "SudoAuthenticationUtils",
 ]
 
-DEFAULT_AUTHENTICATION_TIMEOUT: int = 60
+DEFAULT_AUTHENTICATION_TIMEOUT: int = 120
 """Default timeout for authentication failure."""
 
 
