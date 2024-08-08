@@ -128,6 +128,12 @@ class AD(BaseWindowsRole[ADHost]):
         """
         return f"{name}@{self.domain}"
 
+    def admin_fqn(self) -> str:
+        """
+        Return fully qualified administrator name in form name@domain.
+        """
+        return f"administrator@{self.domain}"
+
     def user(self, name: str, basedn: ADObject | str | None = "cn=users") -> ADUser:
         """
         Get user object.
