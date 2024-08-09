@@ -123,8 +123,16 @@ class BaseRole(MultihostRole[HostType]):
         if shell is None:
             shell = Bash()
 
+        host = self.host.hostname
+        port = 22
+
+        if isinstance(self.host.conn, SSHClient):
+            host = getattr(self.host.conn, "host", host)
+            port = getattr(self.host.conn, "port", 22)
+
         return SSHClient(
-            self.host.hostname,
+            host=host,
+            port=port,
             user=user,
             password=password,
             shell=shell,
