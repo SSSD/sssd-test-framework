@@ -30,6 +30,10 @@ class ClientHost(BaseBackupHost, BaseLinuxHost):
 
         self._features: dict[str, bool] | None = None
 
+    def pytest_setup(self) -> None:
+        result = self.conn.run("systemctl show sssd --value --property User")
+        self._sssd_service_user = result.stdout.strip()
+
     @property
     def features(self) -> dict[str, bool]:
         """
