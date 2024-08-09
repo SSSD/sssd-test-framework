@@ -1,4 +1,6 @@
-jc
-pytest
+jc~=1.25.1
+pytest~=8.0.1
 python-ldap
 pytest-mh >= 1.0.18
+PyYAML~=6.0.1
+Sphinx~=7.2.6

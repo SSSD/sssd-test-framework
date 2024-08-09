@@ -2,27 +2,30 @@
 
 from __future__ import annotations
 
+import configparser
+import time
 from typing import Any, TypeAlias
 
 import ldap.modlist
 from pytest_mh.cli import CLIBuilderArgs
 from pytest_mh.conn import ProcessResult
 
-from sssd_test_framework.utils.ldap import LDAPRecordAttributes
-
 from ..hosts.samba import SambaHost
 from ..misc import attrs_parse, to_list_of_strings
+from ..utils.ldap import LDAPRecordAttributes
 from .base import BaseLinuxLDAPRole, BaseObject, DeleteAttribute
 from .ldap import LDAPAutomount, LDAPNetgroup, LDAPNetgroupMember, LDAPObject, LDAPOrganizationalUnit, LDAPSudoRule
 
 __all__ = [
     "Samba",
     "SambaObject",
+    "SambaComputer",
     "SambaUser",
     "SambaGroup",
     "SambaOrganizationalUnit",
     "SambaAutomount",
     "SambaSudoRule",
+    "SambaGPO",
 ]
 
 
@@ -143,7 +146,7 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
                 assert result.user.name == 'user-1'
                 assert result.group.name == 'domain users'
 
-        :param name: User name.
+        :param name: Username.
         :type name: str
         :return: New user object.
         :rtype: SambaUser
@@ -224,6 +227,65 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
         :rtype: SambaNetgroup
         """
         return SambaNetgroup(self, name, basedn)
+
+    def computer(self, name: str) -> SambaComputer:
+        """
+        Get computer object.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.AD)
+            def test_example(client: Client, samba: Samba):
+                # Create OU
+                ou = ad.ou("test").add().dn
+                # Move computer object
+                ad.computer(client.host.hostname.split(".")[0]).move(ou)
+
+                client.sssd.start()
+
+        :param name: Computer name.
+        :type name: str
+        :return: New computer object.
+        :rtype: ADComputer
+        """
+        return SambaComputer(self, name)
+
+    def gpo(self, name: str) -> SambaGPO:
+        """
+        Get group policy object.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.AD)
+            def test_ad__gpo_is_set_to_enforcing(client: Client, samba: Samba):
+                user = ad.user("user").add()
+                allow_user = ad.user("allow_user").add()
+                deny_user = ad.user("deny_user").add()
+
+                ad.gpo("test policy").add().policy(
+                    {
+                    "SeInteractiveLogonRight": [allow_user, ad.group("Domain Admins")],
+                    "SeRemoteInteractiveLogonRight": [allow_user, ad.group("Domain Admins")],
+                    "SeDenyInteractiveLogonRight": [deny_user],
+                    "SeDenyRemoteInteractiveLogonRight": [deny_user],
+                    }
+                ).link()
+
+                client.sssd.domain["ad_gpo_access_control"] = "enforcing"
+                client.sssd.start()
+
+                assert client.auth.ssh.password(username="allow_user", password="Secret123")
+                assert not client.auth.ssh.password(username="user", password="Secret123")
+                assert not client.auth.ssh.password(username="deny_user", password="Secret123")
+
+        :param name: Name of the GPO.
+        :type name: str
+        :return: New GPO object.
+        :rtype: SambaGPO
+        """
+        return SambaGPO(self, name)
 
     def ou(self, name: str, basedn: LDAPObject | str | None = None) -> SambaOrganizationalUnit:
         """
@@ -312,6 +374,10 @@ class SambaObject(BaseObject):
         """Object name."""
 
         self.__dn: str | None = None
+
+        self.__sid: str | None = None
+
+        self.__cn: str | None = None
 
     def _exec(self, op: str, args: list[str] | None = None, **kwargs) -> ProcessResult:
         """
@@ -411,6 +477,30 @@ class SambaObject(BaseObject):
         obj = self.get(["dn"])
         self.__dn = obj.pop("dn")[0]
         return self.__dn
+
+    @property
+    def cn(self) -> str:
+        """
+        Object's distinguished name.
+        """
+        if self.__cn is not None:
+            return self.__cn
+
+        obj = self.get(["cn"])
+        self.__cn = obj.pop("cn")[0]
+        return self.__cn
+
+    @property
+    def sid(self) -> str:
+        """
+        Object's security identifier.
+        """
+        if self.__sid is not None:
+            return self.__sid
+
+        obj = self.get(["objectSid"])
+        self.__sid = obj.pop("objectSid")[0]
+        return self.__sid
 
 
 class SambaUser(SambaObject):
@@ -677,6 +767,241 @@ class SambaGroup(SambaObject):
 
     def __get_member_args(self, members: list[SambaUser | SambaGroup]) -> list[str]:
         return [",".join([x.name for x in members])]
+
+
+class SambaComputer(SambaObject):
+    """
+    AD computer management.
+    """
+
+    def __init__(self, role: Samba, name: str) -> None:
+        """
+        :param role: AD role object.
+        :type role: AD
+        :param name: Computer name.
+        :type name: str
+        """
+        super().__init__(role, "Computer", name)
+
+    def move(self, target: str) -> SambaComputer:
+        """
+        Move a computer object.
+
+        :param target: Target path.
+        :type target: str
+        :return: Self.
+        :rtype: SambaComputer
+        """
+        if self.name.startswith("cn"):
+            _name = self.name.split(",")[0].split("=")[1]
+            self._exec("Move", [self.name, target])
+
+        return self
+
+
+class SambaGPO(SambaObject):
+    """
+    Group policy object management.
+    """
+
+    def __init__(self, role: Samba, name: str) -> None:
+        """
+        :param name: GPO name, defaults to 'Domain Test Policy'
+        :type name: str, optional
+        """
+        super().__init__(role, "gpo", name)
+
+        self.target: str | None = None
+        """Group policy target."""
+
+        self.search_base: str = f"cn=policies,cn=system,{self.role.host.naming_context}"
+        """Group policy search base."""
+
+        self.credentials: str = f" --username={self.role.host.admin} --password={self.role.host.adminpw}"
+        """Credentials to manage GPOs."""
+
+    def _get(self, key: str) -> str | None:
+        """
+        Get group policy key.
+        Output contains 'GENSEC' strings, which are removed
+
+        :param key: Attribute.
+        :type key: str
+        :return: Key value.
+        :rtype: str
+        """
+        result = []
+        if self.name is not None:
+            for i in self.host.conn.run("samba-tool gpo listall").stdout_lines:
+                if "GENSEC" not in i:
+                    result.append(i)
+
+        _result = attrs_parse(result, [key])
+
+        for k, v in _result.items():
+            if k == key:
+                return v[0]
+
+        return None
+
+    def add(self) -> SambaGPO:
+        """
+        Add a group policy object.
+
+        :return: Samba group policy object
+        :rtype: SambaGPO
+        """
+
+        self.host.conn.run(f'samba-tool gpo create "{self.name}" {self.credentials}')
+
+        self.__cn = self._get("GPO")
+        self.__dn = self._get("dn")
+
+        return self
+
+    def delete(self) -> None:
+        """
+        Delete group policy object.
+        """
+        self.role.host.conn.run(f'samba-tool gpo del "{self.__cn}" {self.credentials}')
+
+    def link(
+        self,
+        target: str | None = None,
+        enforced: bool | None = False,
+        disabled: bool | None = False,
+    ) -> SambaGPO:
+        """
+        Link the group policy to the target object inside the directory, a site, domain or an ou.
+
+        :param target: Group policy target, defaults to 'Default-First-Site-Name'
+        :type target: str, optional
+        :param enforced: Enforced the policy
+        :type enforced: bool, optional
+        :param disabled: Disable the policy
+        :type disabled: bool, optional
+        :return: Samba group policy object
+        :rtype: SambaGPO
+        """
+        args = ""
+
+        if enforced is True:
+            args = args + " --enforce"
+        if disabled is True:
+            args = args + " --disabled"
+
+        if target is None and self.target is None:
+            self.target = f"CN=Default-First-Site-Name,CN=Sites,CN=Configuration,{self.role.host.naming_context}"
+
+        if target is not None and self.target is None:
+            self.target = target
+
+        self.host.conn.run(f'samba-tool gpo setlink "{self.target}" "{self.__cn}" {args} {self.credentials}')
+
+        return self
+
+    def unlink(self) -> SambaGPO:
+        """
+        Unlink the group policy from the target.
+
+        :return: Samba group policy object
+        :rtype: SambaGPO
+        """
+        self.host.conn.run(f'samba-tool gpo dellink "{self.name}" {self.credentials}')
+
+        return self
+
+    def permissions(self, level: str, target_type: str | None = "User") -> SambaGPO:
+        """
+        Configure group policy object permissions.
+
+        :param level: Permission level
+        :type level: str, values should be 'GpoRead | GpoApply | GpoEdit | GpoEditDeleteModifySecurity | None'
+        :param target_type: Target type, defaults to 'user'
+        :type target_type: str, optional, values should be 'user | group | computer'
+        :return: Samba group policy object
+        :rtype: SambaGPO
+        """
+        self.role.host.conn.run(
+            # f'Set-GPPermission -Guid "{self._cn}" -PermissionLevel {level} -Type "{target_type}" -Replace $True'
+            f"samba-tool dsacl"
+        )
+
+        return self
+
+    def policy(self, logon_rights: dict[str, list[SambaObject]]) -> SambaGPO:
+        """
+        Group policy configuration.
+
+        This method does the remaining configuration of the group policy. It updates
+        'GptTmpl.inf' with security logon right keys with the SIDs of users and groups
+        objects. The *Remote* keys can be omitted, in which the corresponding keys values
+        will then be used.
+
+        To add users and groups to the policy, the SID must be used for the values. The
+        values need to be prefixed with an '*' and use a comma for a de-limiter, i.e.
+        `*SID1-2-3-4,*SID-5-6-7-8`
+
+        Additionally, gPCMachineExtensionNames need to be updated in the directory so
+        the GPO is readable to the client. The value is a list of Client Side
+        Extensions (CSEs), that is an index of what part of the policy is pushed and
+        processed by the client.
+
+        :param logon_rights: List of logon rights.
+        :type logon_rights: dict[str, list[SambaObject]]
+        :return: Samba Group policy object
+        :rtype: SambaGPO
+        """
+        _path: str = (
+            f"/var/lib/samba/sysvol/"
+            f"{self.role.domain}/"
+            f"Policies/{self.__cn}"
+            f"/MACHINE/Microsoft/Windows "
+            f"NT/SecEdit/"
+        )
+        _full_path: str = f"{_path}GptTmpl.inf"
+
+        _keys: list[str] = [
+            "SeInteractiveLogonRight",
+            "SeRemoteInteractiveLogonRight",
+            "SeDenyInteractiveLogonRight",
+            "SeDenyRemoteInteractiveLogonRight",
+        ]
+
+        for i in _keys:
+            if i not in logon_rights.keys() and i == "SeRemoteInteractiveLogonRight":
+                logon_rights[i] = logon_rights["SeInteractiveLogonRight"]
+            if i not in logon_rights.keys() and i == "SeDenyRemoteInteractiveLogonRight":
+                logon_rights[i] = logon_rights["SeDenyInteractiveLogonRight"]
+
+        for i in _keys:
+            if i not in logon_rights.keys():
+                raise KeyError(f"Expected {i} but got {logon_rights.keys()}")
+
+        _logon_rights: dict[str, Any] = {}
+        for k, v in logon_rights.items():
+            sids: list[str] = []
+            for j in v:
+                sids.append(f"*{j.sid}")
+                _logon_rights = {**_logon_rights, **{k: ",".join(sids)}}
+
+        config = configparser.ConfigParser(interpolation=None)
+        config.optionxform = str
+        config["Unicode"] = {}
+        config["Unicode"]["Unicode"] = "yes"
+        config["Version"] = {}
+        config["Version"]["signature"] = '"$CHICAGO$"'
+        config["Version"]["Revision"] = "1"
+        config["Privilege Rights"] = {}
+
+        for k, v in _logon_rights.items():
+            config["Privilege Rights"][k.strip()] = v.strip()
+        config.write(open("/tmp/GptTmpl.inf", "w"))
+
+        self.role.fs.mkdir_p(_path, mode="750", user="BUILTIN\\administrators", group="users")
+        self.role.fs.upload("/tmp/GptTmpl.inf", _full_path, mode="750", user="BUILTIN\\administrators", group="users")
+
+        return self
 
 
 SambaOrganizationalUnit: TypeAlias = LDAPOrganizationalUnit[SambaHost, Samba]

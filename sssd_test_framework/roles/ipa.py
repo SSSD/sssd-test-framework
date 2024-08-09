@@ -1,4 +1,4 @@
-"""IPA multihost role."""
+"" """IPA multihost role."""
 
 from __future__ import annotations
 
