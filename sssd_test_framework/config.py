@@ -99,9 +99,9 @@ class SSSDTopologyMark(TopologyMark):
         return d
 
     @classmethod
-    def _CreateFromArgs(cls, item: pytest.Function, args: Tuple, kwargs: Mapping[str, Any]) -> TopologyMark:
+    def CreateFromArgs(cls, item: pytest.Function, args: Tuple, kwargs: Mapping[str, Any]) -> TopologyMark:
         """
-        Create :class:`TopologyMark` from pytest marker arguments.
+        Create :class:`TopologyMark` from pytest.mark.topology arguments.
 
         .. warning::
 
