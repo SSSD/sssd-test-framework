@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Mapping, Tuple, Type
+from typing import Any, Mapping, Self, Tuple, Type
 
 import pytest
 from pytest_mh import (
@@ -99,7 +99,7 @@ class SSSDTopologyMark(TopologyMark):
         return d
 
     @classmethod
-    def CreateFromArgs(cls, item: pytest.Function, args: Tuple, kwargs: Mapping[str, Any]) -> TopologyMark:
+    def CreateFromArgs(cls, item: pytest.Function, args: Tuple, kwargs: Mapping[str, Any]) -> Self:
         """
         Create :class:`TopologyMark` from pytest.mark.topology arguments.
 
@@ -113,7 +113,7 @@ class SSSDTopologyMark(TopologyMark):
         :type item: pytest.Function
         :raises ValueError: If the marker is invalid.
         :return: Instance of TopologyMark.
-        :rtype: TopologyMark
+        :rtype: Self
         """
         # First three parameters are positional, the rest are keyword arguments.
         if len(args) != 2 and len(args) != 3:
