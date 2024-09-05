@@ -58,8 +58,8 @@ class BackupTopologyController(TopologyController[SSSDMultihostConfig]):
         self.backup_data: dict[BaseBackupHost, Any | None] = {}
         self.provisioned: bool = False
 
-    def _init(self, *args, **kwargs):
-        super()._init(*args, **kwargs)
+    def init(self, *args, **kwargs):
+        super().init(*args, **kwargs)
         self.provisioned = self.name in self.multihost.provisioned_topologies
 
     def restore(self, hosts: dict[BaseBackupHost, Any | None]) -> None:
