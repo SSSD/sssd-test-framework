@@ -3,12 +3,11 @@ from __future__ import annotations
 from functools import partial, wraps
 from typing import Any
 
-from pytest_mh import TopologyController
+from pytest_mh import MultihostBackupHost, TopologyController
 from pytest_mh.conn import ProcessResult
 
 from .config import SSSDMultihostConfig
 from .hosts.ad import ADHost
-from .hosts.base import BaseBackupHost
 from .hosts.client import ClientHost
 from .hosts.ipa import IPAHost
 from .hosts.nfs import NFSHost
@@ -55,17 +54,17 @@ class BackupTopologyController(TopologyController[SSSDMultihostConfig]):
     def __init__(self) -> None:
         super().__init__()
 
-        self.backup_data: dict[BaseBackupHost, Any | None] = {}
+        self.backup_data: dict[MultihostBackupHost, Any | None] = {}
         self.provisioned: bool = False
 
     def init(self, *args, **kwargs):
         super().init(*args, **kwargs)
         self.provisioned = self.name in self.multihost.provisioned_topologies
 
-    def restore(self, hosts: dict[BaseBackupHost, Any | None]) -> None:
+    def restore(self, hosts: dict[MultihostBackupHost, Any | None]) -> None:
         errors = []
         for host, backup_data in hosts.items():
-            if not isinstance(host, BaseBackupHost):
+            if not isinstance(host, MultihostBackupHost):
                 continue
 
             try:
@@ -77,10 +76,10 @@ class BackupTopologyController(TopologyController[SSSDMultihostConfig]):
             raise ExceptionGroup("Some hosts failed to restore to original state", errors)
 
     def restore_vanilla(self) -> None:
-        restore_data: dict[BaseBackupHost, Any | None] = {}
+        restore_data: dict[MultihostBackupHost, Any | None] = {}
 
         for host in self.hosts:
-            if not isinstance(host, BaseBackupHost):
+            if not isinstance(host, MultihostBackupHost):
                 continue
 
             restore_data[host] = host.backup_data
@@ -93,7 +92,7 @@ class BackupTopologyController(TopologyController[SSSDMultihostConfig]):
 
         try:
             for host, backup_data in self.backup_data.items():
-                if not isinstance(host, BaseBackupHost):
+                if not isinstance(host, MultihostBackupHost):
                     continue
 
                 host.remove_backup(backup_data)

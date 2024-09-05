@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from pathlib import PurePath
 from typing import Any
 
 import ldap
 from ldap.ldapobject import ReconnectLDAPObject
-from pytest_mh import MultihostHost
-from pytest_mh.conn import Powershell
+from pytest_mh import MultihostBackupHost, MultihostHost
 from pytest_mh.utils.fs import LinuxFileSystem
 from pytest_mh.utils.services import SystemdServices
 
@@ -18,16 +15,19 @@ from ..misc import retry
 
 __all__ = [
     "BaseHost",
-    "BaseBackupHost",
     "BaseDomainHost",
     "BaseLDAPDomainHost",
 ]
 
 
-class BaseHost(MultihostHost[SSSDMultihostDomain]):
+class BaseHost(MultihostBackupHost[SSSDMultihostDomain]):
     """
     Base class for all SSSD hosts.
     """
+
+    def __init__(self, *args, **kwargs) -> None:
+        # restore is handled in topology controllers
+        super().__init__(*args, auto_restore=False, **kwargs)
 
     @property
     def features(self) -> dict[str, bool]:
@@ -37,105 +37,7 @@ class BaseHost(MultihostHost[SSSDMultihostDomain]):
         return {}
 
 
-class BaseBackupHost(BaseHost, ABC):
-    """
-    Base class for all hosts that supports automatic backup and restore.
-
-    A backup of the host is created before starting a test case and all changes
-    done in the test case to the host are automatically reverted when the test
-    run is finished.
-
-    .. warning::
-
-        There might be some limitations on what data can and can not be restored
-        that depends on particular host. See the documentation of each host
-        class to learn if a full or partial restoration is done.
-    """
-
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-
-        self.backup_data: Any | None = None
-        """Backup data of vanilla state of this host."""
-
-    def pytest_setup(self) -> None:
-        # Make sure required services are running
-        try:
-            self.start()
-        except NotImplementedError:
-            pass
-
-        # Create backup of initial state
-        self.backup_data = self.backup()
-
-    def pytest_teardown(self) -> None:
-        self.remove_backup(self.backup_data)
-
-    def remove_backup(self, backup_data: Any | None) -> None:
-        """
-        Remove backup data from the host.
-
-        :param backup_data: Backup data.
-        :type backup_data: Any | None
-        """
-        if backup_data is None:
-            return
-
-        if isinstance(backup_data, PurePath):
-            path = str(backup_data)
-        else:
-            raise TypeError(f"Only PurePath is supported as backup_data, got {type(backup_data)}")
-
-        if isinstance(self.conn.shell, Powershell):
-            self.conn.exec(["Remove-Item", "-Force", "-Recurse", path])
-        else:
-            self.conn.exec(["rm", "-fr", path])
-
-    @abstractmethod
-    def start(self) -> None:
-        """
-        Start required services.
-
-        :raises NotImplementedError: If start operation is not supported.
-        """
-        pass
-
-    @abstractmethod
-    def stop(self) -> None:
-        """
-        Stop required services.
-
-        :raises NotImplementedError: If stop operation is not supported.
-        """
-        pass
-
-    @abstractmethod
-    def backup(self) -> Any:
-        """
-        Backup backend data.
-
-        Returns directory or file path where the backup is stored (as PurePath)
-        or any Python data relevant for the backup. This data is passed to
-        :meth:`restore` which will use this information to restore the host to
-        its original state.
-
-        :return: Backup data.
-        :rtype: Any
-        """
-        pass
-
-    @abstractmethod
-    def restore(self, backup_data: Any | None) -> None:
-        """
-        Restore backend data.
-
-        :param backup_data: Backup data.
-        :type backup_data: Any | None
-        """
-        pass
-
-
-class BaseDomainHost(BaseBackupHost):
+class BaseDomainHost(BaseHost):
     """
     Base class for all domain (backend) hosts.
 

@@ -7,14 +7,14 @@ from typing import Any
 
 from pytest_mh.conn import ProcessLogLevel
 
-from .base import BaseBackupHost, BaseLinuxHost
+from .base import BaseHost, BaseLinuxHost
 
 __all__ = [
     "NFSHost",
 ]
 
 
-class NFSHost(BaseBackupHost, BaseLinuxHost):
+class NFSHost(BaseHost, BaseLinuxHost):
     """
     NFS server host object.
 
