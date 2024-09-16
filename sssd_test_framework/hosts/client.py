@@ -145,6 +145,7 @@ class ClientHost(BaseBackupHost, BaseLinuxHost):
                 rm --force --recursive "$2"
                 if [ -d "$1" ] || [ -f "$1" ]; then
                     cp --force --archive "$1" "$2"
+                    restorecon -rf "$2"
                 fi
             }}
 
