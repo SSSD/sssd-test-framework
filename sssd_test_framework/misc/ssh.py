@@ -100,6 +100,7 @@ def retry_command(
     delay: float = 1,
     match_stdout: str | list[str] | None = None,
     match_stderr: str | list[str] | None = None,
+    check_rc: bool = True,
 ) -> Callable[[Callable[Param, ProcessResult]], Callable[Param, ProcessResult]]:
     """
     Decorated function will be retried if its return code is non zero.
@@ -112,7 +113,8 @@ def retry_command(
     :type match_stdout: str | list[str] | None, optional
     :param match_stderr: If set, retry only of string is found in stderr, defaults to None
     :type match_stderr: str | list[str] | None, optional
-
+    :param check_rc: If True and rc == 0, do not retry.
+    :type check_rc: bool
     :return: Decorated function.
     :rtype: Callable
     """
@@ -151,7 +153,7 @@ def retry_command(
                     stdout = e.stdout
                     stderr = e.stderr
 
-                if rc == 0:
+                if check_rc and rc == 0:
                     break
 
                 if match_stdout is not None and not _match(match_stdout, stdout):
