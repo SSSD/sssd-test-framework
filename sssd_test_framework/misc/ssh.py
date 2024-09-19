@@ -98,8 +98,8 @@ Param = ParamSpec("Param")
 def retry_command(
     max_retries: int = 5,
     delay: float = 1,
-    match_stdout: str | None = None,
-    match_stderr: str | None = None,
+    match_stdout: str | list[str] | None = None,
+    match_stderr: str | list[str] | None = None,
 ) -> Callable[[Callable[Param, ProcessResult]], Callable[Param, ProcessResult]]:
     """
     Decorated function will be retried if its return code is non zero.
@@ -109,15 +109,25 @@ def retry_command(
     :param delay: Delay in seconds between each retry, defaults to 1
     :type delay: float, optional
     :param match_stdout: If set, retry only of string is found in stdout, defaults to None
-    :type match_stdout: str | None, optional
+    :type match_stdout: str | list[str] | None, optional
     :param match_stderr: If set, retry only of string is found in stderr, defaults to None
-    :type match_stderr: str | None, optional
+    :type match_stderr: str | list[str] | None, optional
 
     :return: Decorated function.
     :rtype: Callable
     """
 
     def decorator(func: Callable[Param, ProcessResult]) -> Callable[Param, ProcessResult]:
+        def _match(pattern: str | list[str], where: str) -> bool:
+            if isinstance(pattern, str):
+                pattern = [pattern]
+
+            for p in pattern:
+                if p in where:
+                    return True
+
+            return False
+
         @wraps(func)
         def wrapper(*args, **kwargs) -> ProcessResult:
             error: ProcessError | None = None
@@ -144,10 +154,10 @@ def retry_command(
                 if rc == 0:
                     break
 
-                if match_stdout is not None and match_stdout not in stdout:
+                if match_stdout is not None and not _match(match_stdout, stdout):
                     break
 
-                if match_stderr is not None and match_stderr not in stderr:
+                if match_stderr is not None and not _match(match_stderr, stderr):
                     break
 
                 retry += 1
