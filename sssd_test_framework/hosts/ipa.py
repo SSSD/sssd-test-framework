@@ -171,29 +171,33 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
         if not isinstance(backup_data, PurePosixPath):
             raise TypeError(f"Expected PurePosixPath, got {type(backup_data)}")
 
+        # Bind sometimes fails: https://pagure.io/freeipa/issue/9669
+        @retry_command(delay=0, match_stderr="Unable to bind to LDAP server", check_rc=False)
+        def _restore():
+            return self.conn.run(
+                f"""
+                set -ex
+
+                function restore {{
+                    rm --force --recursive "$2"
+                    if [ -d "$1" ] || [ -f "$1" ]; then
+                        cp --force --archive "$1" "$2"
+                    fi
+                }}
+
+                ipa-restore --unattended --password "{self.adminpw}" --data --online "{backup_path}/ipa"
+
+                rm --force --recursive /etc/sssd /var/lib/sss /var/log/sssd
+                restore "{backup_path}/krb5.conf" /etc/krb5.conf
+                restore "{backup_path}/krb5.keytab" /etc/krb5.keytab
+                restore "{backup_path}/config" /etc/sssd
+                restore "{backup_path}/logs" /var/log/sssd
+                restore "{backup_path}/lib" /var/lib/sss
+                """,
+                log_level=ProcessLogLevel.Error,
+            )
+
         backup_path = str(backup_data)
         self.logger.info(f"Restoring IPA server from {backup_path}")
-
-        self.conn.run(
-            f"""
-            set -ex
-
-            function restore {{
-                rm --force --recursive "$2"
-                if [ -d "$1" ] || [ -f "$1" ]; then
-                    cp --force --archive "$1" "$2"
-                fi
-            }}
-
-            ipa-restore --unattended --password "{self.adminpw}" --data --online "{backup_path}/ipa"
-
-            rm --force --recursive /etc/sssd /var/lib/sss /var/log/sssd
-            restore "{backup_path}/krb5.conf" /etc/krb5.conf
-            restore "{backup_path}/krb5.keytab" /etc/krb5.keytab
-            restore "{backup_path}/config" /etc/sssd
-            restore "{backup_path}/logs" /var/log/sssd
-            restore "{backup_path}/lib" /var/lib/sss
-            """,
-            log_level=ProcessLogLevel.Error,
-        )
+        _restore()
         self.svc.restart("sssd.service")
