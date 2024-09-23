@@ -125,6 +125,8 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
 
         :param service: Service to start, defaults to 'sssd'
         :type service: str, optional
+        :param service_user: User used to start the service, defaults to 'sssd'
+        :type service_user: str, optional
         :param apply_config: Apply current configuration, defaults to True
         :type apply_config: bool, optional
         :param check_config: Check configuration for typos, defaults to True
@@ -160,6 +162,8 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
 
         :param service: Service to start, defaults to 'sssd'
         :type service: str, optional
+        :param service_user: User used to start the service, defaults to 'sssd'
+        :type service_user: str, optional
         :param raise_on_error: Raise exception on error, defaults to True
         :type raise_on_error: bool, optional
         :param apply_config: Apply current configuration, defaults to True
@@ -448,7 +452,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         Exec ``sssd --genconf`` or ``sssd --genconf-section=section`` if ``section`` is not ``None``.
 
         :param section: Section that will be refreshed. Defaults to ``None``.
-        :type path: str | None, optional
+        :type section: str | None, optional
         :return: Result of the ran command.
         :rtype: ProcessResult
         """
