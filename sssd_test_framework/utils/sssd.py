@@ -692,7 +692,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
 
     def __set_debug_level(self, debug_level: str | None = None) -> configparser.ConfigParser:
         """Set debug level in all sections."""
-        cfg = configparser.ConfigParser()
+        cfg = configparser.ConfigParser(interpolation=None)
         cfg.read_dict(self.config)
 
         if debug_level is None:
