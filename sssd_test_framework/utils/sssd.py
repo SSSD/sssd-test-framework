@@ -875,6 +875,21 @@ class SSSDCommonConfiguration(object):
         self.sssd.authselect.select("sssd")
         self.sssd.enable_responder("autofs")
 
+    def mkhomedir(self, homedir: str = "/home") -> None:
+        """
+        Configure SSSD with mkhomedir and oddjobd.
+
+        :param homedir: Home directory path.
+        :type homedir: str | None, optional
+
+        #. Select authselect sssd profile with 'with-mkhomedir'
+        #. Start oddjobd.service
+        #. Backup home directory
+        """
+        self.sssd.authselect.select("sssd", ["with-mkhomedir"])
+        self.sssd.svc.start("oddjobd.service")
+        self.sssd.fs.backup(homedir)
+
     def proxy(
         self,
         proxy: Literal["files", "ldap"] = "files",
