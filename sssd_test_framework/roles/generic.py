@@ -1232,12 +1232,12 @@ class GenericGPO(
         pass
 
     @abstractmethod
-    def policy(self, logon_rights: dict[str, list[GenericUser]], cfg: dict[str, Any] | None = None) -> GenericGPO:
+    def policy(self, logon_rights: dict[str, list[Any]], cfg: dict[str, Any] | None = None) -> GenericGPO:
         """
         GPO configuration.
 
         :param logon_rights: Logon rights.
-        :type logon_rights: dict[str, list[GenericUser]]
+        :type logon_rights: dict[str, list[Any]]
         :param cfg: Extra configuration parameters.
         :type cfg: dict[str, Any] | None
         :return: Self.
