@@ -62,6 +62,11 @@ class AD(BaseWindowsRole[ADHost]):
         Active Directory domain name.
         """
 
+        self.naming_context: str = self.host.naming_context
+        """
+        Active Directory naming context.
+        """
+
         self.realm: str = self.host.realm
         """
         Kerberos realm.

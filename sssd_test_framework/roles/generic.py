@@ -287,6 +287,13 @@ class GenericADProvider(GenericProvider):
         """
         pass
 
+    @abstractmethod
+    def naming_context(self) -> str:
+        """
+        Return domain naming context in form of dc=domain,dc=com.
+        """
+        pass
+
     @property
     @abstractmethod
     def dn(self) -> str:
