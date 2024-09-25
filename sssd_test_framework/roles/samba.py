@@ -59,6 +59,11 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
         Samba domain name.
         """
 
+        self.naming_context: str = self.host.naming_context
+        """
+        Samba naming context.
+        """
+
         self.realm: str = self.host.realm
         """
         Kerberos realm.
