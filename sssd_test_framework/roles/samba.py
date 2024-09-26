@@ -59,11 +59,6 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
         Samba domain name.
         """
 
-        self.naming_context: str = self.host.naming_context
-        """
-        Samba naming context.
-        """
-
         self.realm: str = self.host.realm
         """
         Kerberos realm.
@@ -123,6 +118,15 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
 
         # Set AD schema for automount
         self.automount.set_schema(self.automount.Schema.AD)
+
+    @property
+    def naming_context(self) -> str:
+        """
+        Samba naming context.
+
+        :rtype: str
+        """
+        return self.host.naming_context
 
     def fqn(self, name: str) -> str:
         """
