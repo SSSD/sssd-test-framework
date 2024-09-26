@@ -63,11 +63,6 @@ class AD(BaseWindowsRole[ADHost]):
         Active Directory domain name.
         """
 
-        self.naming_context: str = self.host.naming_context
-        """
-        Active Directory naming context.
-        """
-
         self.realm: str = self.host.realm
         """
         Kerberos realm.
@@ -127,6 +122,15 @@ class AD(BaseWindowsRole[ADHost]):
                     },
                 }
         """
+
+    @property
+    def naming_context(self) -> str:
+        """
+        Active Directory naming context.
+
+        :rtype: str
+        """
+        return self.host.naming_context
 
     def fqn(self, name: str) -> str:
         """
