@@ -733,6 +733,7 @@ class ADUser(ADObject):
         gecos: str | None = None,
         shell: str | None = None,
         email: str | None = None,
+        upn: str | None = None,
     ) -> ADUser:
         """
         Create new AD user.
@@ -753,11 +754,16 @@ class ADUser(ADObject):
         :type shell: str | None, optional
         :param email: Email, defaults to None (= user@domain)
         :type email: str | None, optional
+        :param upn: User principal name, defaults to None
+        :type upn: str | None, optional
         :return: Self.
         :rtype: ADUser
         """
         if email is None:
             email = f"{self.name}@{self.host.domain}"
+
+        if upn is None:
+            upn = f"{self.name}@{self.host.domain}"
 
         unix_attrs = {
             "uid": self.name,
@@ -777,6 +783,7 @@ class ADUser(ADObject):
             "EmailAddress": (self.cli.option.PLAIN, email),
             "GivenName": (self.cli.option.PLAIN, "dummyfirstname"),
             "Surname": (self.cli.option.PLAIN, "dummylastname"),
+            "UserPrincipalName": (self.cli.option.PLAIN, upn),
         }
 
         self._add(attrs)
@@ -794,6 +801,7 @@ class ADUser(ADObject):
         email: str | DeleteAttribute | None = None,
         givenname: str | DeleteAttribute | None = None,
         surname: str | DeleteAttribute | None = None,
+        upn: DeleteAttribute | None = None,
     ) -> ADUser:
         """
         Modify existing AD user.
@@ -819,6 +827,8 @@ class ADUser(ADObject):
         :type givenname: str | DeleteAttribute | None, optional
         :param surname: Sur name of user, defaults to None
         :type surname: str | DeleteAttribute | None, optional
+        :param upn: User principal name, defaults to None
+        :type upn: str | None, optional
         :return: Self.
         :rtype: ADUser
         """
@@ -834,6 +844,7 @@ class ADUser(ADObject):
             "emailAddress": email,
             "GivenName": givenname,
             "SurName": surname,
+            "UserPrincipalName": upn,
         }
         all_attrs = {**unix_attrs, **ad_attrs}
 
