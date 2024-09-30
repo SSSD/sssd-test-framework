@@ -715,7 +715,7 @@ class ADUser(ADObject):
         """
         :param role: AD role object.
         :type role: AD
-        :param name: User name.
+        :param name: Username.
         :type name: str
         :param basedn: Base dn, defaults to 'cn=users'
         :type basedn: ADObject | str | None, optional
@@ -886,7 +886,7 @@ class ADUser(ADObject):
         Set user password expiration date and time.
 
         :param expiration: Date and time for user password expiration, defaults to 19700101000000Z
-        :type expirataion: str, optional
+        :type expiration: str, optional
         :return: Self.
         :rtype: ADUser
         """
