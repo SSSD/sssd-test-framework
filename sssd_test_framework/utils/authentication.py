@@ -247,6 +247,7 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
                 -re $prompt {{exitmsg "Password authentication successful" 0}}
                 "Authentication failure" {{exitmsg "Authentication failure" 1}}
                 "su: Permission denied" {{exitmsg "Permission denied" 2}}
+                "Current Password:" {{exitmsg "Password change requested" 3 }}
                 timeout {{exitmsg "Unexpected output" 201}}
                 eof {{exitmsg "Unexpected end of file" 202}}
             }}
@@ -650,6 +651,7 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
                 -re $prompt {{exitmsg "Password authentication successful" 0}}
                 "{username}@localhost: Permission denied" {{exitmsg "Authentication failure" 1}}
                 "Connection closed by * port *" {{exitmsg "Connection closed" 2}}
+                "Current Password:" {{exitmsg "Password change requested" 3 }}
                 timeout {{exitmsg "Unexpected output" 201}}
                 eof {{exitmsg "Unexpected end of file" 202}}
             }}
