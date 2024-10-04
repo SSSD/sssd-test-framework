@@ -158,7 +158,7 @@ class IPA(BaseLinuxRole[IPAHost]):
                 assert result.user.name == 'user-1'
                 assert result.group.name == 'user-1'
 
-        :param name: User name.
+        :param name: Username.
         :type name: str
         :return: New user object.
         :rtype: IPAUser
@@ -298,7 +298,7 @@ class IPAObject(BaseObject[IPAHost, IPA]):
         :param name: Object name.
         :type name: str
         :param command_group: IPA command group.
-        :type command: str
+        :type command_group: str
         """
         super().__init__(role)
         self.command_group: str = command_group
@@ -393,7 +393,7 @@ class IPAUser(IPAObject):
         """
         :param role: IPA role object.
         :type role: IPA
-        :param name: User name.
+        :param name: Username.
         :type name: str
         """
         super().__init__(role, name, command_group="user")
@@ -536,7 +536,7 @@ class IPAUser(IPAObject):
         Set user password expiration date and time.
 
         :param expiration: Date and time for user password expiration, defaults to 19700101000000
-        :type expirataion: str, optional
+        :type expiration: str, optional
         :return: Self.
         :rtype: IPAUser
         """
@@ -865,7 +865,7 @@ class IPANetgroup(IPAObject):
 
     def remove_members(self, members: list[IPANetgroupMember]) -> IPANetgroup:
         """
-        Remove multiple metgroup members.
+        Remove multiple netgroup members.
 
         :param members: Netgroup members.
         :type members: list[IPANetgroupMember]
@@ -1344,8 +1344,8 @@ class IPAAutomountLocation(IPAObject):
         """
         :param role: IPA role object.
         :type role: IPA
-        :param location: Automount map location
-        :type location: str
+        :param name: Automount map location
+        :type name: str
         """
         super().__init__(role, name, command_group="automountlocation")
 
@@ -1403,13 +1403,13 @@ class IPAAutomountMap(IPAObject):
         elif isinstance(location, IPAAutomountLocation):
             return location
         else:
-            raise ValueError(f"Unexepected location type: {type(location)}")
+            raise ValueError(f"Unexpected location type: {type(location)}")
 
     def _exec(
         self, op: str, args: list[str] | None = None, ipaargs: list[str] | None = None, **kwargs
     ) -> ProcessResult:
         """
-        Execute automoutmap IPA command.
+        Execute automountmap IPA command.
 
         .. code-block:: console
 
@@ -1490,7 +1490,7 @@ class IPAAutomountKey(IPAObject):
         self, op: str, args: list[str] | None = None, ipaargs: list[str] | None = None, **kwargs
     ) -> ProcessResult:
         """
-        Execute automoutkey IPA command.
+        Execute automountkey IPA command.
 
         .. code-block:: console
 
