@@ -125,6 +125,4 @@ class Client(BaseLinuxRole[ClientHost]):
         :return: Command result.
         :rtype: ProcessResult
         """
-        result = self.host.conn.exec(["sss_ssh_authorizedkeys", *args], raise_on_error=False)
-
-        return result
+        return self.host.conn.exec(["sss_ssh_authorizedkeys", *args], raise_on_error=False)

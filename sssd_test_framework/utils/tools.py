@@ -478,7 +478,7 @@ class LinuxToolsUtils(MultihostUtility[MultihostHost]):
         Run ``getent`` command.
         """
 
-        self.ssh: SSHKeysUtils = SSHKeysUtils(host, fs)
+        self.ssh_keygen: SSHKeysUtils = SSHKeysUtils(host, fs)
         """
         Run ``ssh-keygen`` command.
         """
@@ -769,7 +769,7 @@ class SSHKeysUtils(MultihostUtility[MultihostHost]):
 
         :param user: Username.
         :type user: str
-        :param path: Homedir directory.
+        :param path: Home directory.
         :type path: str
         :param file: SSH key file, defaults to "id_rsa"
         :type file: str, optional
