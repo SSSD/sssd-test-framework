@@ -17,6 +17,7 @@ __all__ = [
     "IdEntry",
     "LinuxToolsUtils",
     "PasswdEntry",
+    "SSHKeysUtils",
     "UnixGroup",
     "UnixObject",
     "UnixUser",
@@ -134,6 +135,7 @@ class IdEntry(object):
     def FromDict(cls, d: dict[str, Any]) -> IdEntry:
         user = UnixUser(d["uid"]["id"], d["uid"].get("name", None))
         group = UnixGroup(d["gid"]["id"], d["gid"].get("name", None))
+
         groups = []
 
         for secondary_group in d["groups"]:
@@ -476,6 +478,11 @@ class LinuxToolsUtils(MultihostUtility[MultihostHost]):
         Run ``getent`` command.
         """
 
+        self.ssh: SSHKeysUtils = SSHKeysUtils(host, fs)
+        """
+        Run ``ssh-keygen`` command.
+        """
+
         self.__fs: LinuxFileSystem = fs
         self.__rollback: list[str] = []
 
@@ -733,3 +740,81 @@ class GetentUtils(MultihostUtility[MultihostHost]):
             return None
 
         return cls.FromOutput(command.stdout)
+
+
+class SSHKeysUtils(MultihostUtility[MultihostHost]):
+    """
+    SSH key utilities on remote host.
+    """
+
+    def __init__(self, host: MultihostHost, fs: LinuxFileSystem) -> None:
+        super().__init__(host)
+        self.host: MultihostHost = host
+        self.fs: LinuxFileSystem = fs
+        self.user: str | None = None
+        self.path: str | None = None
+        self.file: str | None = None
+
+    def keygen(
+        self,
+        user: str,
+        path: str,
+        file: str = "id_rsa",
+        cipher: str = "rsa",
+        group: str | None = None,
+        args: list[Any] | None = None,
+    ) -> SSHKeysUtils:
+        """
+        Creates home directory and SSH key pair for given user.
+
+        :param user: Username.
+        :type user: str
+        :param path: Homedir directory.
+        :type path: str
+        :param file: SSH key file, defaults to "id_rsa"
+        :type file: str, optional
+        :param cipher: Encryption algorithm, defaults to "rsa"
+        :type cipher: str, optional
+        :param group: User group, defaults to None
+        :type group: str, optional
+        :param args: Additional arguments to pass to ssh-keygen, defaults to None
+        :type args: list[Any] | None
+        :return:
+        """
+
+        self.fs.backup("/home")
+        self.user = user
+        self.path = path
+        self.file = file
+
+        if group is None:
+            group = user
+
+        if args is None:
+            args = []
+
+        if not self.fs.exists(self.path):
+            self.fs.copy("/etc/skel", self.path, mode="0700")
+
+        if self.fs.exists(f"{self.path}/.ssh/{file}"):
+            raise FileExistsError("SSH Keypair already exits")
+        else:
+            self.fs.mkdir_p(f"{self.path}/.ssh", mode="0700")
+            self.host.conn.exec(["ssh-keygen", "-t", cipher, "-N", " ", *args, "-f", f"{self.path}/.ssh/{self.file}"])
+            self.fs.chown(self.path, user=self.user, group=group, args=["-R"])
+
+        return self
+
+    def get(self) -> tuple[str, str]:
+        """
+        Gets given user's SSH keypair in the order of public, private key.
+        :return: SSH keypair.
+        :rtype: tuple[str, str]
+        """
+        if not self.fs.exists(f"{self.path}/.ssh/{self.file}"):
+            raise FileNotFoundError("SSH private key not found")
+
+        if not self.fs.exists(f"{self.path}/.ssh/{self.file}.pub"):
+            raise FileNotFoundError("SSH public key not found")
+
+        return self.fs.read(f"{self.path}/.ssh/{self.file}.pub"), self.fs.read(f"{self.path}/.ssh/{self.file}")
