@@ -19,6 +19,7 @@ __all__ = [
     "BaseHost",
     "BaseDomainHost",
     "BaseLDAPDomainHost",
+    "BaseLinuxHost",
 ]
 
 

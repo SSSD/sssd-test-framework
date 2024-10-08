@@ -1,4 +1,4 @@
-"""IPA multihost host."""
+"""Client multihost host."""
 
 from __future__ import annotations
 
@@ -83,7 +83,7 @@ class ClientHost(BaseHost, BaseLinuxHost):
         :raises NotImplementedError: _description_
         """
         # SSSD might not be configured properly at this time. We start and stop SSSD in tests.
-        raise NotImplementedError("Starting Active Directory service is not implemented.")
+        raise NotImplementedError("Starting Client service is not implemented.")
 
     def stop(self) -> None:
         self.svc.stop("sssd.service")
