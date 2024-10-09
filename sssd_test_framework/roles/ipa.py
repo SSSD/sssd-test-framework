@@ -158,7 +158,7 @@ class IPA(BaseLinuxRole[IPAHost]):
                 assert result.user.name == 'user-1'
                 assert result.group.name == 'user-1'
 
-        :param name: User name.
+        :param name: Username.
         :type name: str
         :return: New user object.
         :rtype: IPAUser
@@ -298,7 +298,7 @@ class IPAObject(BaseObject[IPAHost, IPA]):
         :param name: Object name.
         :type name: str
         :param command_group: IPA command group.
-        :type command: str
+        :type command_group: str
         """
         super().__init__(role)
         self.command_group: str = command_group
@@ -393,7 +393,7 @@ class IPAUser(IPAObject):
         """
         :param role: IPA role object.
         :type role: IPA
-        :param name: User name.
+        :param name: Username.
         :type name: str
         """
         super().__init__(role, name, command_group="user")
@@ -409,6 +409,7 @@ class IPAUser(IPAObject):
         shell: str | None = None,
         require_password_reset: bool = False,
         user_auth_type: str | list[str] | None = None,
+        sshpubkey: str | list[str] | None = None,
     ) -> IPAUser:
         """
         Create new IPA user.
@@ -431,6 +432,8 @@ class IPAUser(IPAObject):
         :type require_password_reset: bool, optional
         :param user_auth_type: Types of supported user authentication, defaults to None
         :type user_auth_type: str | list[str] | None, optional
+        :param sshpubkey: SSH public key, defaults to None
+        :type sshpubkey: str | list[str] | None, optional
         :return: Self.
         :rtype: IPAUser
         """
@@ -444,6 +447,7 @@ class IPAUser(IPAObject):
             "shell": (self.cli.option.VALUE, shell),
             "password": (self.cli.option.SWITCH, True) if password is not None else None,
             "user-auth-type": (self.cli.option.VALUE, user_auth_type),
+            "sshpubkey": (self.cli.option.VALUE, sshpubkey),
         }
 
         if not require_password_reset:
@@ -467,6 +471,7 @@ class IPAUser(IPAObject):
         idp: str | None = None,
         idp_user_id: str | None = None,
         password_expiration: str | None = None,
+        sshpubkey: str | list[str] | None = None,
     ) -> IPAUser:
         """
         Modify existing IPA user.
@@ -495,6 +500,8 @@ class IPAUser(IPAObject):
         :type idp_user_id: str | None, optional
         :param password_expiration: Date and time stamp for password expiration.
         :type password_expiration: str | None, optional
+        :param sshpubkey: SSH public key, defaults to None
+        :type sshpubkey: str | list[str] | None, optional
         :return: Self.
         :rtype: IPAUser
         """
@@ -511,6 +518,7 @@ class IPAUser(IPAObject):
             "idp": (self.cli.option.VALUE, idp),
             "idp-user-id": (self.cli.option.VALUE, idp_user_id),
             "password-expiration": (self.cli.option.VALUE, password_expiration),
+            "sshpubkey": (self.cli.option.VALUE, sshpubkey),
         }
 
         self._modify(attrs, input=password)
@@ -536,7 +544,7 @@ class IPAUser(IPAObject):
         Set user password expiration date and time.
 
         :param expiration: Date and time for user password expiration, defaults to 19700101000000
-        :type expirataion: str, optional
+        :type expiration: str, optional
         :return: Self.
         :rtype: IPAUser
         """
@@ -865,7 +873,7 @@ class IPANetgroup(IPAObject):
 
     def remove_members(self, members: list[IPANetgroupMember]) -> IPANetgroup:
         """
-        Remove multiple metgroup members.
+        Remove multiple netgroup members.
 
         :param members: Netgroup members.
         :type members: list[IPANetgroupMember]
@@ -1344,8 +1352,8 @@ class IPAAutomountLocation(IPAObject):
         """
         :param role: IPA role object.
         :type role: IPA
-        :param location: Automount map location
-        :type location: str
+        :param name: Automount map location
+        :type name: str
         """
         super().__init__(role, name, command_group="automountlocation")
 
@@ -1403,13 +1411,13 @@ class IPAAutomountMap(IPAObject):
         elif isinstance(location, IPAAutomountLocation):
             return location
         else:
-            raise ValueError(f"Unexepected location type: {type(location)}")
+            raise ValueError(f"Unexpected location type: {type(location)}")
 
     def _exec(
         self, op: str, args: list[str] | None = None, ipaargs: list[str] | None = None, **kwargs
     ) -> ProcessResult:
         """
-        Execute automoutmap IPA command.
+        Execute automountmap IPA command.
 
         .. code-block:: console
 
@@ -1490,7 +1498,7 @@ class IPAAutomountKey(IPAObject):
         self, op: str, args: list[str] | None = None, ipaargs: list[str] | None = None, **kwargs
     ) -> ProcessResult:
         """
-        Execute automoutkey IPA command.
+        Execute automountkey IPA command.
 
         .. code-block:: console
 
