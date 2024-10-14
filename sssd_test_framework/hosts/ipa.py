@@ -86,6 +86,7 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
             [ -f "/usr/libexec/sssd/passkey_child" ] && \
                 ipa help user | grep user-add-passkey 1> /dev/null && \
                 echo "passkey" || :
+            [ -f "/usr/bin/sss_ssh_knownhosts" ] && echo "knownhosts" || :
             """,
             log_level=ProcessLogLevel.Error,
         )
@@ -93,6 +94,7 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
         # Set default values
         self._features = {
             "passkey": False,
+            "knownhosts": False,
         }
 
         self._features.update({k: True for k in result.stdout_lines})
