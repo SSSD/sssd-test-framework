@@ -587,6 +587,16 @@ class LinuxToolsUtils(MultihostUtility[MultihostHost]):
 
         return self.host.conn.exec(["faillock", *args])
 
+    @property
+    def sshkey(self) -> SSHKeyUtils:
+        """
+        Execute ssh-keygen command.
+        :return: SSHKeyUtils object.
+        :rtype: SSHKeyUtils
+        """
+
+        return SSHKeyUtils(self.host, self.__fs)
+
     def teardown(self):
         """
         Revert all changes.
@@ -733,3 +743,66 @@ class GetentUtils(MultihostUtility[MultihostHost]):
             return None
 
         return cls.FromOutput(command.stdout)
+
+
+class SSHKeyUtils:
+    """
+    Interface to ssh-keygen command.
+    """
+
+    def __init__(self, host: MultihostHost, fs: LinuxFileSystem) -> None:
+        """
+        :param host:
+        :type host: MultihostHost
+        :param fs:
+        :type fs: LinuxFileSystem
+        """
+        self.host: MultihostHost = host
+        self.fs: LinuxFileSystem = fs
+
+    def generate(
+        self,
+        user: str,
+        path: str,
+        group: str | None = None,
+        file: str = "id_rsa",
+        cipher: str = "rsa",
+        args: list[Any] | None = None,
+    ) -> tuple[str, str]:
+        """
+        Creates user's home directory and SSH key pair.
+
+        :param user: Username.
+        :type user: str
+        :param path: Home directory.
+        :type path: str
+        :param group: User group, defaults to None
+        :type group: str, optional
+        :param file: SSH key file, defaults to "id_rsa"
+        :type file: str, optional
+        :param cipher: Encryption algorithm, defaults to "rsa"
+        :type cipher: str, optional
+        :param args: Additional arguments to pass to ssh-keygen, defaults to None
+        :type args: list[Any] | None
+        :return: Public key, private key
+        :rtype: tuple[str, str]
+        """
+        self.fs.backup("/home")
+
+        if group is None:
+            group = user
+
+        if args is None:
+            args = []
+
+        if not self.fs.exists(path):
+            self.fs.copy("/etc/skel", path, mode="0700")
+
+        if self.fs.exists(f"{path}/.ssh/{file}"):
+            raise FileExistsError("SSH Keypair already exits")
+        else:
+            self.fs.mkdir_p(f"{path}/.ssh", mode="0700")
+            self.host.conn.exec(["ssh-keygen", "-t", cipher, "-N", " ", *args, "-f", f"{path}/.ssh/{file}"])
+            self.fs.chown(path, user=user, group=group, args=["-R"])
+
+            return self.fs.read(f"{path}/.ssh/{file}.pub"), self.fs.read(f"{path}/.ssh/{file}")
