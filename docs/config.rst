@@ -47,10 +47,8 @@ domain has ``id`` attribute and defines the list of available hosts.
   * ``conn.port``: ssh port, defaults to 22
   * ``conn.username``: ssh username, defaults to ``root``
   * ``conn.password``: ssh password for the user, defaults to ``Secret123``
-  * ``config``: additional configuration, place for custom options, see
-    :ref:`custom-config`
-  * ``artifacts``: list of artifacts that are automatically downloaded, see
-    :ref:`gathering-artifacts`
+  * ``config``: additional host configuration
+  * ``artifacts``: list of artifacts that are automatically downloaded
 
 .. _available-roles:
 
