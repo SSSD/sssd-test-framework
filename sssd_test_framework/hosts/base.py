@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import re
 from typing import Any
 
 import ldap
@@ -264,3 +265,50 @@ class BaseLinuxHost(MultihostHost[SSSDMultihostDomain]):
         if not self._os_release:
             self._distro_information()
         return self._distro_minor
+
+    def get_package_version(self, package: str = "sssd", raise_on_error: bool = True) -> dict:
+        """
+        Parse package version and return it as a dictionary with:
+         major, minor, patch, prerelease, update, release
+        :param package: package name
+        :param raise_on_error: raise exeption when package is missing
+        :return: version dictionary
+        :rtype: dict
+        :raises OSError: If package is missing or version could not be parsed.
+        """
+        vers = {
+            "major": 0,
+            "minor": 0,
+            "patch": 0,
+            "prerelease": "",
+            "update": 0,
+            "release": "",
+        }
+        rpm = self.conn.run("test -f /usr/bin/rpm", raise_on_error=False)
+        dpkg = self.conn.run("test -f /usr/bin/dpkg-query", raise_on_error=False)
+        if rpm.rc == 0:
+            ver = self.conn.run(f'rpm -q {package} --queryformat "%{{VERSION}}-%{{RELEASE}}"').stdout
+        elif dpkg.rc != 0:
+            ver = self.conn.run(f"dpkg-query -f '${{Version}}' -W {package}").stdout
+        else:
+            if raise_on_error:
+                raise OSError(f"Package {package} not found!")
+            return vers
+
+        v_match = re.match(
+            r"([0-9]+)(?:\.)?([0-9]+)?(?:\.)?([0-9]+)?(?:~)?([a-z0-9]+)?[\.-]?([0-9]+)?(?:\.)?(.*)?",
+            ver,
+            re.IGNORECASE,
+        )
+
+        if v_match is None:
+            if raise_on_error:
+                raise OSError(f"Package {package} version could not be parsed!")
+            return vers
+        vers["major"] = int(v_match.group(1))
+        vers["minor"] = int(v_match.group(2)) if v_match.group(2) else 0
+        vers["patch"] = int(v_match.group(3)) if v_match.group(3) else 0
+        vers["prerelease"] = v_match.group(4) if v_match.group(4) else ""
+        vers["update"] = int(v_match.group(5)) if v_match.group(5) else 0
+        vers["release"] = v_match.group(6) if v_match.group(6) else ""
+        return vers
