@@ -72,12 +72,11 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
         """
         Features supported by the host.
         """
-        self.kinit()
-
         if self._features is not None:
             return self._features
 
         self.logger.info(f"Detecting features on {self.hostname}")
+        self.kinit()
 
         result = self.conn.run(
             """
