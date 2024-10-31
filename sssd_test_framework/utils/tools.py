@@ -153,7 +153,7 @@ class IdEntry(object):
 
 class PasswdEntry(object):
     """
-    Result of ``getent group``
+    Result of ``getent passwd``
     """
 
     def __init__(self, name: str, password: str, uid: int, gid: int, gecos: str, home: str, shell: str) -> None:
