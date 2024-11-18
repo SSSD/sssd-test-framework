@@ -282,6 +282,28 @@ class IPA(BaseLinuxRole[IPAHost]):
         """
         return IPASudoRule(self, name)
 
+    def idview(self, name: str) -> IPAIDView:
+        """
+        IPA ID View object.
+
+        Here, we only add the IPA ID view, that can be used
+        while creating a new User ID override.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.IPA)
+            def test_example(ipa: IPA):
+                ipa.idview("newview").add(description="This is a new view")
+                ipa.idview("newview").apply(hosts="client.test")
+                ipa.idview("newview").delete()
+
+        :param name: ID View name.
+        :type name: str
+        :return: New ID View object.
+        """
+        return IPAIDView(self, name)
+
 
 class IPAObject(BaseObject[IPAHost, IPA]):
     """
@@ -1597,3 +1619,93 @@ class IPAAutomountKey(IPAObject):
             return info.name
 
         return info
+
+
+class IPAIDView(IPAObject):
+    """
+    IPA ID view management.
+    """
+
+    def __init__(self, role: IPA, name: str) -> None:
+        """
+        :param role: IPA role.
+        :type role: IPA
+        :param name: Name of IPA ID view.
+        :type name: str
+        """
+        super().__init__(role, name, command_group="idview")
+
+    def add(
+        self,
+        *,
+        description: str | None = None,
+    ) -> IPAIDView:
+        """
+        Add a new ID View.
+
+        :param description: Description of ID View.
+        :type description: str | None, default to None
+        :return: Self.
+        :rtype: IPAIDView
+        """
+        attrs: CLIBuilderArgs = {
+            "desc": (self.cli.option.VALUE, description),
+        }
+
+        self._add(attrs)
+        return self
+
+    def modify(
+        self,
+        *,
+        description: str | None = None,
+        rename: str | None = None,
+    ) -> IPAIDView:
+        """
+        Modify existing IPA ID view.
+
+        :param description: Description, defaults to None
+        :type description: str | None, optional
+        :param rename: Name of IPA ID view, defaults to None
+        :type rename: str | None, optional
+        :return: Self.
+        :rtype: IPAIDView
+        """
+        attrs: CLIBuilderArgs = {
+            "desc": (self.cli.option.VALUE, description),
+            "rename": (self.cli.option.VALUE, rename),
+        }
+
+        self._modify(attrs)
+        return self
+
+    def apply(self, *, hosts: list[str] | None = None, hostgroups: str | None = None) -> IPAIDView:
+        """
+        Applies ID View to specified hosts or current members of specified
+        hostgroups.
+
+        :description: If any other ID View is applied to the host, it is overridden.
+        :param hosts: Hosts to apply the ID View to, defaults to None
+        :type hosts: list[str] | None
+        :param hostgroups: Hostgroups to apply the ID View to, defaults to None
+        :type hostgroups: str | None
+        :return: IPAIDView
+        :rtype: self
+        """
+        if not hosts and not hostgroups:
+            raise ValueError("Either 'hosts' or 'hostgroups' must be provided.")
+
+        attrs: CLIBuilderArgs = {}
+        if hosts:
+            attrs["hosts"] = (self.cli.option.VALUE, hosts)
+        if hostgroups:
+            attrs["hostgroups"] = (self.cli.option.VALUE, hostgroups)
+
+        self._exec("apply", self.cli.args(attrs))
+        return self
+
+    def delete(self) -> None:
+        """
+        Delete existing IPA ID view.
+        """
+        self._exec("del", ["--continue"])
