@@ -282,6 +282,11 @@ class IPA(BaseLinuxRole[IPAHost]):
         """
         return IPASudoRule(self, name)
 
+    def idview(self, name:str) -> IPAIdView:
+        return IPAIdView(self, name)
+
+    #def idoverride(self, name:str) -> IPAIdOverride:
+    #    return IPAIdOverride(self, name)
 
 class IPAObject(BaseObject[IPAHost, IPA]):
     """
@@ -641,6 +646,203 @@ class IPAUser(IPAObject):
         self._exec("remove-passkey", [passkey_mapping])
         return self
 
+    '''
+    def idoverrideuser(self, name:str) -> IPAUserIDOverride:
+        user_obj = IPAUser(self.role, name)
+        print("IN the idoverrideuser")
+        return IPAUserIDOverride(self.role, user_obj)
+
+        #return IPAUserIDOverride(self, name)
+    '''
+    def idoverride(self, name: str) -> IDOverride:
+        return IDOverride(self.role, self)
+
+class IDOverride(IPAUser):
+    def __init__(self, role:IPA, user:IPAUser) -> None:
+        super().__init__(role, user.name)
+        #super().__init__(user.role, user.name)
+        self.name = user.name
+
+    def add(self,
+            idview_name:str,
+            *,
+            description: str | None = None,
+            login: str | None = None,
+            uid: int | None = None,
+            gid: int | None = None,
+            gecos: str | None = None,
+            home_directory: str | None = None,
+            shell: str | None = None,
+            sshpubkey: str | None = None,
+            certificate: str | list[str] | None = None,
+            ) -> IDOverride:
+
+        attrs = {
+            "--desc": (self.cli.option.VALUE, description),
+            "--login": (self.cli.option.VALUE, login),
+            "--uid": (self.cli.option.VALUE, uid),
+            "--gidnumber": (self.cli.option.VALUE, gid),
+            "--gecos": (self.cli.option.VALUE, gecos),
+            "--homedirectory": (self.cli.option.VALUE, home_directory),
+            "--shell": (self.cli.option.VALUE, shell),
+            "--sshpubkey": (self.cli.option.VALUE, sshpubkey),
+            "--certificate": (self.cli.option.VALUE, certificate),
+        }
+
+        print(attrs.items())
+        # Extract only the actual values from (VALUE, actual_value) tuples
+        cli_args = [f'{k}="{v[1]}"' for k, v in attrs.items() if v is not None and v[1] is not None]
+
+        cmd = f'ipa idoverrideuser-add "{idview_name}" "{self.name}" ' + " ".join(cli_args)
+        print("Executing:", cmd)
+
+        self.host.conn.run(cmd)
+
+        return self
+
+        '''
+        # Construct command arguments dynamically
+        cmd = [f"ipa idoverrideuser-add {idview_name} {self.name}"]
+
+        if description:
+            cmd.append(f'--desc="{description}"')
+        if login:
+            cmd.append(f'--login="{login}"')
+        if uid:
+            cmd.append(f'--uid={uid}')
+        if gid:
+            cmd.append(f'--gidnumber={gid}')
+        if gecos:
+            cmd.append(f'--gecos="{gecos}"')
+        if home_directory:
+            cmd.append(f'--homedir="{home_directory}"')
+        if shell:
+            cmd.append(f'--shell="{shell}"')
+        if sshpubkey:
+            cmd.append(f'--sshpubkey="{sshpubkey}"')
+        if certificate:
+            if isinstance(certificate, list):
+                for cert in certificate:
+                    cmd.append(f'--certificate="{cert}"')
+            else:
+                cmd.append(f'--certificate="{certificate}"')
+
+        # Run the corrected command
+        full_command = " ".join(cmd)
+        self.host.conn.run(full_command)
+
+        return self
+
+        '''
+'''
+class IPAUserIDOverride(IPAUser):
+    """
+    IPA User ID override management.
+    """
+
+    def __init__(self, role: IPA, user: IPAUser) -> None:
+        """
+        :param role: IPA role object.
+        :type role: IPA
+        :param name: Username.
+        :type name: strc
+        """
+        super().__init__(role, user.name)
+
+        self.name = user.name
+
+        """Anchor name"""
+
+
+    def add_id_override(
+        self,
+        view_name: str,
+        *,
+        description: str | None = None,
+        login: str | None = None,
+        uid: int | None = None,
+        gid: int | None = None,
+        gecos: str | None = None,
+        home_directory: str | None = None,
+        shell: str | None = None,
+        ssh_public_key: str | None = None,
+        certificate: str | None = None,
+    ) -> IPAUserIDOverride:
+        """
+        Add an ID override for an IPA user.
+
+        :param uid: Override for user ID, defaults to None
+        :type uid: int | None, optional
+        :param gid: Override for group ID, defaults to None
+        :type gid: int | None, optional
+        :param gecos: Override for GECOS, defaults to None
+        :type gecos: str | None, optional
+        :param home: Override for home directory, defaults to None
+        :type home: str | None, optional
+        :param shell: Override for login shell, defaults to None
+        :type shell: str | None, optional
+        :return: Self.
+        :rtype: IPAUserIDOverride
+        """
+
+
+        self.role.host.conn.run(
+            f"ipa idoverrideuser-add {view_name} {self.name}"
+            + (f' --desc="{description}"' if description else "")
+            + (f' --login="{login}"' if login else "")
+            + (f' --uid="{uid}"' if uid else "")
+            + (f' --gidnumber="{gid}"' if gid else "")
+            + (f' --gecos="{gecos}"' if gecos else "")
+            + (f' --homedir="{home_directory}"' if home_directory else "")
+            + (f' --shell="{shell}"' if shell else "")
+            + (f' --sshpubkey="{ssh_public_key}"' if ssh_public_key else "")
+            + (f' --certificate="{certificate}"' if certificate else "")
+        )
+        return self
+
+    def modify_id_override(
+        self,
+        *,
+        uid: int | None = None,
+        gid: int | None = None,
+        gecos: str | None = None,
+        home: str | None = None,
+        shell: str | None = None,
+    ) -> IPAUserIDOverride:
+        """
+        Modify an ID override for an IPA user.
+
+        :param uid: Override for user ID, defaults to None
+        :type uid: int | None, optional
+        :param gid: Override for group ID, defaults to None
+        :type gid: int | None, optional
+        :param gecos: Override for GECOS, defaults to None
+        :type gecos: str | None, optional
+        :param home: Override for home directory, defaults to None
+        :type home: str | None, optional
+        :param shell: Override for login shell, defaults to None
+        :type shell: str | None, optional
+        :return: Self.
+        :rtype: IPAUserIDOverride
+        """
+        attrs = {
+            "uid": (self.cli.option.VALUE, uid),
+            "gidnumber": (self.cli.option.VALUE, gid),
+            "gecos": (self.cli.option.VALUE, gecos),
+            "homedir": (self.cli.option.VALUE, home),
+            "shell": (self.cli.option.VALUE, shell),
+        }
+        self._modify(attrs)
+        return self
+
+    def delete_id_override(self) -> None:
+        """
+        Delete the ID override for an IPA user.
+
+        :return: None
+        """
+        self._delete()
+'''
 
 class IPAGroup(IPAObject):
     """
@@ -1597,3 +1799,81 @@ class IPAAutomountKey(IPAObject):
             return info.name
 
         return info
+
+class IPAIdView(IPAObject):
+    """
+    IPA id view management.
+    """
+
+    def __init__(self, role:IPA, name:str) -> None:
+        super().__init__(role, name, command_group="idview")
+
+    def add(self,
+            *,
+            description: str | None = None,
+            ) -> IPAIdView:
+        """
+        Create new IPA ID view.
+
+        :return: Self.
+        :rtype: IPAIdView
+        """
+        attrs: CLIBuilderArgs = {
+            "desc": (self.cli.option.VALUE, description),
+        }
+
+        self._add(attrs)
+        return self
+
+
+    def modify(
+        self,
+        *,
+        description: str | None = None,
+        rename: str | None = None,
+    ) -> IPAIdView:
+        """
+        Modify existing IPA ID view.
+
+        Parameters that are not set are ignored.
+
+        :param description: Description, defaults to None
+        :type description: str | None, optional
+        :param rename: Name of IPA ID view, defaults to None
+        :type rename: str | None, optional
+        :return: Self.
+        :rtype: IPAIdView
+        """
+        attrs: CLIBuilderArgs = {
+            "desc": (self.cli.option.VALUE, description),
+            "rename": (self.cli.option.VALUE, rename),
+        }
+
+        self._modify(attrs)
+        return self
+
+    def apply(self, *, hosts: list[str] | None = None, hostgroups: str | None = None) -> IPAIdView:
+        """
+        Applies ID View to specified hosts or current members of specified
+        hostgroups. If any other ID View is applied to the host, it is overridden.
+        :param hosts: Hosts to apply the ID View to, defaults to None
+        :type hosts: list[str] | None
+        :param hostgroups: Hostgroups to apply the ID View to, defaults to None
+        :type hostgroups: str | None
+        :return: IPAIdView object.
+        :rtype: IPAIdView
+        """
+        if not hosts and not hostgroups:
+            raise ValueError(
+                "Either 'hosts' or 'hostgroups' must be provided.")
+
+        attrs: CLIBuilderArgs = {}
+        if hosts:
+            attrs["hosts"] = (self.cli.option.VALUE, hosts)
+        if hostgroups:
+            attrs["hostgroups"] = (self.cli.option.VALUE, hostgroups)
+
+        self._exec("apply", self.cli.args(attrs))
+        return self
+
+
