@@ -346,6 +346,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         else:
             raise ValueError("Unexpected value of 'user'")
         cmd += f"chown -f {user}:{user} /var/lib/sss/db/*.ldb || true"
+        cmd += "rm -f /var/lib/sss/db/fast_ccache_* || true"
         self.host.conn.run(cmd)
         self.svc.reload_daemon()
 
