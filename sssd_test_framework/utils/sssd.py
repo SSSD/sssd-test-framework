@@ -119,6 +119,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         apply_config: bool = True,
         check_config: bool = True,
         debug_level: str | None = "0xfff0",
+        clean: bool = False,
     ) -> Process:
         """
         Start the SSSD and KCM services. Non-blocking call.
@@ -133,6 +134,8 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         :type check_config: bool, optional
         :param debug_level: Automatically set debug level to the given value, defaults to 0xfff0
         :type debug_level:  str | None, optional
+        :param clean: Does a clean restart, clearing the cache, defaults to False
+        :type clean: bool, defaults to False
         :return: Running SSH process.
         :rtype: Process
         """
@@ -145,6 +148,9 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         if service == "sssd":
             self.svc.async_stop("sssd-kcm.service")
 
+        if clean and service == "sssd":
+            self.clear()
+
         return self.svc.async_start(service)
 
     def start(
@@ -156,6 +162,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         apply_config: bool = True,
         check_config: bool = True,
         debug_level: str | None = "0xfff0",
+        clean: bool = False,
     ) -> ProcessResult:
         """
         Start the SSSD and KCM services. The call will wait until the operation is finished.
@@ -172,6 +179,8 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         :type check_config: bool, optional
         :param debug_level: Automatically set debug level to the given value, defaults to 0xfff0
         :type debug_level:  str | None, optional
+        :param clean: Does a clean restart, clearing the cache, defaults to False
+        :type clean: bool, defaults to False
         :return: SSH process result.
         :rtype: ProcessResult
         """
@@ -183,6 +192,9 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         # Also stop kcm so that it is started when first used.
         if service == "sssd":
             self.svc.stop("sssd-kcm.service")
+
+        if clean and service == "sssd":
+            self.clear()
 
         return self.svc.start(service, raise_on_error=raise_on_error)
 
@@ -225,6 +237,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         apply_config: bool = True,
         check_config: bool = True,
         debug_level: str | None = "0xfff0",
+        clean: bool = False,
     ) -> Process:
         """
         Restart the SSSD and KCM services. Non-blocking call.
@@ -237,6 +250,8 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         :type check_config: bool, optional
         :param debug_level: Automatically set debug level to the given value, defaults to 0xfff0
         :type debug_level:  str | None, optional
+        :param clean: Does a clean restart, clearing the cache, defaults to False
+        :type clean: bool, defaults to False
         :return: Running SSH process.
         :rtype: Process
         """
@@ -246,6 +261,9 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         # Also stop kcm so that it is started when first used.
         if service == "sssd":
             self.svc.async_stop("sssd-kcm.service")
+
+        if clean and service == "sssd":
+            self.clear()
 
         return self.svc.async_restart(service)
 
@@ -257,6 +275,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         apply_config: bool = True,
         check_config: bool = True,
         debug_level: str | None = "0xfff0",
+        clean: bool = False,
     ) -> ProcessResult:
         """
         Restart the SSSD and KCM services. The call will wait until the operation is finished.
@@ -271,6 +290,8 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         :type check_config: bool, optional
         :param debug_level: Automatically set debug level to the given value, defaults to 0xfff0
         :type debug_level:  str | None, optional
+        :param clean: Does a clean restart, clearing the cache, defaults to False
+        :type clean: bool, defaults to False
         :return: SSH process result.
         :rtype: ProcessResult
         """
@@ -280,6 +301,9 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         # Also stop kcm so that it is started when first used.
         if service == "sssd":
             self.svc.stop("sssd-kcm.service")
+
+        if clean and service == "sssd":
+            self.clear()
 
         return self.svc.restart(service, raise_on_error=raise_on_error)
 
