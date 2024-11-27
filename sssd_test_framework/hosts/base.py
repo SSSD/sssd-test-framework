@@ -269,7 +269,7 @@ class BaseLinuxHost(MultihostHost[SSSDMultihostDomain]):
     def get_package_version(self, package: str = "sssd", raise_on_error: bool = True) -> dict:
         """
         Parse package version and return it as a dictionary with:
-         major, minor, patch, prerelease, update, release
+            major, minor, patch, prerelease, update, release
         :param package: package name
         :param raise_on_error: raise exeption when package is missing
         :return: version dictionary
