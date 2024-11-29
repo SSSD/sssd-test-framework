@@ -76,6 +76,31 @@ class GenericProvider(ABC, MultihostRole[BaseHost]):
     def firewall(self) -> Firewall:
         pass
 
+    @property
+    @abstractmethod
+    def password(self) -> GenericPasswordPolicy:
+        """
+        Domain password policy management.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopologyGroup.Any
+            def test_example(client: Client, provider: GenericProvider):
+                # Enable password complexity
+                provider.password.complexity(enable=True)
+
+                # Set 3 login attempts and 30 lockout duration
+                provider.password.lockout(attempts=3, duration=30)
+
+                # Set password length requirement to 12 characters
+                provider.password.requirement(length=12)
+
+                # Set password max age to 30 seconds
+                provider.password.age(maximum=30)
+        """
+        pass
+
     @abstractmethod
     def user(self, name: str) -> GenericUser:
         """
@@ -529,6 +554,17 @@ class GenericUser(ABC, BaseObject):
         :type expirataion: str, optional
         :return: Self.
         :rtype: IPAUser
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def password_change_at_logon(self) -> GenericUser:
+        """
+        Force user to change password next logon.
+
+        :return: Self.
+        :rtype: GenericUser
         """
         pass
 
@@ -1273,5 +1309,63 @@ class GenericGPO(
         :type cfg: dict[str, Any] | None
         :return: Self.
         :rtype: GenericGPO
+        """
+        pass
+
+
+class GenericPasswordPolicy(ABC, BaseObject):
+    """
+    Password policy management.
+    """
+
+    @abstractmethod
+    def complexity(self, enable: bool) -> GenericPasswordPolicy:
+        """
+        Enable or disable password complexity.
+
+        :param enable: Enable or disable password complexity.
+        :type enable: bool
+        :return ADPasswordPolicy object.
+        :rtype: ADPasswordPolicy
+        """
+        pass
+
+    @abstractmethod
+    def lockout(self, duration: int, attempts: int) -> GenericPasswordPolicy:
+        """
+        Set lockout duration and login attempts.
+
+        :param duration: Duration of lockout in seconds.
+        :type duration: int
+        :param attempts: Number of login attempts.
+        :type attempts: int
+        :return: ADPasswordPolicy object.
+        :rtype: ADPasswordPolicy
+        """
+        pass
+
+    @abstractmethod
+    def age(self, minimum: int, maximum: int) -> GenericPasswordPolicy:
+        """
+        Set maximum and minimum password age.
+
+        :param minimum: Minimum password age in seconds.
+        :type minimum: int
+        :param maximum: Maximum password age in seconds.
+        :type maximum: int
+        :return: ADPasswordPolicy object.
+        :rtype: ADPasswordPolicy
+        """
+        pass
+
+    @abstractmethod
+    def requirements(self, length: int) -> GenericPasswordPolicy:
+        """
+        Set password requirements, like length.
+
+        :param length: Required password character count.
+        :type length: int
+        :return: ADPasswordPolicy object.
+        :rtype: ADPasswordPolicy
         """
         pass
