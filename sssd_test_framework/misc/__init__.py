@@ -161,6 +161,22 @@ Param = ParamSpec("Param")
 RetType = TypeVar("RetType")
 
 
+def seconds_to_timespan(seconds: int) -> str:
+    """
+    Convert seconds to powershell timespan format, 'Days:Hours:Minutes:Seconds:Fractions'.
+
+    :param seconds: Seconds.
+    :type seconds: int
+    :return: Time in timespan format.
+    :rtype: str
+    """
+    m, s = divmod(seconds, 60)
+    h, m = divmod(m, 60)
+    d, h = divmod(h, 24)
+
+    return f"{d:02d}:{h:02d}:{m:02d}:{s:02d}:00"
+
+
 def retry(
     max_retries: int = 5,
     delay: float = 1,
