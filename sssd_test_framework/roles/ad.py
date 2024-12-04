@@ -9,7 +9,7 @@ from pytest_mh.cli import CLIBuilderArgs
 from pytest_mh.conn import ProcessResult
 
 from ..hosts.ad import ADHost
-from ..misc import attrs_include_value, attrs_parse, attrs_to_hash
+from ..misc import attrs_include_value, attrs_parse, attrs_to_hash, seconds_to_timespan
 from .base import BaseObject, BaseWindowsRole, DeleteAttribute
 from .ldap import LDAPNetgroupMember
 from .nfs import NFSExport
@@ -67,6 +67,9 @@ class AD(BaseWindowsRole[ADHost]):
         """
         Kerberos realm.
         """
+
+        self.password: ADPasswordPolicy = ADPasswordPolicy(self)
+        """Manage AD password policies."""
 
         self.auto_ou: dict[str, bool] = {}
         """Organizational units that were automatically created."""
@@ -908,6 +911,18 @@ class ADUser(ADObject):
 
         args = " ".join(self.cli.args(attrs, quote_value=True))
         self.role.host.conn.run(f"Set-ADAccountExpiration {args}")
+
+        return self
+
+    @property
+    def password_change_at_logon(self) -> ADUser:
+        """
+        Force user to change password next logon.
+
+        :return: Self.
+        :rtype: ADUser
+        """
+        self.role.host.conn.run(f"Set-ADUser -Identity {self.name} -ChangePasswordAtLogon:$true")
 
         return self
 
@@ -2005,6 +2020,93 @@ class GPO(BaseObject[ADHost, AD]):
             Exit 0
             """
         )
+
+        return self
+
+
+class ADPasswordPolicy(BaseObject[ADHost, AD]):
+    """
+    Password policy management.
+    """
+
+    def __init__(self, role: AD):
+        """
+        :param role: AD host object.
+        :type role: ADHost
+        """
+        super().__init__(role)
+
+    def complexity(self, enable: bool) -> ADPasswordPolicy:
+        """
+        Enable or disable password complexity.
+
+        :param enable: Enable or disable password complexity.
+        :type enable: bool
+        :return ADPasswordPolicy object.
+        :rtype: ADPasswordPolicy
+        """
+        args: CLIBuilderArgs = {
+            "Identity": (self.cli.option.VALUE, self.role.domain),
+            "Complexity": (self.cli.option.SWITCH, enable),
+        }
+        self.role.host.conn.run(self.cli.command("Set-ADDefaultDomainPasswordPolicy", args))
+
+        return self
+
+    def lockout(self, duration: int, attempts: int) -> ADPasswordPolicy:
+        """
+        Set lockout duration and login attempts.
+
+        :param duration: Duration of lockout in seconds.
+        :type duration: int
+        :param attempts: Number of login attempts.
+        :type attempts: int
+        :return: ADPasswordPolicy object.
+        :rtype: ADPasswordPolicy
+        """
+        args: CLIBuilderArgs = {
+            "Identity": (self.cli.option.VALUE, self.role.domain),
+            "LockoutDuration": (self.cli.option.VALUE, seconds_to_timespan(duration)),
+            "LockoutThreshold": (self.cli.option.VALUE, str(attempts)),
+        }
+        self.role.host.conn.run(self.cli.command("Set-ADDefaultDomainPasswordPolicy", args))
+
+        return self
+
+    def age(self, minimum: int, maximum: int) -> ADPasswordPolicy:
+        """
+        Set maximum and minimum password age.
+
+        :param minimum: Minimum password age in seconds.
+        :type minimum: int
+        :param maximum: Maximum password age in seconds.
+        :type maximum: int
+        :return: ADPasswordPolicy object.
+        :rtype: ADPasswordPolicy
+        """
+        args: CLIBuilderArgs = {
+            "Identity": (self.cli.option.VALUE, self.role.domain),
+            "MinPasswordAge": (self.cli.option.VALUE, seconds_to_timespan(minimum)),
+            "MaxPasswordAge": (self.cli.option.VALUE, seconds_to_timespan(maximum)),
+        }
+        self.role.host.conn.run(self.cli.command("Set-ADDefaultDomainPasswordPolicy", args))
+
+        return self
+
+    def requirements(self, length: int) -> ADPasswordPolicy:
+        """
+        Set password requirements, like length.
+
+        :param length: Required password character count.
+        :type length: int
+        :return: ADPasswordPolicy object.
+        :rtype: ADPasswordPolicy
+        """
+        args: CLIBuilderArgs = {
+            "Identity": (self.cli.option.VALUE, self.role.domain),
+            "MinPasswordLength": (self.cli.option.VALUE, str(length)),
+        }
+        self.role.host.conn.run(self.cli.command("Set-ADDefaultDomainPasswordPolicy", args))
 
         return self
 
