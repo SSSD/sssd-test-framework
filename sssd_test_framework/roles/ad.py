@@ -11,6 +11,7 @@ from pytest_mh.conn import ProcessResult
 from ..hosts.ad import ADHost
 from ..misc import attrs_include_value, attrs_parse, attrs_to_hash, seconds_to_timespan
 from .base import BaseObject, BaseWindowsRole, DeleteAttribute
+from .generic import GenericPasswordPolicy
 from .ldap import LDAPNetgroupMember
 from .nfs import NFSExport
 
@@ -2046,7 +2047,7 @@ class GPO(BaseObject[ADHost, AD]):
         return self
 
 
-class ADPasswordPolicy(BaseObject[ADHost, AD]):
+class ADPasswordPolicy(GenericPasswordPolicy):
     """
     Password policy management.
     """
@@ -2064,7 +2065,7 @@ class ADPasswordPolicy(BaseObject[ADHost, AD]):
 
         :param enable: Enable or disable password complexity.
         :type enable: bool
-        :return ADPasswordPolicy object.
+        :return: ADPasswordPolicy object.
         :rtype: ADPasswordPolicy
         """
         args: CLIBuilderArgs = {
