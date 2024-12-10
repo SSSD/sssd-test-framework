@@ -2064,7 +2064,7 @@ class ADPasswordPolicy(BaseObject[ADHost, AD]):
 
         :param enable: Enable or disable password complexity.
         :type enable: bool
-        :return ADPasswordPolicy object.
+        :return: ADPasswordPolicy object.
         :rtype: ADPasswordPolicy
         """
         args: CLIBuilderArgs = {
