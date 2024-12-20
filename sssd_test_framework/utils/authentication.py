@@ -599,7 +599,9 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
         self.opts = "-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
         """SSH CLI options."""
 
-    def password_with_output(self, username: str, password: str) -> tuple[int, int, str, str]:
+    def password_with_output(
+        self, username: str, password: str, hostname: str = "localhost"
+    ) -> tuple[int, int, str, str]:
         """
         SSH to the remote host and authenticate the user with password and captures standard output and error.
 
@@ -607,6 +609,8 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
         :type username: str
         :param password: User password.
         :type password: str
+        :param hostname: The hostname to connect to.
+        :type hostname: str
         :return: Tuple containing [except return code, command exit code, stdout, stderr].
         :rtype: Tuple[int, int, str, str]
         """
@@ -639,7 +643,7 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
             spawn ssh {self.opts} \
                 -o PreferredAuthentications=password \
                 -o NumberOfPasswordPrompts=1 \
-                -l "{username}" localhost
+                -l "{username}" "{hostname}"
 
             expect {{
                 "password:" {{send "{password}\n"}}
@@ -649,7 +653,7 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
 
             expect {{
                 -re $prompt {{exitmsg "Password authentication successful" 0}}
-                "{username}@localhost: Permission denied" {{exitmsg "Authentication failure" 1}}
+                "{username}@{hostname}: Permission denied" {{exitmsg "Authentication failure" 1}}
                 "Connection closed by * port *" {{exitmsg "Connection closed" 2}}
                 "Current Password:" {{exitmsg "Password change requested" 3 }}
                 timeout {{exitmsg "Unexpected output" 201}}
@@ -674,7 +678,7 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
 
         return result.rc, cmdrc, stdout, result.stderr
 
-    def password(self, username: str, password: str) -> bool:
+    def password(self, username: str, password: str, hostname: str = "localhost") -> bool:
         """
         SSH to the remote host and authenticate the user with password.
 
@@ -682,13 +686,15 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
         :type username: str
         :param password: User password.
         :type password: str
+        :param hostname: The hostname to connect to.
+        :type hostname: str
         :return: True if authentication was successful, False otherwise.
         :rtype: bool
         """
-        rc, _, _, _ = self.password_with_output(username, password)
+        rc, _, _, _ = self.password_with_output(username, password, hostname)
         return rc == 0
 
-    def password_expired(self, username: str, password: str, new_password: str) -> bool:
+    def password_expired(self, username: str, password: str, new_password: str, hostname: str = "localhost") -> bool:
         """
         SSH to the remote host and authenticate the user with password, expect
         that the password is expired and change it to the new password.
@@ -699,6 +705,8 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
         :type password: str
         :param new_password: New user password.
         :type new_password: str
+        :param hostname: The hostname to connect to.
+        :type hostname: str
         :return: True if authentication and password change was successful, False otherwise.
         :rtype: bool
         """
@@ -711,7 +719,7 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
             spawn ssh {self.opts} \
                 -o PreferredAuthentications=password \
                 -o NumberOfPasswordPrompts=1 \
-                -l "{username}" localhost
+                -l "{username}" "{hostname}"
 
             expect {{
                 "password:" {{send "{password}\n"}}
@@ -722,7 +730,7 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
             expect {{
                 "Password expired. Change your password now." {{ }}
                 -re $prompt {{puts "expect result: Authentication succeeded without password change"; exit 2}}
-                "{username}@localhost: Permission denied" {{puts "expect result: Authentication failure"; exit 1}}
+                "{username}@{hostname}: Permission denied" {{puts "expect result: Authentication failure"; exit 1}}
                 timeout {{puts "expect result: Unexpected output"; exit 201}}
                 eof {{puts "expect result: Unexpected end of file"; exit 202}}
             }}
