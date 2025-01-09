@@ -51,6 +51,9 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
         self.adminpw: str = self.config.get("adminpw", "Secret123")
         """Password of the admin user, defaults to ``Secret123``."""
 
+        self.adminuser: str = self.config.get("adminuser", "admin")
+        """Administrator user, defaults to ``admin``."""
+
         self._features: dict[str, bool] | None = None
 
         # Additional client configuration
