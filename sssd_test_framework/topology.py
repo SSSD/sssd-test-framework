@@ -97,7 +97,7 @@ class KnownTopology(KnownTopologyBase):
     """
 
     IPATrustAD = SSSDTopologyMark(
-        name="ipa-trust-ad",
+        name="ad",
         topology=Topology(TopologyDomain("sssd", client=1, ipa=1, ad=1)),
         controller=IPATrustADTopologyController(),
         domains=dict(test="sssd.ipa[0]"),
@@ -108,7 +108,7 @@ class KnownTopology(KnownTopologyBase):
     """
 
     IPATrustSamba = SSSDTopologyMark(
-        name="ipa-trust-samba",
+        name="samba",
         topology=Topology(TopologyDomain("sssd", client=1, ipa=1, samba=1)),
         controller=IPATrustSambaTopologyController(),
         domains=dict(test="sssd.ipa[0]"),
