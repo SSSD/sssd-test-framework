@@ -10,6 +10,7 @@ build:
   - libldap2-dev
   - libsasl2-dev
   - libssl-dev
+  - libssh-dev
   - python3-dev
   tools:
     python: '3.11'
