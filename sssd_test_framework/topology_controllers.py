@@ -7,7 +7,6 @@ from .config import SSSDMultihostConfig
 from .hosts.ad import ADHost
 from .hosts.client import ClientHost
 from .hosts.ipa import IPAHost
-from .hosts.nfs import NFSHost
 from .hosts.samba import SambaHost
 from .misc.ssh import retry_command
 
@@ -71,7 +70,7 @@ class IPATopologyController(ProvisionedBackupTopologyController):
     """
 
     @BackupTopologyController.restore_vanilla_on_error
-    def topology_setup(self, client: ClientHost, ipa: IPAHost, nfs: NFSHost) -> None:
+    def topology_setup(self, client: ClientHost, ipa: IPAHost) -> None:
         if self.provisioned:
             self.logger.info(f"Topology '{self.name}' is already provisioned")
             return
@@ -99,7 +98,7 @@ class ADTopologyController(ProvisionedBackupTopologyController):
     """
 
     @BackupTopologyController.restore_vanilla_on_error
-    def topology_setup(self, client: ClientHost, provider: ADHost | SambaHost, nfs: NFSHost) -> None:
+    def topology_setup(self, client: ClientHost, provider: ADHost | SambaHost) -> None:
         if self.provisioned:
             self.logger.info(f"Topology '{self.name}' is already provisioned")
             return
