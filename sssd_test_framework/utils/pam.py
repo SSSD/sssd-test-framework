@@ -1,4 +1,4 @@
-""""PAM Tools."""
+"""PAM Tools."""
 
 from __future__ import annotations
 
