@@ -6,6 +6,7 @@ import configparser
 from io import StringIO
 from typing import TYPE_CHECKING, Literal
 
+import pytest
 from pytest_mh import MultihostHost, MultihostRole, MultihostUtility
 from pytest_mh.conn import Process, ProcessLogLevel, ProcessResult
 
@@ -358,6 +359,11 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
             return  # requested service user matches default, nothing to do
 
         service_file = "/usr/lib/systemd/system/sssd.service"
+        rw = self.host.conn.run(f"test -w {service_file}", raise_on_error=False)
+        if rw.rc != 0:
+            # Can't change service user on read only filesystem
+            pytest.skip(f"Cannot write {service_file}")
+
         self.fs.backup(service_file)
         cmd = f'sed -i "s/^User=.*/User={user}/g" {service_file}\n'
         cmd += f'sed -i "s/^Group=.*/Group={user}/g" {service_file}\n'
