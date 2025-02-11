@@ -13,6 +13,7 @@ from sssd_test_framework.misc import (
     attrs_to_hash,
     parse_ldif,
     retry,
+    seconds_to_timespan,
     to_list,
     to_list_of_strings,
     to_list_without_none,
@@ -241,6 +242,25 @@ def test_parse_ldif(value, expected):
 )
 def test_attrs_to_hash(value, expected):
     assert attrs_to_hash(value) == expected
+
+
+@pytest.mark.parametrize(
+    "seconds",
+    [
+        (0, "00:00:00:00:00"),
+        (9, "00:00:00:09:00"),
+        (59, "00:00:00:59:00"),
+        (60, "00:00:01:00:00"),
+        (61, "00:00:01:01:00"),
+        (119, "00:00:01:59:00"),
+        (600, "00:00:10:00:00"),
+        (601, "00:00:10:01:00"),
+        (3600, "00:01:00:00:00"),
+        (3601, "00:01:00:01:00"),
+    ],
+)
+def test_seconds_to_timespan(seconds: tuple[int, str]):
+    assert seconds_to_timespan(seconds[0]) == seconds[1]
 
 
 def test_retry__all_exceptions():
