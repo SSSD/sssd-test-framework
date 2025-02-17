@@ -12,6 +12,7 @@ from ..utils.local_users import LocalUsersUtils
 from ..utils.sbus import DBUSDestination, DBUSKnownBus
 from ..utils.sss_override import SSSOverrideUtils
 from ..utils.sssctl import SSSCTLUtils
+from ..utils.adcli import ADCLI
 from ..utils.sssd import SSSDUtils
 from .base import BaseLinuxRole
 
@@ -51,6 +52,11 @@ class Client(BaseLinuxRole[ClientHost]):
         self.sssctl: SSSCTLUtils = SSSCTLUtils(self.host, self.fs)
         """
         Call commands from sssctl.
+        """
+
+        self.adcli: ADCLI = ADCLI(self.host, self.fs)
+        """
+        Call commands from adcli.
         """
 
         self.ldb: LDBUtils = LDBUtils(self.host)
