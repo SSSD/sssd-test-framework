@@ -763,7 +763,7 @@ class SSHKeyUtils:
     def generate(
         self,
         user: str,
-        path: str,
+        homedir: str,
         group: str | None = None,
         file: str = "id_rsa",
         cipher: str = "rsa",
@@ -774,8 +774,8 @@ class SSHKeyUtils:
 
         :param user: Username.
         :type user: str
-        :param path: Home directory.
-        :type path: str
+        :param homedir: Home directory.
+        :type homedir: str
         :param group: User group, defaults to None
         :type group: str, optional
         :param file: SSH key file, defaults to "id_rsa"
@@ -795,14 +795,16 @@ class SSHKeyUtils:
         if args is None:
             args = []
 
-        if not self.fs.exists(path):
-            self.fs.copy("/etc/skel", path, mode="0700")
+        if not self.fs.exists(homedir):
+            self.fs.copy("/etc/skel", homedir, mode="0700")
 
-        if self.fs.exists(f"{path}/.ssh/{file}"):
-            raise FileExistsError("SSH Keypair already exits")
+        if self.fs.exists(f"{homedir}/.ssh/{file}"):
+            raise FileExistsError("SSH Keypair already exits!")
         else:
-            self.fs.mkdir_p(f"{path}/.ssh", mode="0700")
-            self.host.conn.exec(["ssh-keygen", "-t", cipher, "-N", " ", *args, "-f", f"{path}/.ssh/{file}"])
-            self.fs.chown(path, user=user, group=group, args=["-R"])
+            self.fs.mkdir_p(f"{homedir}/.ssh", mode="0700")
+            self.host.conn.exec(
+                ["ssh-keygen", "-t", cipher, "-N", " ", *args, "-f", f"{homedir}/.ssh/{file}", "-C", file]
+            )
+            self.fs.chown(homedir, user=user, group=group, args=["-R"])
 
-            return self.fs.read(f"{path}/.ssh/{file}.pub"), self.fs.read(f"{path}/.ssh/{file}")
+            return self.fs.read(f"{homedir}/.ssh/{file}.pub"), self.fs.read(f"{homedir}/.ssh/{file}")
