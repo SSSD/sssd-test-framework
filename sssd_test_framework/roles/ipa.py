@@ -13,12 +13,13 @@ from ..misc import attrs_include_value, attrs_parse, to_list, to_list_of_strings
 from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
 from .base import BaseLinuxRole, BaseObject
-from .generic import GenericNetgroupMember
+from .generic import GenericNetgroupMember, GenericPasswordPolicy
 from .nfs import NFSExport
 
 __all__ = [
     "IPA",
     "IPAObject",
+    "IPAPasswordPolicy",
     "IPAUser",
     "IPAGroup",
     "IPASudoRule",
@@ -136,6 +137,30 @@ class IPA(BaseLinuxRole[IPAHost]):
         """
         super().setup()
         self.host.kinit()
+
+    @property
+    def password(self) -> IPAPasswordPolicy:
+        """
+        Domain password policy management.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.IPA)
+            def test_example(client: Client, ipa: IPA):
+                # Enable password complexity
+                ipa.password.complexity(enable=True)
+
+                # Set 3 login attempts and 30 lockout duration
+                ipa.password.lockout(attempts=3, duration=30)
+
+                # Set password length requirement to 12 characters
+                ipa.password.requirement(length=12)
+
+                # Set password max age to 30 seconds
+                ipa.password.age(maximum=30)
+        """
+        return IPAPasswordPolicy(self)
 
     def user(self, name: str) -> IPAUser:
         """
@@ -366,19 +391,22 @@ class IPAObject(BaseObject[IPAHost, IPA]):
         """
         self._exec("del")
 
-    def get(self, attrs: list[str] | None = None) -> dict[str, list[str]]:
+    def get(self, attrs: list[str] | None = None) -> dict[str, list[str]] | None:
         """
         Get IPA object attributes.
 
         :param attrs: If set, only requested attributes are returned, defaults to None
         :type attrs: list[str] | None, optional
-        :return: Dictionary with attribute name as a key.
-        :rtype: dict[str, list[str]]
+        :return: Dictionary with attribute name as a key or None if no such attribute is found.
+        :rtype: dict[str, list[str]] | None
         """
-        cmd = self._exec("show", ["--all", "--raw"])
+        cmd = self._exec("show", ["--all", "--raw"], raise_on_error=False)
 
         # ipa output starts with space
         lines = dedent(cmd.stdout).splitlines()
+
+        if lines is None or len(lines) == 0:
+            return None
 
         # Remove first line that contains the object name and not attribute
         return attrs_parse(lines[1:], attrs)
@@ -550,6 +578,16 @@ class IPAUser(IPAObject):
         """
         self.modify(password_expiration=expiration)
 
+        return self
+
+    def password_change_at_logon(self) -> IPAUser:
+        """
+        Force user to change password next logon.
+
+        :return: Self.
+        :rtype: IPAUser
+        """
+        self.host.conn.run(f"ipa user-mod {self.name} --setattr=krbPasswordExpiration=20010203203734Z")
         return self
 
     def passkey_add(self, passkey_mapping: str) -> IPAUser:
@@ -1597,3 +1635,103 @@ class IPAAutomountKey(IPAObject):
             return info.name
 
         return info
+
+
+class IPAPasswordPolicy(IPAObject, GenericPasswordPolicy):
+    """
+    Password policy management.
+    """
+
+    def __init__(self, role: IPA, name: str = "ipausers"):
+        """
+        :param role: IPA host object.
+        :type role: IPAHost
+        :param name: Name of target object, defaults to 'ipausers'.
+        :type name: str
+        """
+        super().__init__(role, name, command_group="pwpolicy")
+
+    def complexity(self, enable: bool) -> IPAPasswordPolicy:
+        """
+        Enable or disable password complexity.
+
+        :param enable: Enable or disable password complexity.
+        :type enable: bool
+        :return: IPAPasswordPolicy object.
+        :rtype: IPAPasswordPolicy
+        """
+        if enable and self.get() is None:
+            attrs: CLIBuilderArgs = {
+                "dictcheck": (self.cli.option.VALUE, "True"),
+                "usercheck": (self.cli.option.VALUE, "True"),
+                "minlength": (self.cli.option.VALUE, 8),
+                "minclasses": (self.cli.option.VALUE, 5),
+                "priority": (self.cli.option.VALUE, 1),
+            }
+            self._add(attrs)
+        else:
+            _attrs: CLIBuilderArgs = {
+                "dictcheck": (self.cli.option.VALUE, "False"),
+                "usercheck": (self.cli.option.VALUE, "False"),
+                "minlength": (self.cli.option.VALUE, 0),
+                "minclasses": (self.cli.option.VALUE, 0),
+                "priority": (self.cli.option.VALUE, 1),
+            }
+            self._modify(_attrs)
+
+        return self
+
+    def lockout(self, duration: int, attempts: int) -> IPAPasswordPolicy:
+        """
+        Set lockout duration and login attempts.
+
+        :param duration: Duration of lockout in seconds.
+        :type duration: int
+        :param attempts: Number of login attempts.
+        :type attempts: int
+        :return: IPAPasswordPolicy object.
+        :rtype: IPAPasswordPolicy
+        """
+        attrs: CLIBuilderArgs = {
+            "lockouttime": (self.cli.option.VALUE, str(duration)),
+            "maxfail": (self.cli.option.VALUE, str(attempts)),
+        }
+        self._add(attrs)
+
+        return self
+
+    def age(self, minimum: int, maximum: int) -> IPAPasswordPolicy:
+        """
+        Set maximum and minimum password age.
+
+        :param minimum: Minimum password age in seconds, converted to days.
+        :type minimum: int
+        :param maximum: Maximum password age in seconds, converted to days.
+        :type maximum: int
+        :return: IPAPasswordPolicy object.
+        :rtype: IPAPasswordPolicy
+        """
+        attrs: CLIBuilderArgs = {
+            "minlife": (self.cli.option.VALUE, str(minimum)),
+            "maxlife": (self.cli.option.VALUE, str(maximum)),
+        }
+
+        self._add(attrs)
+
+        return self
+
+    def requirements(self, length: int) -> IPAPasswordPolicy:
+        """
+        Set password requirements, like length.
+
+        :param length: Required password character count.
+        :type length: int
+        :return: IPAPasswordPolicy object.
+        :rtype: IPAPasswordPolicy
+        """
+        attrs: CLIBuilderArgs = {
+            "minlength": (self.cli.option.VALUE, length),
+        }
+        self._add(attrs)
+
+        return self
