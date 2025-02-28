@@ -85,6 +85,8 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
             [ -f "/usr/libexec/sssd/passkey_child" ] && \
                 ipa help user | grep user-add-passkey 1> /dev/null && \
                 echo "passkey" || :
+            ipa trust-add --help | grep 'Trust type' | grep 'ipa' 1> /dev/null && \
+            echo "ipa-ipa-trust" || :
             """,
             log_level=ProcessLogLevel.Error,
         )
@@ -92,6 +94,7 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
         # Set default values
         self._features = {
             "passkey": False,
+            "ipa-ipa-trust": False,
         }
 
         self._features.update({k: True for k in result.stdout_lines})

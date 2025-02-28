@@ -54,6 +54,7 @@ class ClientHost(BaseHost, BaseLinuxHost):
             [ -f "/usr/bin/sss_ssh_knownhosts" ] && echo "knownhosts" || :
             systemctl cat sssd.service | grep -q "If service configured to be run under" && echo "non-privileged" || :
             strings /usr/lib64/sssd/libsss_ldap_common.so | grep ldap_use_ppolicy && echo "ldap_use_ppolicy" || :
+            strings /usr/lib64/sssd/libsss_ipa.so | grep -q ipa_ctx_new && echo "ipa-ipa-trust" || :
             # enumerate (bool) Feature is only supported for domains with id_provider = ldap or id_provider = proxy.
             MANWIDTH=10000 man sssd.conf | grep -q "id_provider = ldap or id_provider = proxy" && \
             echo "limited_enumeration" || :
@@ -69,6 +70,7 @@ class ClientHost(BaseHost, BaseLinuxHost):
             "ldap_use_ppolicy": False,
             "knownhosts": False,
             "limited_enumeration": False,
+            "ipa-ipa-trust": False,
         }
 
         self._features.update({k: True for k in result.stdout_lines})
