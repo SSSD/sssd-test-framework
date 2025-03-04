@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from textwrap import dedent
-from typing import Any
+from typing import Any, Dict, Optional, Tuple
 
 from pytest_mh.cli import CLIBuilderArgs
 from pytest_mh.conn import ProcessResult
@@ -639,6 +639,186 @@ class IPAUser(IPAObject):
         :rtype: IPAUser.
         """
         self._exec("remove-passkey", [passkey_mapping])
+        return self
+
+    def idoverride(self) -> IDOverride:
+        """
+        Add override to the IPA user.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.IPA)
+            def test_example(client: Client, ipa: IPA):
+                ipa.idview("newview1").add(description="This is a new view")
+                ipa.idview("newview1").apply(hosts="client.test")
+                ipa.user("user-1").add().idoverride().add_override("newview1", uid=1344567)
+                client.sssd.restart()
+                lookup1 = client.tools.id("user-1")
+                assert lookup1.user.id == 1344567
+
+        :return: New IDOverride object.
+        :rtype: IDOverride
+
+
+        """
+        return IDOverride(self)
+
+
+class IDOverride(IPAUser):
+    """
+    IPA override
+    """
+
+    def __init__(self, user: IPAUser) -> None:
+        """
+        :param user: IPA user object
+        :type user: IPAUser
+        """
+        super().__init__(user.role, user.name)
+        self.name = user.name
+
+    def add_override(
+        self,
+        idview_name: str,
+        *,
+        description: str | None = None,
+        login: str | None = None,
+        uid: int | None = None,
+        gid: int | None = None,
+        gecos: str | None = None,
+        home_directory: str | None = None,
+        shell: str | None = None,
+        sshpubkey: str | None = None,
+        certificate: str | list[str] | None = None,
+    ) -> IDOverride:
+        """
+        Create the IDOverride.
+
+        :param idview_name: Name of IDView.
+        :type idview_name: str
+        :param description: Description of the IDView.
+        :type description: str | None, defaults to None
+        :param login: Login of the IDView.
+        :type login: str | None, defaults to None
+        :param uid: UID of the IDView.
+        :type uid: str | None, defaults to None
+        :param gid: GID of the IDView.
+        :type gid: str | None, defaults to None
+        :param gecos: Gecos of the IDView.
+        :type gecos: str | None, defaults to None
+        :param home_directory: Home directory of the IDView.
+        :type home_directory: str | None, defaults to None
+        :param shell: Shell of the IDView.
+        :type shell: str | None, defaults to None
+        :param sshpubkey: SSH public key of the IDView.
+        :type sshpubkey: str | None, defaults to None
+        :param certificate: Certificate of the IDView.
+        :type certificate: str | list[str] | None, defaults to None
+        :return: IDOverride.
+        """
+        certs = [certificate] if isinstance(certificate, str) else certificate or []
+
+        attrs: Dict[str, Optional[Tuple[Any, Any]]] = {
+            "desc": (self.cli.option.VALUE, description),
+            "login": (self.cli.option.VALUE, login),
+            "uid": (self.cli.option.VALUE, uid),
+            "gidnumber": (self.cli.option.VALUE, gid),
+            "gecos": (self.cli.option.VALUE, gecos),
+            "homedirectory": (self.cli.option.VALUE, home_directory),
+            "shell": (self.cli.option.VALUE, shell),
+            "sshpubkey": (self.cli.option.VALUE, sshpubkey),
+        }
+
+        # Create the ID override first
+        self.role.host.conn.exec(["ipa", "idoverrideuser-add", idview_name, self.name] + list(self.cli.args(attrs)))
+
+        # Add certificates if any exist
+        if certs:
+            cert_cmd = ["ipa", "idoverrideuser-add-cert", idview_name, self.name]
+            for cert in certs:
+                self.role.host.conn.exec(cert_cmd + [f"--certificate={cert}"])
+
+        return self
+
+    def modify_override(
+        self,
+        idview_name: str,
+        *,
+        description: str | None = None,
+        login: str | None = None,
+        uid: int | None = None,
+        gid: int | None = None,
+        gecos: str | None = None,
+        home_directory: str | None = None,
+        shell: str | None = None,
+        sshpubkey: str | None = None,
+        certificate: str | list[str] | None = None,
+    ) -> IDOverride:
+        """
+        Modify the IDView.
+        :param idview_name: Name of IDView.
+        :type idview_name: str
+        :param description: Description of the IDView.
+        :type description: str | None, defaults to None
+        :param login: Login of the IDView.
+        :type login: str | None, defaults to None
+        :param uid: UID of the IDView.
+        :type uid: str | None, defaults to None
+        :param gid: GID of the IDView.
+        :type gid: str | None, defaults to None
+        :param gecos: Gecos of the IDView.
+        :type gecos: str | None, defaults to None
+        :param home_directory: Home directory of the IDView.
+        :type home_directory: str | None, defaults to None
+        :param shell: Shell of the IDView.
+        :type shell: str | None, defaults to None
+        :param sshpubkey: SSH public key of the IDView.
+        :type sshpubkey: str | None, defaults to None
+        :param certificate: Certificate of the IDView.
+        :type certificate: str | list[str] | None, defaults to None
+        :return: IDOverride.
+        """
+
+        attrs: Dict[str, Optional[Tuple[Any, Any]]] = {
+            "desc": (self.cli.option.VALUE, description),
+            "login": (self.cli.option.VALUE, login),
+            "uid": (self.cli.option.VALUE, uid),
+            "gidnumber": (self.cli.option.VALUE, gid),
+            "gecos": (self.cli.option.VALUE, gecos),
+            "homedirectory": (self.cli.option.VALUE, home_directory),
+            "shell": (self.cli.option.VALUE, shell),
+            "sshpubkey": (self.cli.option.VALUE, sshpubkey),
+            "certificate": (self.cli.option.VALUE, certificate),
+        }
+        attrs = CLIBuilderArgs(attrs)
+        self.role.host.conn.exec(["ipa", "idoverrideuser-mod", idview_name, self.name] + list(self.cli.args(attrs)))
+
+        return self
+
+    def delete_override(self, idview_name: str) -> IDOverride:
+        """
+        Delete the IDView.
+        :param idview_name: Name of IDView.
+        :type idview_name: str
+        :return: IDOverride.
+        """
+
+        self.role.host.conn.exec(["ipa", "idoverrideuser-del", "--continue", idview_name, self.name])
+        return self
+
+    def remove_cert(self, idview_name: str, certificate=str | list[str]) -> IDOverride:
+        """
+        Remove the certificate from the IDView.
+        :param idview_name: Name of IDView.
+        :type idview_name: str
+        :param certificate: Certificate of the IDView.
+        :type certificate: str | list[str]
+        :return: IDOverride.
+        """
+        self.role.host.conn.exec(
+            ["ipa", "idoverrideuser-remove-cert", idview_name, self.name, f"--certificate={certificate}"]
+        )
         return self
 
 
