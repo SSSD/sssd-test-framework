@@ -11,8 +11,8 @@ virtual environment.
 
 .. code-block:: text
 
-    # Install python-ldap dependencies
-    sudo dnf install -y gcc python3-devel openldap-devel
+    # Install python-ldap and pylibssh dependencies
+    sudo dnf install -y gcc python3-devel openldap-devel libssh libssh-devel
 
     # Install test dependencies
     python3 -m venv .venv
