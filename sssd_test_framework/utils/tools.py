@@ -511,7 +511,7 @@ class LinuxToolsUtils(MultihostUtility[MultihostHost]):
             args = []
 
         paths = [paths] if isinstance(paths, str) else paths
-        command = self.host.conn.exec(["grep", *args, pattern, *paths])
+        command = self.host.conn.exec(["grep", *args, pattern, *paths], raise_on_error=False)
 
         return command.rc == 0
 
