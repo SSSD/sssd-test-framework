@@ -9,8 +9,9 @@ from pytest_mh.cli import CLIBuilderArgs
 from pytest_mh.conn import ProcessResult
 
 from ..hosts.ad import ADHost
-from ..misc import attrs_include_value, attrs_parse, attrs_to_hash
+from ..misc import attrs_include_value, attrs_parse, attrs_to_hash, seconds_to_timespan
 from .base import BaseObject, BaseWindowsRole, DeleteAttribute
+from .generic import GenericPasswordPolicy
 from .ldap import LDAPNetgroupMember
 from .nfs import NFSExport
 
@@ -24,6 +25,7 @@ __all__ = [
     "ADComputer",
     "ADSudoRule",
     "ADUser",
+    "ADPasswordPolicy",
     "GPO",
 ]
 
@@ -70,6 +72,9 @@ class AD(BaseWindowsRole[ADHost]):
 
         self.auto_ou: dict[str, bool] = {}
         """Organizational units that were automatically created."""
+
+        self._password_policy: ADPasswordPolicy = ADPasswordPolicy(self)
+        """Manage password policies."""
 
         self.automount: ADAutomount = ADAutomount(self)
         """
@@ -122,6 +127,30 @@ class AD(BaseWindowsRole[ADHost]):
                     },
                 }
         """
+
+    @property
+    def password_policy(self) -> ADPasswordPolicy:
+        """
+        Domain password policy management.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.AD)
+            def test_example(client: Client, ad: AD):
+                # Enable password complexity
+                ad.password_policy.complexity(enable=True)
+
+                # Set 2 login attempts and 30 lockout duration
+                ad.password_policy.lockout(attempts=2, duration=30)
+
+                # Set password length requirement to 11 characters
+                ad.password_policy.requirement(length=11)
+
+                # Set password max age to 29 seconds
+                ad.password_policy.age(maximum=29)
+        """
+        return self._password_policy
 
     @property
     def naming_context(self) -> str:
@@ -908,6 +937,17 @@ class ADUser(ADObject):
 
         args = " ".join(self.cli.args(attrs, quote_value=True))
         self.role.host.conn.run(f"Set-ADAccountExpiration {args}")
+
+        return self
+
+    def password_change_at_logon(self) -> ADUser:
+        """
+        Force user to change password next logon.
+
+        :return: Self.
+        :rtype: ADUser
+        """
+        self.role.host.conn.run(f"Set-ADUser -Identity {self.name} -ChangePasswordAtLogon:$true")
 
         return self
 
@@ -2005,6 +2045,64 @@ class GPO(BaseObject[ADHost, AD]):
             Exit 0
             """
         )
+
+        return self
+
+
+class ADPasswordPolicy(GenericPasswordPolicy):
+    """
+    Password policy management.
+    """
+
+    def __init__(self, role: AD):
+        """
+        :param role: AD host object.
+        :type role: ADHost
+        """
+        super().__init__(role)
+
+        args: CLIBuilderArgs = {
+            "Identity": (self.cli.option.VALUE, self.role.domain),
+            "PasswordHistoryCount": (self.cli.option.VALUE, "0"),
+            "MinPasswordAge": (self.cli.option.VALUE, "0"),
+            "MaxPasswordAge": (self.cli.option.VALUE, "0"),
+        }
+        self.role.host.conn.run(self.cli.command("Set-ADDefaultDomainPasswordPolicy", args))
+
+    def complexity(self, enable: bool) -> ADPasswordPolicy:
+        """
+        Enable or disable password complexity.
+
+        :param enable: Enable or disable password complexity.
+        :type enable: bool
+        :return: ADPasswordPolicy object.
+        :rtype: ADPasswordPolicy
+        """
+        args: CLIBuilderArgs = {
+            "Identity": (self.cli.option.VALUE, self.role.domain),
+            "Complexity": (self.cli.option.SWITCH, enable),
+        }
+        self.role.host.conn.run(self.cli.command("Set-ADDefaultDomainPasswordPolicy", args))
+
+        return self
+
+    def lockout(self, duration: int, attempts: int) -> ADPasswordPolicy:
+        """
+        Set lockout duration and login attempts.
+
+        :param duration: Duration of lockout in seconds.
+        :type duration: int
+        :param attempts: Number of login attempts.
+        :type attempts: int
+        :return: ADPasswordPolicy object.
+        :rtype: ADPasswordPolicy
+        """
+        args: CLIBuilderArgs = {
+            "Identity": (self.cli.option.VALUE, self.role.domain),
+            "LockoutDuration": (self.cli.option.VALUE, seconds_to_timespan(duration)),
+            "LockoutThreshold": (self.cli.option.VALUE, str(attempts)),
+        }
+        self.role.host.conn.run(self.cli.command("Set-ADDefaultDomainPasswordPolicy", args))
 
         return self
 
