@@ -152,6 +152,12 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
 
                 # Set 3 login attempts and 30 lockout duration
                 samba.password_policy.lockout(attempts=3, duration=30)
+<<<<<<< HEAD
+=======
+
+                # Set password length requirement to 12 characters
+                samba.password_policy.requirement(length=12)
+>>>>>>> 0daf631 (roles: added password policy utilities to samba role)
         """
         return self._password_policy
 
@@ -714,7 +720,11 @@ class SambaUser(SambaObject):
         self._modify(attrs)
         return self
 
+<<<<<<< HEAD
     def password_change_at_logon(self, **kwargs) -> SambaUser:
+=======
+    def password_change_at_logon(self) -> SambaUser:
+>>>>>>> 0daf631 (roles: added password policy utilities to samba role)
         """
         Force user to change password next logon.
 
