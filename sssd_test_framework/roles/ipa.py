@@ -452,8 +452,8 @@ class IPAObject(BaseObject[IPAHost, IPA]):
 
         :param attrs: If set, only requested attributes are returned, defaults to None
         :type attrs: list[str] | None, optional
-        :return: Dictionary with attribute name as a key.
-        :rtype: dict[str, list[str]]
+        :return: Dictionary with attribute name as a key or None if no such attribute is found.
+        :rtype: dict[str, list[str]] | None
         """
         cmd = self._exec("show", ["--all", "--raw"], raise_on_error=False)
 
