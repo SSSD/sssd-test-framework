@@ -1340,3 +1340,123 @@ class GenericPasswordPolicy(ABC, BaseObject):
         :rtype: GenericPasswordPolicy
         """
         pass
+
+
+class GenericDNSServer(ABC, BaseObject):
+    """
+    DNS/Bind management utilities.
+    """
+
+    @property
+    @abstractmethod
+    def forwarders(self) -> list[str]:
+        """
+        List of DNS forwarders.
+        """
+        pass
+
+    @abstractmethod
+    def set_forwarders(self, ns_servers: list[str]) -> GenericDNSServer:
+        """
+        Set DNS forwarders.
+
+        Empty list will remove all forwarders.
+
+        :param ns_servers: List of DNS servers, optional
+        :type ns_servers: list[str] | None = None
+        :return: Self.
+        :rtype: GenericDNSServer
+        """
+        pass
+
+    @abstractmethod
+    def list_zones(self) -> list[str]:
+        """
+        List all DNS zones.
+        """
+        pass
+
+    @abstractmethod
+    def create_zone(self, name: str) -> GenericDNSServer:
+        """
+        Create DNS zone.
+
+        :param name: Name of zone.
+        :type name: str
+        :return: GenericDNSServer object.
+        :rtype: GenericDNSServer
+        """
+        pass
+
+    @abstractmethod
+    def remove_zone(self, name: str) -> None:
+        """
+        Remove DNS zone.
+
+        :param name: Name of zone.
+        :type name: str
+        :return:  None
+        :rtype: None
+        """
+        pass
+
+
+class GenericDNSZone(ABC, GenericDNSServer):
+    """
+    Generic DNS zone management.
+    """
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """
+        Zone name.
+        """
+        pass
+
+    @abstractmethod
+    def add_record(self, name: str, data: str,  record_type: str = "A", ttl: str = "86400") -> GenericDNSZone:
+        """
+        Add DNS record.
+
+        :param name: Name of the record.
+        :type name: str
+        :param record_type: Type of the record, defaults to "A"
+        :type record_type: str
+        :param ttl: Time to live, defaults to "86400"
+        :type ttl: str
+        :param data: Data for the record.
+        :type data: str
+        """
+        pass
+
+    @abstractmethod
+    def delete_record(self) -> GenericDNSZone:
+        """
+        Delete DNS record.
+        """
+        pass
+
+    @abstractmethod
+    def check_record(self, record: str) -> GenericDNSZone:
+        """
+        Check if DNS record exists.
+
+        :param record: DNS record.
+        :type record: str
+        :return: GenericDNSZone object.
+        :rtype: GenericDNSZone
+        """
+        pass
+
+    @abstractmethod
+    def get_record(self, record: str) -> tuple[str, str, str, str]:
+        """
+        Get DNS record.
+
+        :param record:
+        :type record: str
+        :return: Tuple with record information, name, type, ttl and data.
+        :rtype: tuple[str, str, str, str]
+        """
+        pass
