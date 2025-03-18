@@ -113,6 +113,13 @@ It is recommended (but not necessary) to use vagrant from
 ``quay.io/sssd/vagrant:latest`` container to avoid issues with vagrant plugin
 installation.
 
+.. note::
+  
+    If it is the first time you are running a virtual machine using libvirt,
+    you need to grant the user permissions (ACL) to access the libvirt daemon. You
+    can do this by adding the user to the ``libvirt`` or ``qemu`` user.
+    https://github.com/jedi4ever/veewee/issues/996#issuecomment-375931044
+
 .. code-block:: text
 
     # Install dependencies
