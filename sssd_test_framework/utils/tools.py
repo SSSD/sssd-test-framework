@@ -838,6 +838,106 @@ class GetentUtils(MultihostUtility[MultihostHost]):
         return cls.FromOutput(command.stdout)
 
 
+class IPUtils(MultihostUtility[MultihostHost]):
+    """ Interface to ip command """
+
+    """
+    TODO:
+    @pytest.fixture(scope="function")
+    def extra_interface(session_multihost, request):
+        extra_interface = 'ibm' + str(random.randrange(99))
+        extra_ip = '192.168.1.' + str(random.randrange(2, 255))
+        session_multihost.client[0].run_command('ip link add ' + extra_interface + ' type dummy')
+        session_multihost.client[0].run_command('ip addr add ' + extra_ip + ' dev ' + extra_interface)
+
+        def remove_interface():
+            session_multihost.client[0].run_command('ip addr flush dev ' + extra_interface)
+            session_multihost.client[0].run_command('ip link del ' + extra_interface)
+
+    request.addfinalizer(remove_interface)
+    return extra_interface, extra_ip
+    """
+    def __init__(self, host: MultihostHost) -> None:
+        """
+        :param host:
+        :type host: MultihostHost
+        """
+        super().__init__(host)
+
+    def get_interfaces(self) -> list[str]:
+        """
+        Get network interfaces.
+
+        :return: List of network interfaces
+        :rtype: list[str]
+        """
+        result = self.host.conn.exec(["ip", "link", "show"])
+        return [x.split(":")[1].strip() for x in result.stdout.splitlines() if ":" in x]
+
+    def get_connected_interface(self) -> str:
+        """
+        Test to retrieve and validate the default network interface from the system's routing table.
+
+        This test executes the `ip route show default` command on the host and parses the output
+        using `jc.parse` to extract routing information. It ensures the output is in the expected format,
+        validates the presence of a single default interface, and extracts the interface name.
+
+        Raises:
+            ValueError: If the output from `jc.parse` is not in the expected format (a list of dictionaries),
+                       if there is no default interface or multiple default interfaces are found,
+                       or if the default interface is not set.
+
+        Returns:
+            str: The name of the default network interface.
+
+        Example:
+            >>> client.tools.connected_interface()
+            eth0
+        """
+        result = self.host.conn.exec(["ip", "route", "show", "default"])
+        output = jc.parse("ip_route", result.stdout)
+
+        # Ensure output is a list
+        if isinstance(output, dict):
+            output = [output]  # Convert single dictionary to a list of one dictionary
+        elif not isinstance(output, list):
+            raise ValueError("Unexpected output format from jc.parse")
+
+        # Validate the output
+        if not output or len(output) != 1:
+            raise ValueError("Unexpected number of default interfaces")
+
+        # Extract the interface
+        interface = output[0].get("dev")
+        if not interface:
+            raise ValueError("Default interface is not set")
+
+        return interface
+
+    def add_dummy_interface(self, interface: str, ip: str) -> None:
+        """
+        Add dummy interface.
+
+        :param interface: Interface name
+        :type interface: str
+        :param ip: IP address.
+        :type ip: str
+        """
+
+        self.host.conn.exec(["ip", "link", "add", interface, "type", "dummy"])
+        self.host.conn.exec(["ip", "addr", "add", ip, "dev", interface])
+
+    def remove_dummy_interface(self, interface: str) -> None:
+        """
+        Remove dummy interface.
+
+        :param interface: Interface name
+        :type interface: str
+        """
+
+        self.host.conn.exec(["ip", "link", "del", interface])
+
+
 class SSHKeyUtils:
     """
     Interface to ssh-keygen command.
