@@ -1794,18 +1794,18 @@ class IPAIDView(IPAObject):
         self._modify(attrs)
         return self
 
-    def apply(self, *, hosts: list[str] | None = None, hostgroups: str | None = None) -> IPAIDView:
+    def apply(self, *, hosts: list[str] | str | None = None, hostgroups: str | None = None) -> ProcessResult:
         """
         Applies ID View to specified hosts or current members of specified
         hostgroups.
 
         :description: If any other ID View is applied to the host, it is overridden.
         :param hosts: Hosts to apply the ID View to, defaults to None
-        :type hosts: list[str] | None
+        :type hosts: list[str] | str | None
         :param hostgroups: Hostgroups to apply the ID View to, defaults to None
         :type hostgroups: str | None
-        :return: IPAIDView
-        :rtype: self
+        :return: Process result
+        :rtype: ProcessResult
         """
         if not hosts and not hostgroups:
             raise ValueError("Either 'hosts' or 'hostgroups' must be provided.")
@@ -1816,8 +1816,8 @@ class IPAIDView(IPAObject):
         if hostgroups:
             attrs["hostgroups"] = (self.cli.option.VALUE, hostgroups)
 
-        self._exec("apply", self.cli.args(attrs))
-        return self
+        result = self._exec("apply", self.cli.args(attrs), raise_on_error=False)
+        return result
 
     def delete(self) -> None:
         """
