@@ -452,6 +452,7 @@ class GenericUser(ABC, BaseObject):
         home: str | None = None,
         gecos: str | None = None,
         shell: str | None = None,
+        email: str | None = None,
     ) -> GenericUser:
         """
         Create a new user.
@@ -470,6 +471,8 @@ class GenericUser(ABC, BaseObject):
         :type gecos: str | None, optional
         :param shell: Login shell, defaults to None
         :type shell: str | None, optional
+        :param email: email attribute, defaults to None
+        :type email: str | None, optional
         :return: Self.
         :rtype: GenericUser
         """
@@ -485,6 +488,7 @@ class GenericUser(ABC, BaseObject):
         home: str | None = None,
         gecos: str | None = None,
         shell: str | None = None,
+        email: str | None = None,
     ) -> GenericUser:
         """
         Modify existing user.
@@ -503,6 +507,8 @@ class GenericUser(ABC, BaseObject):
         :type gecos: str | None, optional
         :param shell: Login shell, defaults to None
         :type shell: str | None, optional
+        :param email: email attribute, defaults to None
+        :type email: str | None, optional
         :return: Self.
         :rtype: GenericUser
         """
