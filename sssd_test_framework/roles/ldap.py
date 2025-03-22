@@ -664,7 +664,8 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         shadowLastChange: int | None = None,
         sn: str | None = None,
         givenName: str | None = None,
-        mail: str | None = None,
+        mail: str | None = None,  # Remove later once tests are using the email attribute instead of mail
+        email: str | None = None,
     ) -> LDAPUser:
         """
         Create new LDAP user.
@@ -698,6 +699,8 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         :type givenName: str | None, optional
         :param mail: mail LDAP attribute, defaults to None
         :type mail: str | None, optional
+        :param email: mail LDAP attribute, defaults to None
+        :type mail: str | None, optional
         :return: Self.
         :rtype: LDAPUser
         """
@@ -725,13 +728,13 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
             "shadowLastChange": shadowLastChange,
             "sn": sn,
             "givenName": givenName,
-            "mail": mail,
+            "mail": mail or email,
         }
 
         if to_list_without_none([shadowMin, shadowMax, shadowWarning, shadowLastChange]):
             attrs["objectClass"].append("shadowAccount")
 
-        if to_list_without_none([sn, mail]):
+        if to_list_without_none([sn, mail, email]):
             attrs["sn"] = sn if sn else str(uid)
             attrs["objectClass"].append("inetOrgPerson")
 
@@ -755,6 +758,7 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         sn: str | DeleteAttribute | None = None,
         givenName: str | DeleteAttribute | None = None,
         mail: str | DeleteAttribute | None = None,
+        email: str | DeleteAttribute | None = None,
     ) -> LDAPUser:
         """
         Modify existing LDAP user.
@@ -790,9 +794,12 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         :type givenName: str | DeleteAttribute | None, optional
         :param mail: mail LDAP attribute, defaults to None
         :type mail: str | DeleteAttribute | None, optional
+        :param email: mail LDAP attribute, defaults to None
+        :type mail: str | DeleteAttribute | None, optional
         :return: Self.
         :rtype: LDAPUser
         """
+
         attrs: LDAPRecordAttributes = {
             "uidNumber": uid,
             "gidNumber": gid,
@@ -807,7 +814,7 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
             "cn": cn,
             "sn": sn,
             "givenName": givenName,
-            "mail": mail,
+            "mail": mail or email,
         }
 
         self._set(attrs)
