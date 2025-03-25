@@ -874,14 +874,18 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
 
         return self
 
-    def password_change_at_logon(self) -> LDAPUser:
+    def password_change_at_logon(self, **kwargs) -> LDAPUser:
         """
         Force user to change password next logon.
 
         :return: Self.
         :rtype: LDAPUser
         """
+        if "password" not in kwargs.keys():
+            raise TypeError("Missing argument 'password'!")
+
         self.role.ldap.modify("cn=config", replace={"passwordMustChange": "on"})
+        self.modify(password=kwargs["password"])
 
         return self
 
