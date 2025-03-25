@@ -698,7 +698,7 @@ class SambaUser(SambaObject):
         self._modify(attrs)
         return self
 
-    def password_change_at_logon(self) -> SambaUser:
+    def password_change_at_logon(self, **kwargs) -> SambaUser:
         """
         Force user to change password next logon.
 
