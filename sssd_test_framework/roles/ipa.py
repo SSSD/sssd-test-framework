@@ -432,6 +432,7 @@ class IPAUser(IPAObject):
         require_password_reset: bool = False,
         user_auth_type: str | list[str] | None = None,
         sshpubkey: str | list[str] | None = None,
+        email: str | None = None,
     ) -> IPAUser:
         """
         Create new IPA user.
@@ -456,9 +457,12 @@ class IPAUser(IPAObject):
         :type user_auth_type: str | list[str] | None, optional
         :param sshpubkey: SSH public key, defaults to None
         :type sshpubkey: str | list[str] | None, optional
+        :param email: email attribute, defaults to None
+        :type email: str | None, optional
         :return: Self.
         :rtype: IPAUser
         """
+
         attrs = {
             "first": (self.cli.option.VALUE, self.name),
             "last": (self.cli.option.VALUE, self.name),
@@ -470,6 +474,7 @@ class IPAUser(IPAObject):
             "password": (self.cli.option.SWITCH, True) if password is not None else None,
             "user-auth-type": (self.cli.option.VALUE, user_auth_type),
             "sshpubkey": (self.cli.option.VALUE, sshpubkey),
+            "email": (self.cli.option.VALUE, email),
         }
 
         if not require_password_reset:
@@ -494,6 +499,7 @@ class IPAUser(IPAObject):
         idp_user_id: str | None = None,
         password_expiration: str | None = None,
         sshpubkey: str | list[str] | None = None,
+        email: str | None = None,
     ) -> IPAUser:
         """
         Modify existing IPA user.
@@ -524,6 +530,8 @@ class IPAUser(IPAObject):
         :type password_expiration: str | None, optional
         :param sshpubkey: SSH public key, defaults to None
         :type sshpubkey: str | list[str] | None, optional
+        :param email: email attribute, defaults to None
+        :type email: str | None, optional
         :return: Self.
         :rtype: IPAUser
         """
@@ -541,6 +549,7 @@ class IPAUser(IPAObject):
             "idp-user-id": (self.cli.option.VALUE, idp_user_id),
             "password-expiration": (self.cli.option.VALUE, password_expiration),
             "sshpubkey": (self.cli.option.VALUE, sshpubkey),
+            "email": (self.cli.option.VALUE, email),
         }
 
         self._modify(attrs, input=password)
