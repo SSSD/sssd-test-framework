@@ -6,7 +6,6 @@ import configparser
 from io import StringIO
 from typing import TYPE_CHECKING, Literal
 
-import pytest
 from pytest_mh import MultihostHost, MultihostRole, MultihostUtility
 from pytest_mh.conn import Process, ProcessLogLevel, ProcessResult
 
@@ -360,21 +359,34 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
 
         service_file = "/usr/lib/systemd/system/sssd.service"
         rw = self.host.conn.run(f"test -w {service_file}", raise_on_error=False)
+        cmd = ""
         if rw.rc != 0:
-            # Can't change service user on read only filesystem
-            pytest.skip(f"Cannot write {service_file}")
-
-        self.fs.backup(service_file)
-        cmd = f'sed -i "s/^User=.*/User={user}/g" {service_file}\n'
-        cmd += f'sed -i "s/^Group=.*/Group={user}/g" {service_file}\n'
-        if user == "root":
-            cmd += f'sed -i "s/^#SupplementaryGroups=sssd$/SupplementaryGroups=sssd/g" {service_file}\n'
-            cmd += f'sed -i "s/sssd:sssd/root:root/g" {service_file}\n'
-        elif user == "sssd":
-            cmd += f'sed -i "s/^SupplementaryGroups=sssd$/#SupplementaryGroups=sssd/g" {service_file}\n'
-            cmd += f'sed -i "s/root:root/sssd:sssd/g" {service_file}\n'
+            self.logger.info(f"Using service overlay on read only filesystem on {self.host.hostname}")
+            self.fs.mkdir("/etc/systemd/system/sssd.service.d")
+            supp = "SupplementaryGroups=sssd\n" if user == "root" else 'SupplementaryGroups=""'
+            contents = f"""[Service]
+            User={user}
+            Group={user}
+            ExecStartPre=+-/bin/sh -c "/bin/chown -f -h {user}:{user} /var/lib/sss/db/*.ldb"
+            ExecStartPre=+-/bin/chown -f -R -h {user}:{user} /var/lib/sss/gpo_cache
+            ExecStartPre=+-/bin/sh -c "/bin/chown -f -h {user}:{user} /var/log/sssd/*.log"
+            {supp}
+            """
+            self.fs.write(
+                "/etc/systemd/system/sssd.service.d/user.conf", contents, mode="0600", user="root", group="root"
+            )
         else:
-            raise ValueError("Unexpected value of 'user'")
+            self.fs.backup(service_file)
+            cmd += f'sed -i "s/^User=.*/User={user}/g" {service_file}\n'
+            cmd += f'sed -i "s/^Group=.*/Group={user}/g" {service_file}\n'
+            if user == "root":
+                cmd += f'sed -i "s/^#SupplementaryGroups=sssd$/SupplementaryGroups=sssd/g" {service_file}\n'
+                cmd += f'sed -i "s/sssd:sssd/root:root/g" {service_file}\n'
+            elif user == "sssd":
+                cmd += f'sed -i "s/^SupplementaryGroups=sssd$/#SupplementaryGroups=sssd/g" {service_file}\n'
+                cmd += f'sed -i "s/root:root/sssd:sssd/g" {service_file}\n'
+            else:
+                raise ValueError("Unexpected value of 'user'")
         cmd += f"chown -f {user}:{user} /var/lib/sss/db/*.ldb || true\n"
         cmd += "rm -f /var/lib/sss/db/fast_ccache_* || true"
         self.host.conn.run(cmd)
