@@ -11,6 +11,7 @@ from pytest_mh.conn import Connection, ProcessResult
 from pytest_mh.utils.fs import LinuxFileSystem
 
 from ..misc.errors import ExpectScriptError
+from .idp import IdpAuthenticationUtils
 
 __all__ = [
     "AuthenticationUtils",
@@ -137,6 +138,11 @@ class AuthenticationUtils(MultihostUtility[MultihostHost]):
 
                 client.sssd.start()
                 assert client.auth.passwd.password('tuser', 'Secret123', 'New_password123')
+        """
+
+        self.idp: IdpAuthenticationUtils = IdpAuthenticationUtils(host, fs)
+        """
+        Authenticate to External Identity Providers
         """
 
     def parametrize(self, method: str) -> SUAuthenticationUtils | SSHAuthenticationUtils:
