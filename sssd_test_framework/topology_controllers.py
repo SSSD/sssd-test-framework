@@ -36,11 +36,11 @@ class ProvisionedBackupTopologyController(BackupTopologyController[SSSDMultihost
         super().init(*args, **kwargs)
         self.provisioned = self.name in self.multihost.provisioned_topologies
 
-    def topology_teardown(self) -> None:
+    def topology_teardown(self, *args, **kwargs) -> None:
         if self.provisioned:
             return
 
-        super().topology_teardown()
+        super().topology_teardown(*args, **kwargs)
 
     def teardown(self) -> None:
         if self.provisioned:
@@ -217,3 +217,49 @@ class KeycloakTopologyController(ProvisionedBackupTopologyController):
 
         # Backup so we can restore to this state after each test
         super().topology_setup()
+
+
+class GDMTopologyController(ProvisionedBackupTopologyController):
+    """
+    GDM EIdP Topology Controller.
+    """
+
+    @BackupTopologyController.restore_vanilla_on_error
+    def topology_setup(self, client: ClientHost, ipa: IPAHost, keycloak: KeycloakHost) -> None:
+        if self.provisioned:
+            self.logger.info(f"Topology '{self.name}' is already provisioned")
+            return
+
+        self.logger.info(f"Enrolling IPA server {ipa.hostname} into {keycloak.hostname} by creating an IdP client")
+
+        # Create an IdP client
+        keycloak.kclogin()
+        keycloak.conn.run(
+            "/opt/keycloak/bin/kcadm.sh create clients -r master "
+            '-b \'{"clientId": "ipa_oidc_client", "clientAuthenticatorType": "client-secret", '
+            '"secret": "IPA_Secret123", "serviceAccountsEnabled": true, '
+            '"redirectUris" : [ "https://ipa-ca.ipa.test/ipa/idp/*" ], '
+            '"webOrigins" : [ "https://ipa-ca.ipa.test" ],'
+            '"attributes": {"oauth2.device.authorization.grant.enabled": "true"}}\' '
+        )
+
+        ipa.kinit()
+        ipa.conn.run(
+            f"ipa idp-add keycloak --provider keycloak --base-url {keycloak.hostname}:8443/auth "
+            "--org master --client-id ipa_oidc_client --secret",
+            input="IPA_Secret123",
+        )
+
+        # Backup so we can restore to this state after each test
+        super().topology_setup()
+
+    def topology_teardown(self, ipa: IPAHost, keycloak: KeycloakHost) -> None:
+        self.logger.info(f"Un-enrolling IPA server {ipa.hostname} from {keycloak.hostname} by deleting the IdP client")
+        keycloak.kclogin()
+        keycloak.conn.run(
+            "ID=$(/opt/keycloak/bin/kcadm.sh get clients -q clientId=ipa_oidc_client --fields=id|jq -r '.[0].id'); "
+            "/opt/keycloak/bin/kcadm.sh delete clients/$ID"
+        )
+        ipa.kinit()
+        ipa.conn.run("ipa idp-del keycloak")
+        super().topology_teardown()
