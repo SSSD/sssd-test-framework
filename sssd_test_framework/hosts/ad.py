@@ -43,6 +43,9 @@ class ADHost(BaseDomainHost):
         self.adminpw: str = self.config.get("adminpw", "Secret123")
         """Password of the Administrator user, defaults to ``Secret123``."""
 
+        self.adminuser: str = self.config.get("adminuser", "Administrator")
+        """Administrator user, defaults to ``Administrator``."""
+
         # Additional client configuration
         self.client.setdefault("id_provider", "ad")
         self.client.setdefault("access_provider", "ad")
