@@ -145,6 +145,11 @@ class KnownTopologyGroup(KnownTopologyGroupBase):
     .. topology-mark:: KnownTopologyGroup.AnyAD
     """
 
+    AnyDS = [KnownTopology.AD, KnownTopology.Samba, KnownTopology.IPA]
+    """
+    ..topology-mark:: KnownTopologyGroup.AnyDS
+    """
+
     IPATrust = [KnownTopology.IPATrustAD, KnownTopology.IPATrustSamba]
     """
     .. topology-mark:: KnownTopologyGroup.IPATrust
