@@ -206,6 +206,19 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
         """
         return LDAPOrganizationalUnit[LDAPHost, LDAP](self, name, basedn)
 
+    def setup(self) -> None:
+        """
+        Add ACI granting users the access to change their passwords..
+        """
+        super().setup()
+
+        try:
+            self.aci.add(
+                '(targetattr="userpassword")(version 3.0; acl "pwp test"; allow (all) userdn="ldap:///self";)'
+            )
+        except ldap.TYPE_OR_VALUE_EXISTS:
+            pass
+
     def user(self, name: str, basedn: LDAPObject | str | None = "ou=users", rdn_attr: str | None = "cn") -> LDAPUser:
         """
         Get user object.
@@ -1815,11 +1828,7 @@ class LDAPPasswordPolicy(GenericPasswordPolicy):
         :type role: LDAP
         """
         super().__init__(role)
-        self.role: LDAP = role
-        self.ldap: LDAPUtils = self.role.ldap
         self.config: str = "cn=config"
-
-        role.aci.add('(targetattr="userpassword")(version 3.0; acl "pwp test"; allow (all) userdn="ldap:///self";)')
 
     def _get(self, name: str) -> str:
         """
@@ -1831,7 +1840,7 @@ class LDAPPasswordPolicy(GenericPasswordPolicy):
         :rtype: str
         """
         result = (
-            self.ldap.conn.search_s(self.config, ldap.SCOPE_BASE, attrlist=[name])
+            self.role.ldap.conn.search_s(self.config, ldap.SCOPE_BASE, attrlist=[name])
             .pop()[1]
             .get(name)[0]
             .decode("utf-8")
@@ -1847,7 +1856,7 @@ class LDAPPasswordPolicy(GenericPasswordPolicy):
         """
         for k, v in policy.items():
             if self._get(k) != v:
-                self.ldap.modify(self.config, replace={k: v})
+                self.role.ldap.modify(self.config, replace={k: v})
 
     def complexity(self, enable: bool) -> LDAPPasswordPolicy:
         """
