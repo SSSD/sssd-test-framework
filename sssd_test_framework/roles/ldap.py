@@ -14,12 +14,11 @@ from ..hosts.ldap import LDAPHost
 from ..misc import attrs_include_value, to_list_without_none
 from ..utils.ldap import LDAPRecordAttributes, LDAPUtils
 from .base import BaseLinuxLDAPRole, BaseObject, DeleteAttribute, HostType
-from .generic import GenericNetgroupMember, GenericPasswordPolicy, ProtocolName
+from .generic import GenericNetgroupMember, ProtocolName
 from .nfs import NFSExport
 
 __all__ = [
     "LDAPRoleType",
-    "LDAPPasswordPolicy",
     "LDAPUserType",
     "LDAPGroupType",
     "LDAP",
@@ -85,9 +84,6 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
         self.aci: LDAPACI = LDAPACI(self)
         """Manage LDAP ACI records."""
 
-        self._password_policy: LDAPPasswordPolicy = LDAPPasswordPolicy(self)
-        """Manage password policy."""
-
         self.automount: LDAPAutomount[LDAPHost, LDAP] = LDAPAutomount[LDAPHost, LDAP](self)
         """
         Manage automount maps and keys.
@@ -139,24 +135,6 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
                     },
                 }
         """
-
-    @property
-    def password_policy(self) -> LDAPPasswordPolicy:
-        """
-        Domain password policy management.
-
-        .. code-block:: python
-            :caption: Example usage
-
-            @pytest.mark.topology(KnownTopology.LDAP)
-            def test_example(client: Client, ldap: LDAP):
-                # Enable password complexity
-                ldap.password_policy.complexity(enable=True)
-
-                # Set 3 login attempts and 30 lockout duration
-                ldap.password_policy.lockout(attempts=3, duration=30)
-        """
-        return self._password_policy
 
     def _generate_uid(self) -> int:
         """
@@ -863,6 +841,7 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         :return: Self.
         :rtype: IPAUser
         """
+
         start = datetime.now()
         end = datetime.strptime(expiration, "%Y%m%d%H%M%S")
         time_diff = end - start
@@ -871,17 +850,6 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
             expires_in = 0
 
         self.modify(shadowMax=expires_in)
-
-        return self
-
-    def password_change_at_logon(self) -> LDAPUser:
-        """
-        Force user to change password next logon.
-
-        :return: Self.
-        :rtype: LDAPUser
-        """
-        self.role.ldap.modify("cn=config", replace={"passwordMustChange": "on"})
 
         return self
 
@@ -1798,84 +1766,3 @@ class LDAPAutomountKey(LDAPObject[HostType, LDAPRoleType]):
             return info.name
 
         return info
-
-
-class LDAPPasswordPolicy(GenericPasswordPolicy):
-    """
-    Password policy management.
-    """
-
-    def __init__(self, role: LDAP) -> None:
-        """
-        :param role: LDAP role object.
-        :type role: LDAP
-        """
-        super().__init__(role)
-        self.role: LDAP = role
-        self.ldap: LDAPUtils = self.role.ldap
-        self.config: str = "cn=config"
-
-        role.aci.add('(targetattr="userpassword")(version 3.0; acl "pwp test"; allow (all) userdn="ldap:///self";)')
-
-    def _get(self, name: str) -> str:
-        """
-        Return password policy value.
-
-        :param name: Password policy setting name.
-        :type name: str
-        :return: Password policy value.
-        :rtype: str
-        """
-        result = (
-            self.ldap.conn.search_s(self.config, ldap.SCOPE_BASE, attrlist=[name])
-            .pop()[1]
-            .get(name)[0]
-            .decode("utf-8")
-        )
-        return result
-
-    def _set(self, policy: dict[str, str]) -> None:
-        """
-        Set password policy value.
-
-        :param policy: Password policy key and values.
-        :type policy: dict[str, str]
-        """
-        for k, v in policy.items():
-            if self._get(k) != v:
-                self.ldap.modify(self.config, replace={k: v})
-
-    def complexity(self, enable: bool) -> LDAPPasswordPolicy:
-        """
-        Enable or disable password complexity.
-
-        :param enable: Enable or disable password complexity.
-        :type enable: bool
-        :return: LDAPPasswordPolicy object.
-        :rtype: LDAPPasswordPolicy
-        """
-        if enable:
-            self._set({"passwordCheckSyntax": "on", "passwordMinLength": "8"})
-        else:
-            self._set({"passwordCheckSyntax": "off", "passwordMinLength": "0"})
-        return self
-
-    def lockout(self, duration: int, attempts: int) -> LDAPPasswordPolicy:
-        """
-        Set lockout duration and login attempts.
-
-        :param duration: Duration of lockout in seconds, converted to minutes.
-        :type duration: int
-        :param attempts: Number of login attempts.
-        :type attempts: int
-        :return: LDAPPasswordPolicy object.
-        :rtype: LDAPPasswordPolicy
-        """
-        self._set(
-            {
-                "passwordLockout": "on",
-                "passwordMaxFailure": str(attempts),
-                "passwordLockoutDuration": str(duration),
-            }
-        )
-        return self
