@@ -14,14 +14,12 @@ from ..hosts.samba import SambaHost
 from ..misc import attrs_parse, to_list_of_strings
 from ..utils.ldap import LDAPRecordAttributes
 from .base import BaseLinuxLDAPRole, BaseObject, DeleteAttribute
-from .generic import GenericPasswordPolicy
 from .ldap import LDAPAutomount, LDAPNetgroup, LDAPNetgroupMember, LDAPObject, LDAPOrganizationalUnit, LDAPSudoRule
 
 __all__ = [
     "Samba",
     "SambaObject",
     "SambaComputer",
-    "SambaPasswordPolicy",
     "SambaUser",
     "SambaGroup",
     "SambaOrganizationalUnit",
@@ -64,11 +62,6 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
         self.realm: str = self.host.realm
         """
         Kerberos realm.
-        """
-
-        self._password_policy: SambaPasswordPolicy = SambaPasswordPolicy(self)
-        """
-        Samba password policy.
         """
 
         self.automount: SambaAutomount = SambaAutomount(self)
@@ -125,24 +118,6 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
 
         # Set AD schema for automount
         self.automount.set_schema(self.automount.Schema.AD)
-
-    @property
-    def password_policy(self) -> SambaPasswordPolicy:
-        """
-        Domain password policy management.
-
-        .. code-block:: python
-            :caption: Example usage
-
-            @pytest.mark.topology(KnownTopology.Samba)
-            def test_example(client: Client, samba: Samba):
-                # Enable password complexity
-                samba.password_policy.complexity(enable=True)
-
-                # Set 3 login attempts and 30 lockout duration
-                samba.password_policy.lockout(attempts=3, duration=30)
-        """
-        return self._password_policy
 
     @property
     def naming_context(self) -> str:
@@ -698,16 +673,6 @@ class SambaUser(SambaObject):
         self._modify(attrs)
         return self
 
-    def password_change_at_logon(self) -> SambaUser:
-        """
-        Force user to change password next logon.
-
-        :return: Self.
-        :rtype: SambaUser
-        """
-        self._modify({"pwdLastSet": "0"})
-        return self
-
     def passkey_add(self, passkey_mapping: str) -> SambaUser:
         """
         Add passkey mapping to the user.
@@ -1092,66 +1057,6 @@ class SambaGPO(SambaObject):
 
         self.role.fs.mkdir_p(_path, mode="750", user="BUILTIN\\administrators", group="users")
         self.role.fs.upload("/tmp/GptTmpl.inf", _full_path, mode="750", user="BUILTIN\\administrators", group="users")
-
-        return self
-
-
-class SambaPasswordPolicy(GenericPasswordPolicy):
-    """
-    Password policy management.
-    """
-
-    def __init__(self, role: Samba):
-        """
-        :param role: Samba host object.
-        :type role: SambaHost
-        """
-        super().__init__(role)
-
-        args: CLIBuilderArgs = {
-            "min-pwd-age": (self.cli.option.VALUE, "0"),
-            "max-pwd-age": (self.cli.option.VALUE, "0"),
-        }
-
-        self.host.conn.run(self.cli.command("samba-tool domain passwordsettings set", args))
-
-    def complexity(self, enable: bool) -> SambaPasswordPolicy:
-        """
-        Enable or disable password complexity.
-
-        :param enable: Enable or disable password complexity.
-        :type enable: bool
-        :return: SambaPasswordPolicy object.
-        :rtype: SambaPasswordPolicy
-        """
-        complexity: str = "on" if enable else "off"
-
-        args: CLIBuilderArgs = {
-            "complexity": (self.cli.option.VALUE, complexity),
-        }
-
-        self.host.conn.run(self.cli.command("samba-tool domain passwordsettings set", args))
-
-        return self
-
-    def lockout(self, duration: int, attempts: int) -> SambaPasswordPolicy:
-        """
-        Set lockout duration and login attempts.
-
-        :param duration: Duration of lockout in seconds, converted to minutes.
-        :type duration: int
-        :param attempts: Number of login attempts.
-        :type attempts: int
-        :return: SambaPasswordPolicy object.
-        :rtype: SambaPasswordPolicy
-        """
-        minutes = divmod(duration, 60)[0]
-
-        args: CLIBuilderArgs = {
-            "account-lockout-duration": (self.cli.option.VALUE, str(minutes)),
-            "account-lockout-threshold": (self.cli.option.VALUE, str(attempts)),
-        }
-        self.host.conn.run(self.cli.command("samba-tool domain passwordsettings set", args))
 
         return self
 
