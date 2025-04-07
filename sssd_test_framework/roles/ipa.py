@@ -610,7 +610,7 @@ class IPAUser(IPAObject):
 
         return self
 
-    def password_change_at_logon(self, **kwargs) -> IPAUser:
+    def password_change_at_logon(self) -> IPAUser:
         """
         Force user to change password next logon.
 

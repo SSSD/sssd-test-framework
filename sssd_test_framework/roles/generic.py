@@ -559,12 +559,9 @@ class GenericUser(ABC, BaseObject):
         pass
 
     @abstractmethod
-    def password_change_at_logon(self, **kwargs) -> GenericUser:
+    def password_change_at_logon(self) -> GenericUser:
         """
         Force user to change password next logon.
-
-        The LDAP provider needs to administratively reset the user password to trigger the password
-        change. Making the key word argument 'password' required by LDAP but will be ignored by others..
 
         :return: Self.
         :rtype: GenericUser

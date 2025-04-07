@@ -934,7 +934,7 @@ class ADUser(ADObject):
 
         return self
 
-    def password_change_at_logon(self, **kwargs) -> ADUser:
+    def password_change_at_logon(self) -> ADUser:
         """
         Force user to change password next logon.
 
