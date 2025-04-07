@@ -143,6 +143,12 @@ class AD(BaseWindowsRole[ADHost]):
 
                 # Set 2 login attempts and 30 lockout duration
                 ad.password_policy.lockout(attempts=2, duration=30)
+
+                # Set password length requirement to 11 characters
+                ad.password_policy.requirement(length=11)
+
+                # Set password max age to 29 seconds
+                ad.password_policy.age(maximum=29)
         """
         return self._password_policy
 
