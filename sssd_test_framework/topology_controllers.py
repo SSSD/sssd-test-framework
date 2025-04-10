@@ -15,6 +15,7 @@ __all__ = [
     "IPATopologyController",
     "ADTopologyController",
     "SambaTopologyController",
+    "UnjoinedTopologyController",
     "IPATrustADTopologyController",
     "IPATrustSambaTopologyController",
 ]
@@ -111,6 +112,27 @@ class ADTopologyController(ProvisionedBackupTopologyController):
 
         # Join AD domain
         client.conn.exec(["realm", "join", provider.domain], input=provider.adminpw)
+
+        # Backup so we can restore to this state after each test
+        super().topology_setup()
+
+
+class UnjoinedTopologyController(ProvisionedBackupTopologyController):
+
+    def topology_setup(self, client: ClientHost, provider: ADHost | SambaHost | IPAHost) -> None:
+        if self.provisioned:
+            self.logger.info(f"Topology '{self.name}' is already provisioned, un enrolling.")
+
+            if isinstance(provider, IPAHost):
+                client.conn.run("ipa-client-install --uninstall")
+            else:
+                client.conn.run("realm leave")
+
+        self.logger.info(f"Un enrolling {client.hostname} into {provider.domain}")
+
+        # Remove any existing Kerberos configuration and keytab
+        client.fs.rm("/etc/krb5.conf")
+        client.fs.rm("/etc/krb5.keytab")
 
         # Backup so we can restore to this state after each test
         super().topology_setup()
