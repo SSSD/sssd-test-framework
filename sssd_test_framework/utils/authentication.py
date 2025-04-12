@@ -818,6 +818,7 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
 
             expect {{
                 "password updated successfully" {{exitmsg "Password change was successful" 0}}
+                "passwd: all authentication tokens updated successfully" {{exitmsg "Password change was successful" 0}}
                 "Please make sure the password meets the complexity constraints." {{exitmsg "Complexity failure" 1}}
                 "Password too short" {{exitmsg "Complexity failure" 1}}
                 "Password is too short" {{exitmsg "Complexity failure" 1}}
