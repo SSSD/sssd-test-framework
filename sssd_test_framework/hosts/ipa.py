@@ -127,7 +127,7 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
         def _backup():
             return self.conn.run(
                 """
-                set -ex
+                set -x
 
                 function backup {
                     if [ -d "$1" ] || [ -f "$1" ]; then
@@ -135,7 +135,16 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
                     fi
                 }
 
+                rm --force /var/log/ipabackup.log
                 ipa-backup --data
+                ret=$?
+                if [ $ret -ne 0 ]; then
+                    echo "Printing ipa-backup logs..."
+                    cat /var/log/ipabackup.log
+                    exit $ret
+                fi
+
+                set -e
 
                 path=`mktemp -d`
                 mv `find /var/lib/ipa/backup -maxdepth 1 -type d | tail -n 1` $path/ipa
@@ -175,7 +184,7 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
         def _restore():
             return self.conn.run(
                 f"""
-                set -ex
+                set -x
 
                 function restore {{
                     rm --force --recursive "$2"
@@ -184,7 +193,16 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
                     fi
                 }}
 
+                rm --force /var/log/iparestore.log
                 ipa-restore --unattended --password "{self.adminpw}" --data "{backup_path}/ipa"
+                ret=$?
+                if [ $ret -ne 0 ]; then
+                    echo "Printing ipa-restore logs..."
+                    cat /var/log/iparestore.log
+                    exit $ret
+                fi
+
+                set -e
 
                 rm --force --recursive /etc/sssd /var/lib/sss /var/log/sssd
                 restore "{backup_path}/krb5.conf" /etc/krb5.conf
