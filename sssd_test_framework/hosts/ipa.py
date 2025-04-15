@@ -135,7 +135,7 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
                     fi
                 }
 
-                ipa-backup --data --online
+                ipa-backup --data
 
                 path=`mktemp -d`
                 mv `find /var/lib/ipa/backup -maxdepth 1 -type d | tail -n 1` $path/ipa
@@ -184,7 +184,7 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
                     fi
                 }}
 
-                ipa-restore --unattended --password "{self.adminpw}" --data --online "{backup_path}/ipa"
+                ipa-restore --unattended --password "{self.adminpw}" --data "{backup_path}/ipa"
 
                 rm --force --recursive /etc/sssd /var/lib/sss /var/log/sssd
                 restore "{backup_path}/krb5.conf" /etc/krb5.conf
