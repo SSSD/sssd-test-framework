@@ -15,6 +15,7 @@ from .topology_controllers import (
     IPATrustADTopologyController,
     IPATrustSambaTopologyController,
     LDAPTopologyController,
+    NoJoinTopologyController,
     SambaTopologyController,
 )
 
@@ -74,6 +75,17 @@ class KnownTopology(KnownTopologyBase):
     .. topology-mark:: KnownTopology.IPA
     """
 
+    NoJoinIPA = SSSDTopologyMark(
+        name="ipa-no-join",
+        topology=Topology(TopologyDomain("sssd", client=1, ipa=1, nfs=1)),
+        controller=NoJoinTopologyController(),
+        domains=dict(test="sssd.ipa[0]"),
+        fixtures=dict(client="sssd.client[0]", ipa="sssd.ipa[0]", provider="sssd.ipa[0]", nfs="sssd.nfs[0]"),
+    )
+    """
+    .. topology-mark:: KnownTopology.NoJoinIPA
+    """
+
     AD = SSSDTopologyMark(
         name="ad",
         topology=Topology(TopologyDomain("sssd", client=1, ad=1, nfs=1)),
@@ -85,6 +97,17 @@ class KnownTopology(KnownTopologyBase):
     .. topology-mark:: KnownTopology.AD
     """
 
+    NoJoinAD = SSSDTopologyMark(
+        name="ad-no-join",
+        topology=Topology(TopologyDomain("sssd", client=1, ad=1, nfs=1)),
+        controller=NoJoinTopologyController(),
+        domains=dict(test="sssd.ad[0]"),
+        fixtures=dict(client="sssd.client[0]", ad="sssd.ad[0]", provider="sssd.ad[0]", nfs="sssd.nfs[0]"),
+    )
+    """
+        .. topology-mark:: KnownTopology.NoJoinAD
+    """
+
     Samba = SSSDTopologyMark(
         name="samba",
         topology=Topology(TopologyDomain("sssd", client=1, samba=1, nfs=1)),
@@ -94,6 +117,17 @@ class KnownTopology(KnownTopologyBase):
     )
     """
     .. topology-mark:: KnownTopology.Samba
+    """
+
+    NoJoinSamba = SSSDTopologyMark(
+        name="samba-no-join",
+        topology=Topology(TopologyDomain("sssd", client=1, samba=1, nfs=1)),
+        controller=NoJoinTopologyController(),
+        domains={"test": "sssd.samba[0]"},
+        fixtures=dict(client="sssd.client[0]", samba="sssd.samba[0]", provider="sssd.samba[0]", nfs="sssd.nfs[0]"),
+    )
+    """
+    .. topology-mark:: KnownTopology.NoJoinSamba
     """
 
     IPATrustAD = SSSDTopologyMark(
@@ -143,6 +177,11 @@ class KnownTopologyGroup(KnownTopologyGroupBase):
     AnyAD = [KnownTopology.AD, KnownTopology.Samba]
     """
     .. topology-mark:: KnownTopologyGroup.AnyAD
+    """
+
+    AnyNoJoin = [KnownTopology.NoJoinAD, KnownTopology.NoJoinSamba, KnownTopology.NoJoinIPA]
+    """
+    .. topology-mark:: KnownTopologyGroup.AnyNoJoin
     """
 
     IPATrust = [KnownTopology.IPATrustAD, KnownTopology.IPATrustSamba]
