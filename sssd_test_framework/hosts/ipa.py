@@ -99,6 +99,20 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
 
         return self._features
 
+    def setup(self) -> None:
+        """
+        Truncate existing IPA logs before each test to avoid need for restart.
+        """
+        self.conn.run(
+            """
+            set -ex
+            truncate --size 0 /var/log/dirsrv/*/*
+            truncate --size 0 /var/log/httpd/*
+            truncate --size 0 /var/log/ipa/*
+            truncate --size 0 /var/log/krb5kdc.log
+            """
+        )
+
     def kinit(self) -> None:
         """
         Obtain ``admin`` user Kerberos TGT.
@@ -127,7 +141,7 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
         def _backup():
             return self.conn.run(
                 """
-                set -ex
+                set -x
 
                 function backup {
                     if [ -d "$1" ] || [ -f "$1" ]; then
@@ -135,7 +149,16 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
                     fi
                 }
 
-                ipa-backup --data --online
+                rm --force /var/log/ipabackup.log
+                ipa-backup --data
+                ret=$?
+                if [ $ret -ne 0 ]; then
+                    echo "Printing ipa-backup logs..."
+                    cat /var/log/ipabackup.log
+                    exit $ret
+                fi
+
+                set -e
 
                 path=`mktemp -d`
                 mv `find /var/lib/ipa/backup -maxdepth 1 -type d | tail -n 1` $path/ipa
@@ -175,7 +198,7 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
         def _restore():
             return self.conn.run(
                 f"""
-                set -ex
+                set -x
 
                 function restore {{
                     rm --force --recursive "$2"
@@ -184,7 +207,16 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
                     fi
                 }}
 
-                ipa-restore --unattended --password "{self.adminpw}" --data --online "{backup_path}/ipa"
+                rm --force /var/log/iparestore.log
+                ipa-restore --unattended --password "{self.adminpw}" --data "{backup_path}/ipa"
+                ret=$?
+                if [ $ret -ne 0 ]; then
+                    echo "Printing ipa-restore logs..."
+                    cat /var/log/iparestore.log
+                    exit $ret
+                fi
+
+                set -e
 
                 rm --force --recursive /etc/sssd /var/lib/sss /var/log/sssd
                 restore "{backup_path}/krb5.conf" /etc/krb5.conf
