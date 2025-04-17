@@ -14,6 +14,7 @@ from ..utils.sss_override import SSSOverrideUtils
 from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
 from .base import BaseLinuxRole
+from ..utils.virtual_smartcard import SmartCardUtils
 
 __all__ = [
     "Client",
@@ -80,6 +81,11 @@ class Client(BaseLinuxRole[ClientHost]):
         The D-bus destination for infopipe.
         """
 
+        self.smart_card: SmartCardUtils = SmartCardUtils(self.host)
+        """
+        Utility class for managing smart card operations using SoftHSM and PKCS#11.
+        """
+        
     def setup(self) -> None:
         """
         Called before execution of each test.
@@ -125,4 +131,4 @@ class Client(BaseLinuxRole[ClientHost]):
         :return: Command result.
         :rtype: ProcessResult
         """
-        return self.host.conn.exec(["sss_ssh_authorizedkeys", *args], raise_on_error=False)
+        return self.host.conn.exec(["sss_ssh_authorizedkeys", *args], raise_on_error=False)    
