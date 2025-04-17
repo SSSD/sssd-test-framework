@@ -85,6 +85,7 @@ class Client(BaseLinuxRole[ClientHost]):
         """
         Utility class for managing smart card operations using SoftHSM and PKCS#11.
         """
+        
     def setup(self) -> None:
         """
         Called before execution of each test.
@@ -130,68 +131,4 @@ class Client(BaseLinuxRole[ClientHost]):
         :return: Command result.
         :rtype: ProcessResult
         """
-        return self.host.conn.exec(["sss_ssh_authorizedkeys", *args], raise_on_error=False)
-    
-     
-    def setup_smart_card(self, label: str, so_pin: str, user_pin: str) -> None:
-        """
-        Initializes the smart card with a given label and PINs.
-        
-        :param label: Label for the smart card token.
-        :param so_pin: Security Officer PIN for the token.
-        :param user_pin: User PIN for accessing the smart card.
-        """
-        self.smart_card.init(label, so_pin, user_pin)
-    
-    def upload_key(self, key_path: str, key_id: str, pin: str) -> None:
-        """
-        Adds a private key to the smart card.
-        
-        :param key_path: Path to the private key file.
-        :param key_id: ID to associate with the key.
-        :param pin: User PIN for authentication.
-        """
-        self.smart_card.add_key(key_path, key_id, pin)
-    
-    def upload_certificate(self, cert_path: str, cert_id: str, pin: str) -> None:
-        """
-        Adds a certificate to the smart card.
-        
-        :param cert_path: Path to the certificate file.
-        :param cert_id: ID to associate with the certificate.
-        :param pin: User PIN for authentication.
-        """
-        self.smart_card.add_cert(cert_path, cert_id, pin)
-    
-    def restart_smart_card_service(self) -> None:
-        """
-        Restarts the virtual smart card service.
-        """
-        self.smart_card.reset_service()
-    
-    def insert_smart_card(self) -> None:
-        """
-        Starts the virtual smart card service, simulating card insertion.
-        """
-        self.smart_card.insert_card()
-    
-    def remove_smart_card(self) -> None:
-        """
-        Stops the virtual smart card service, simulating card removal.
-        """
-        self.smart_card.remove_card()
-    
-    def generate_and_upload_ca(self, key_id: str, cert_id: str, pin: str, subj: str = "/CN=Test CA") -> tuple[str, str]:
-        """
-        Generates a CA key and self-signed certificate, then uploads both to the smart card.
-
-        :param key_id: ID to associate with the private key.
-        :param cert_id: ID to associate with the certificate.
-        :param pin: User PIN for smart card authentication.
-        :param subj: Subject DN for the certificate.
-        :return: Tuple of paths (key_path, cert_path) on the remote host.
-        """
-        key_path, cert_path = self.smart_card.generate_ca_cert(subj=subj)
-        self.smart_card.add_key(key_path, key_id, pin)
-        self.smart_card.add_cert(cert_path, cert_id, pin)
-        return key_path, cert_path
+        return self.host.conn.exec(["sss_ssh_authorizedkeys", *args], raise_on_error=False)    

@@ -1,108 +1,134 @@
-from pytest_mh import MultihostHost
+from __future__ import annotations
+
+from pytest_mh import MultihostHost, MultihostUtility
 from pytest_mh.utils.fs import LinuxFileSystem
+from pytest_mh.cli import CLIBuilder
 
 __all__ = [
     "SmartCardUtils",
 ]
-class SmartCardUtils:
+
+
+class SmartCardUtils(MultihostUtility[MultihostHost]):
     """
     Utility class for managing smart card operations using SoftHSM and PKCS#11.
     """
-    
-    def __init__(self, host: MultihostHost):
-        """
-        Initializes the SmartCardUtils with a given host.
-        
-        :param host: The remote host where smart card operations will be executed.
-        """
-        self.host = host
-        self.fs = LinuxFileSystem(host.conn)
-    
+
+    SOFTHSM2_CONF_PATH = "/opt/test_ca/softhsm2.conf"
+    TOKEN_STORAGE_PATH = "/opt/test_ca/tokens"
+    OPENSC_CACHE_PATHS = [
+        "$HOME/.cache/opensc/",
+        "/run/sssd/.cache/opensc/",
+    ]
+
+    def __init__(self, host: MultihostHost) -> None:
+        super().__init__(host)
+
     def init(self, label: str, so_pin: str, user_pin: str) -> None:
         """
         Initializes a SoftHSM token with the given label and PINs.
-        
-        :param label: The label for the new token.
+
+        Cleans cache directories and prepares the token directory.
+
+        :param label: Token label.
         :param so_pin: Security Officer PIN.
         :param user_pin: User PIN.
         """
-        self.host.conn.exec([
-            "softhsm2-util", "--init-token",
-            "--label", label,
-            "--free",
-            "--so-pin", so_pin,
-            "--pin", user_pin
-        ])
-    
-    def add_key(self, key_path: str, key_id: str, pin: str) -> None:
+        for path in self.OPENSC_CACHE_PATHS:
+            self.host.conn.run(f"rm -rf {path}")
+
+        self.host.conn.run(f"rm -rf {self.TOKEN_STORAGE_PATH}")
+        self.host.conn.run(f"mkdir -p {self.TOKEN_STORAGE_PATH}")
+
+        self.host.conn.exec(
+            [
+                "softhsm2-util", "--init-token",
+                "--label", label,
+                "--free",
+                "--so-pin", so_pin,
+                "--pin", user_pin
+            ],
+            env={"SOFTHSM2_CONF": self.SOFTHSM2_CONF_PATH}
+        )
+
+    def add_key(self, key_path: str, key_id: str = "01", pin: str = "123456") -> None:
         """
         Adds a private key to the smart card.
-        
-        :param key_path: Path to the private key file.
-        :param key_id: ID for the key in the smart card.
-        :param pin: User PIN for authentication.
+
+        :param key_path: Path to the private key.
+        :param key_id: Key ID (default '01').
+        :param pin: User PIN (default '123456').
         """
-        self.fs.copy(key_path, "/tmp/key.pem")
-        self.host.conn.exec([
-            "pkcs11-tool", "--module", "/usr/lib64/pkcs11/libsofthsm2.so",
-            "-l", "--pin", pin,
-            "--write-object", "/tmp/key.pem",
-            "--type", "privkey",
-            "--id", key_id
-        ])
-    
-    def add_cert(self, cert_path: str, cert_id: str, pin: str) -> None:
+        self.host.conn.exec(
+            [
+                "pkcs11-tool", "--module", "/usr/lib64/pkcs11/libsofthsm2.so",
+                "-l", "--pin", pin,
+                "--write-object", key_path,
+                "--type", "privkey",
+                "--id", key_id
+            ],
+            env={"SOFTHSM2_CONF": self.SOFTHSM2_CONF_PATH}
+        )
+
+    def add_cert(self, cert_path: str, cert_id: str = "01", pin: str = "123456") -> None:
         """
         Adds a certificate to the smart card.
-        
-        :param cert_path: Path to the certificate file.
-        :param cert_id: ID for the certificate in the smart card.
-        :param pin: User PIN for authentication.
+
+        :param cert_path: Path to the certificate.
+        :param cert_id: Certificate ID (default '01').
+        :param pin: User PIN (default '123456').
         """
-        self.fs.copy(cert_path, "/tmp/cert.pem")
-        self.host.conn.exec([
-            "pkcs11-tool", "--module", "/usr/lib64/pkcs11/libsofthsm2.so",
-            "-l", "--pin", pin,
-            "--write-object", "/tmp/cert.pem",
-            "--type", "cert",
-            "--id", cert_id
-        ])
-    
+        self.host.conn.exec(
+            [
+                "pkcs11-tool", "--module", "/usr/lib64/pkcs11/libsofthsm2.so",
+                "-l", "--pin", pin,
+                "--write-object", cert_path,
+                "--type", "cert",
+                "--id", cert_id
+            ],
+            env={"SOFTHSM2_CONF": self.SOFTHSM2_CONF_PATH}
+        )
+
     def reset_service(self) -> None:
         """
         Restarts the virtual smart card service.
         """
         self.host.svc.restart("virt_cacard.service")
-    
+
     def insert_card(self) -> None:
         """
-        Starts the virtual smart card service to simulate card insertion.
+        Simulates card insertion by starting the smart card service.
         """
         self.host.conn.exec(["systemctl", "start", "virt_cacard.service"])
-    
+
     def remove_card(self) -> None:
         """
-        Stops the virtual smart card service to simulate card removal.
+        Simulates card removal by stopping the smart card service.
         """
         self.host.conn.exec(["systemctl", "stop", "virt_cacard.service"])
 
-    def generate_ca_cert(self, key_path: str = "/tmp/ca.key", cert_path: str = "/tmp/ca.crt", subj: str = "/CN=Test CA") -> tuple[str, str]:
+    def generate_self_signed_cert(
+        self,
+        key_path: str = "/tmp/selfsigned.key",
+        cert_path: str = "/tmp/selfsigned.crt",
+        subj: str = "/CN=Test Cert"
+    ) -> tuple[str, str]:
         """
-        Generates a self-signed CA certificate and key using OpenSSL on the remote host.
+        Generates a self-signed certificate and private key.
 
-        :param key_path: Path where the private key will be stored.
-        :param cert_path: Path where the certificate will be stored.
-        :param subj: The subject line for the certificate.
+        :param key_path: Output path for the private key.
+        :param cert_path: Output path for the certificate.
+        :param subj: Subject for the certificate.
         :return: Tuple of (key_path, cert_path)
         """
-        self.host.conn.exec([
-            "openssl", "genrsa", "-out", key_path, "2048"
-        ])
-        self.host.conn.exec([
-            "openssl", "req", "-x509", "-new", "-nodes",
-            "-key", key_path,
-            "-sha256", "-days", "365",
-            "-out", cert_path,
-            "-subj", subj
-        ])
+        self.host.conn.exec(
+            [
+                "openssl", "req", "-x509", "-nodes",
+                "-sha256", "-days", "365",
+                "-newkey", "rsa:2048",
+                "-keyout", key_path,
+                "-out", cert_path,
+                "-subj", subj
+            ]
+        )
         return key_path, cert_path
