@@ -937,7 +937,7 @@ class SambaGPO(SambaObject):
         """Group policy search base."""
 
         # samba-tool gpo commands edit the database files directly and need to be authenticated.
-        self.credentials: str = f" --username={self.role.host.admin} --password={self.role.host.adminpw}"
+        self.credentials: str = f" --username={self.role.host.adminuser} --password={self.role.host.adminpw}"
         """Credentials to manage GPOs."""
 
     def add(self) -> SambaGPO:
@@ -986,7 +986,7 @@ class SambaGPO(SambaObject):
             "Guid": (self.cli.option.POSITIONAL, self.cn),
             "enforce": (self.cli.option.SWITCH, enforced),
             "disable": (self.cli.option.SWITCH, disabled),
-            "username": (self.cli.option.VALUE, self.role.host.admin),
+            "username": (self.cli.option.VALUE, self.role.host.adminuser),
             "password": (self.cli.option.VALUE, self.role.host.adminpw),
         }
 
