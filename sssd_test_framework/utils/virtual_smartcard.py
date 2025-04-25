@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from pytest_mh import MultihostHost, MultihostUtility
-from pytest_mh.utils.fs import LinuxFileSystem
-from pytest_mh.cli import CLIBuilder
 
 __all__ = [
     "SmartCardUtils",
@@ -24,15 +22,18 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
     def __init__(self, host: MultihostHost) -> None:
         super().__init__(host)
 
-    def init(self, label: str, so_pin: str, user_pin: str) -> None:
+    def init(self, label: str="sc_test", so_pin: str="12345678", user_pin: str="123456") -> None:
         """
         Initializes a SoftHSM token with the given label and PINs.
 
         Cleans cache directories and prepares the token directory.
 
-        :param label: Token label.
-        :param so_pin: Security Officer PIN.
-        :param user_pin: User PIN.
+        :param label: Token label,defaults to "sc_test"
+        :type label: str, optional
+        :param so_pin: Security Officer PIN, defaults to "12345678"
+        :type so_pin:str, optional
+        :param user_pin: User PIN, defaults to "123456"
+        :type user_pin: str, optional
         """
         for path in self.OPENSC_CACHE_PATHS:
             self.host.conn.run(f"rm -rf {path}")
@@ -56,8 +57,11 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
         Adds a private key to the smart card.
 
         :param key_path: Path to the private key.
-        :param key_id: Key ID (default '01').
-        :param pin: User PIN (default '123456').
+        :type key_path:str
+        :param key_id: Key ID defaults to "01"
+        :type key_id:str, optional
+        :param pin: User PIN defaults to "123456".
+        :type pin:str, optional
         """
         self.host.conn.exec(
             [
@@ -75,8 +79,11 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
         Adds a certificate to the smart card.
 
         :param cert_path: Path to the certificate.
-        :param cert_id: Certificate ID (default '01').
-        :param pin: User PIN (default '123456').
+        :type cert_path:str
+        :param cert_id: Certificate ID defaults to "01"
+        :type cert_id:str, optional
+        :param pin: User PIN defaults to "123456"
+        :type pin:str, optional
         """
         self.host.conn.exec(
             [
@@ -93,7 +100,7 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
         """
         Restarts the virtual smart card service.
         """
-        self.host.svc.restart("virt_cacard.service")
+        self.host.conn.exec(["systemctl", "restart", "virt_cacard.service"])
 
     def insert_card(self) -> None:
         """
@@ -116,9 +123,12 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
         """
         Generates a self-signed certificate and private key.
 
-        :param key_path: Output path for the private key.
-        :param cert_path: Output path for the certificate.
-        :param subj: Subject for the certificate.
+        :param key_path: Output path for the private key, defaults to "/tmp/selfsigned.key"
+        :type key_path:str, optional
+        :param cert_path: Output path for the certificate, defautls to /tmp/selfsigned.crt"
+        :type cert_path:str, optional
+        :param subj: Subject for the certificate, defaults to "/CN=Test Cert"
+        :type subj:str, optional
         :return: Tuple of (key_path, cert_path)
         """
         self.host.conn.exec(
