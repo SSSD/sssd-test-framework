@@ -15,7 +15,6 @@ __all__ = [
     "IPATopologyController",
     "ADTopologyController",
     "SambaTopologyController",
-    "NoJoinTopologyController",
     "IPATrustADTopologyController",
     "IPATrustSambaTopologyController",
 ]
@@ -112,22 +111,6 @@ class ADTopologyController(ProvisionedBackupTopologyController):
 
         # Join AD domain
         client.conn.exec(["realm", "join", provider.domain], input=provider.adminpw)
-
-        # Backup so we can restore to this state after each test
-        super().topology_setup()
-
-
-class NoJoinTopologyController(ProvisionedBackupTopologyController):
-    """
-    No Join Topology Controller.
-
-    Client is not configured.
-    """
-
-    def topology_setup(self, client: ClientHost, provider: ADHost | SambaHost | IPAHost) -> None:
-        # Remove any existing Kerberos configuration and keytab
-        client.fs.rm("/etc/krb5.conf")
-        client.fs.rm("/etc/krb5.keytab")
 
         # Backup so we can restore to this state after each test
         super().topology_setup()

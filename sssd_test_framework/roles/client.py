@@ -9,7 +9,6 @@ from ..topology import SSSDTopologyMark
 from ..utils.automount import AutomountUtils
 from ..utils.ldb import LDBUtils
 from ..utils.local_users import LocalUsersUtils
-from ..utils.realmd import RealmUtils
 from ..utils.sbus import DBUSDestination, DBUSKnownBus
 from ..utils.sss_override import SSSOverrideUtils
 from ..utils.sssctl import SSSCTLUtils
@@ -52,11 +51,6 @@ class Client(BaseLinuxRole[ClientHost]):
         self.sssctl: SSSCTLUtils = SSSCTLUtils(self.host, self.fs)
         """
         Call commands from sssctl.
-        """
-
-        self.realm: RealmUtils = RealmUtils(self.host)
-        """
-        Call commands from realm.
         """
 
         self.ldb: LDBUtils = LDBUtils(self.host)
