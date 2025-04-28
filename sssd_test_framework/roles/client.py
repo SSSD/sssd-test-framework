@@ -13,8 +13,8 @@ from ..utils.sbus import DBUSDestination, DBUSKnownBus
 from ..utils.sss_override import SSSOverrideUtils
 from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
-from .base import BaseLinuxRole
 from ..utils.virtual_smartcard import SmartCardUtils
+from .base import BaseLinuxRole
 
 __all__ = [
     "Client",
@@ -85,7 +85,7 @@ class Client(BaseLinuxRole[ClientHost]):
         """
         Utility class for managing smart card operations using SoftHSM and PKCS#11.
         """
-        
+
     def setup(self) -> None:
         """
         Called before execution of each test.
@@ -131,4 +131,4 @@ class Client(BaseLinuxRole[ClientHost]):
         :return: Command result.
         :rtype: ProcessResult
         """
-        return self.host.conn.exec(["sss_ssh_authorizedkeys", *args], raise_on_error=False)    
+        return self.host.conn.exec(["sss_ssh_authorizedkeys", *args], raise_on_error=False)
