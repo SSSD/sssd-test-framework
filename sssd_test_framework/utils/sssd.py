@@ -832,6 +832,7 @@ class SSSDCommonConfiguration(object):
             proxy_lib_name="files",
             proxy_pam_target="system-auth",
         )
+        self.sssd.default_domain = "local"
 
     def krb5_auth(self, kdc: KDC, domain: str | None = None) -> None:
         """
