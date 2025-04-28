@@ -6,19 +6,20 @@ from textwrap import dedent
 from typing import Any
 
 from pytest_mh.cli import CLIBuilderArgs
-from pytest_mh.conn import ProcessResult
+from pytest_mh.conn import ProcessError, ProcessResult
 
 from ..hosts.ipa import IPAHost
-from ..misc import attrs_include_value, attrs_parse, to_list, to_list_of_strings
+from ..misc import attrs_include_value, attrs_parse, to_list, to_list_of_strings, to_list_without_none
 from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
 from .base import BaseLinuxRole, BaseObject
-from .generic import GenericNetgroupMember
+from .generic import GenericNetgroupMember, GenericPasswordPolicy
 from .nfs import NFSExport
 
 __all__ = [
     "IPA",
     "IPAObject",
+    "IPAPasswordPolicy",
     "IPAUser",
     "IPAGroup",
     "IPASudoRule",
@@ -72,6 +73,11 @@ class IPA(BaseLinuxRole[IPAHost]):
         self.sssctl: SSSCTLUtils = SSSCTLUtils(self.host, self.fs)
         """
         Call commands from sssctl.
+        """
+
+        self._password_policy: IPAPasswordPolicy = IPAPasswordPolicy(self)
+        """
+        Manage password policy.
         """
 
         self.automount: IPAAutomount = IPAAutomount(self)
@@ -129,6 +135,24 @@ class IPA(BaseLinuxRole[IPAHost]):
                     },
                 }
         """
+
+    @property
+    def password_policy(self) -> IPAPasswordPolicy:
+        """
+        Domain password policy management.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.IPA)
+            def test_example(client: Client, ipa: IPA):
+                # Enable password complexity
+                ipa.password_policy.complexity(enable=True)
+
+                # Set 3 login attempts and 30 lockout duration
+                ipa.password_policy.lockout(attempts=3, duration=30)
+        """
+        return self._password_policy
 
     def setup(self) -> None:
         """
@@ -388,7 +412,7 @@ class IPAObject(BaseObject[IPAHost, IPA]):
         """
         self._exec("del")
 
-    def get(self, attrs: list[str] | None = None) -> dict[str, list[str]]:
+    def get(self, attrs: list[str] | None = None) -> dict[str, list[str]] | None:
         """
         Get IPA object attributes.
 
@@ -397,10 +421,13 @@ class IPAObject(BaseObject[IPAHost, IPA]):
         :return: Dictionary with attribute name as a key.
         :rtype: dict[str, list[str]]
         """
-        cmd = self._exec("show", ["--all", "--raw"])
+        cmd = self._exec("show", ["--all", "--raw"], raise_on_error=False)
 
         # ipa output starts with space
         lines = dedent(cmd.stdout).splitlines()
+
+        if lines is None or len(lines) == 0:
+            return None
 
         # Remove first line that contains the object name and not attribute
         return attrs_parse(lines[1:], attrs)
@@ -432,6 +459,7 @@ class IPAUser(IPAObject):
         require_password_reset: bool = False,
         user_auth_type: str | list[str] | None = None,
         sshpubkey: str | list[str] | None = None,
+        email: str | None = None,
     ) -> IPAUser:
         """
         Create new IPA user.
@@ -456,9 +484,12 @@ class IPAUser(IPAObject):
         :type user_auth_type: str | list[str] | None, optional
         :param sshpubkey: SSH public key, defaults to None
         :type sshpubkey: str | list[str] | None, optional
+        :param email: email attribute, defaults to None
+        :type email: str | None, optional
         :return: Self.
         :rtype: IPAUser
         """
+
         attrs = {
             "first": (self.cli.option.VALUE, self.name),
             "last": (self.cli.option.VALUE, self.name),
@@ -470,6 +501,7 @@ class IPAUser(IPAObject):
             "password": (self.cli.option.SWITCH, True) if password is not None else None,
             "user-auth-type": (self.cli.option.VALUE, user_auth_type),
             "sshpubkey": (self.cli.option.VALUE, sshpubkey),
+            "email": (self.cli.option.VALUE, email),
         }
 
         if not require_password_reset:
@@ -494,6 +526,7 @@ class IPAUser(IPAObject):
         idp_user_id: str | None = None,
         password_expiration: str | None = None,
         sshpubkey: str | list[str] | None = None,
+        email: str | None = None,
     ) -> IPAUser:
         """
         Modify existing IPA user.
@@ -524,6 +557,8 @@ class IPAUser(IPAObject):
         :type password_expiration: str | None, optional
         :param sshpubkey: SSH public key, defaults to None
         :type sshpubkey: str | list[str] | None, optional
+        :param email: email attribute, defaults to None
+        :type email: str | None, optional
         :return: Self.
         :rtype: IPAUser
         """
@@ -541,6 +576,7 @@ class IPAUser(IPAObject):
             "idp-user-id": (self.cli.option.VALUE, idp_user_id),
             "password-expiration": (self.cli.option.VALUE, password_expiration),
             "sshpubkey": (self.cli.option.VALUE, sshpubkey),
+            "email": (self.cli.option.VALUE, email),
         }
 
         self._modify(attrs, input=password)
@@ -572,6 +608,16 @@ class IPAUser(IPAObject):
         """
         self.modify(password_expiration=expiration)
 
+        return self
+
+    def password_change_at_logon(self, **kwargs) -> IPAUser:
+        """
+        Force user to change password next logon.
+
+        :return: Self.
+        :rtype: IPAUser
+        """
+        self.host.conn.run(f"ipa user-mod {self.name} --setattr=krbPasswordExpiration=20010203203734Z")
         return self
 
     def passkey_add(self, passkey_mapping: str) -> IPAUser:
@@ -662,6 +708,234 @@ class IPAUser(IPAObject):
         """
         self._exec("remove-passkey", [passkey_mapping])
         return self
+
+    def iduseroverride(self) -> IDUserOverride:
+        """
+        Add override to the IPA user.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.IPA)
+            def test_example(client: Client, ipa: IPA):
+                ipa.idview("newview1").add(description="This is a new view")
+                ipa.idview("newview1").apply(f"{client.host.hostname}")
+                ipa.user("user-1").add().iduseroverride().add_override("newview1", uid=1344567)
+                client.sssd.restart()
+                lookup1 = client.tools.id("user-1")
+                assert lookup1.user.id == 1344567
+
+        :return: New IDOverride object.
+        :rtype: IDOverride
+        """
+        return IDUserOverride(self)
+
+
+class IDUserOverride(IPAUser):
+    """
+    IPA ID override for users.
+    """
+
+    def __init__(self, user: IPAUser) -> None:
+        """
+        :param user: IPA user object.
+        :type user: IPAUser
+        """
+        super().__init__(user.role, user.name)
+        self.name = user.name
+
+    def add_override(
+        self,
+        idview_name: str,
+        *,
+        description: str | None = None,
+        login: str | None = None,
+        uid: int | None = None,
+        gid: int | None = None,
+        gecos: str | None = None,
+        home: str | None = None,
+        shell: str | None = None,
+        sshpubkey: str | None = None,
+        certificate: str | list[str] | None = None,
+        **kwargs,
+    ) -> tuple[ProcessResult[ProcessError], list[str] | str | list | None]:
+        """
+        Add a new User ID override.
+
+        :param idview_name: Name of IDView.
+        :type idview_name: str
+        :param description: Description.
+        :type description: str | None, defaults to None
+        :param login: Overridden User login.
+        :type login: str | None, defaults to None
+        :param uid: Overridden User ID number.
+        :type uid: str | None, defaults to None
+        :param gid: Overridden Group ID number.
+        :type gid: str | None, defaults to None
+        :param gecos: Overridden Gecos.
+        :type gecos: str | None, defaults to None
+        :param home: Overridden Home directory.
+        :type home: str | None, defaults to None
+        :param shell: Overridden Login shell.
+        :type shell: str | None, defaults to None
+        :param sshpubkey: Overridden SSH public key.
+        :type sshpubkey: str | None, defaults to None
+        :param certificate: Overridden Certificate.
+        :type certificate: str | list[str] | None, defaults to None
+        :return: ProcessResult, cert
+        :rtype: tuple[ProcessResult, list[str] | str | list | None]
+        """
+        certs = [certificate] if isinstance(certificate, str) else certificate or []
+
+        attrs: CLIBuilderArgs = {
+            "desc": (self.cli.option.VALUE, description),
+            "login": (self.cli.option.VALUE, login),
+            "uid": (self.cli.option.VALUE, uid),
+            "gidnumber": (self.cli.option.VALUE, gid),
+            "gecos": (self.cli.option.VALUE, gecos),
+            "homedir": (self.cli.option.VALUE, home),
+            "shell": (self.cli.option.VALUE, shell),
+            "sshpubkey": (self.cli.option.VALUE, sshpubkey),
+        }
+
+        if kwargs:
+            unexpected_keys = ", ".join(kwargs.keys())
+            raise TypeError(f"Unexpected keyword arguments: {unexpected_keys}")
+
+        # Create the ID override first
+        result = self.role.host.conn.exec(
+            ["ipa", "idoverrideuser-add", idview_name, self.name] + to_list_without_none(self.cli.args(attrs)),
+            raise_on_error=False,
+        )
+
+        # Add certificates if any exist
+        if certs:
+            cert_cmd = ["ipa", "idoverrideuser-add-cert", idview_name, self.name]
+            for cert in certs:
+                self.role.host.conn.exec(cert_cmd + [f"--certificate={cert}"])
+
+        return (result, certs)
+
+    def modify_override(
+        self,
+        idview_name: str,
+        *,
+        description: str | None = None,
+        login: str | None = None,
+        uid: int | None = None,
+        gid: int | None = None,
+        gecos: str | None = None,
+        home: str | None = None,
+        shell: str | None = None,
+        sshpubkey: str | None = None,
+        certificate: str | list[str] | None = None,
+    ) -> IDUserOverride:
+        """
+        Modify an User ID override.
+
+        :param idview_name: Name of IDView.
+        :type idview_name: str
+        :param description: Description.
+        :type description: str | None, defaults to None
+        :param login: Overridden User login.
+        :type login: str | None, defaults to None
+        :param uid: Overridden User ID number.
+        :type uid: str | None, defaults to None
+        :param gid: Overridden Group ID.
+        :type gid: str | None, defaults to None
+        :param gecos: Overridden Gecos.
+        :type gecos: str | None, defaults to None
+        :param home: Overridden Home directory.
+        :type home: str | None, defaults to None
+        :param shell: Overridden Login shell.
+        :type shell: str | None, defaults to None
+        :param sshpubkey: Overridden SSH public key.
+        :type sshpubkey: str | None, defaults to None
+        :param certificate: Overridden Certificate.
+        :type certificate: str | list[str] | None, defaults to None
+        :return: self.
+        :rtype: IDUserOverride
+        """
+
+        attrs: CLIBuilderArgs = {
+            "desc": (self.cli.option.VALUE, description),
+            "login": (self.cli.option.VALUE, login),
+            "uid": (self.cli.option.VALUE, uid),
+            "gidnumber": (self.cli.option.VALUE, gid),
+            "gecos": (self.cli.option.VALUE, gecos),
+            "homedir": (self.cli.option.VALUE, home),
+            "shell": (self.cli.option.VALUE, shell),
+            "sshpubkey": (self.cli.option.VALUE, sshpubkey),
+            "certificate": (self.cli.option.VALUE, certificate),
+        }
+
+        attrs = CLIBuilderArgs(attrs)
+        self.role.host.conn.exec(
+            ["ipa", "idoverrideuser-mod", idview_name, self.name] + to_list_without_none(self.cli.args(attrs))
+        )
+
+        return self
+
+    def delete_override(self, idview_name: str) -> ProcessResult[ProcessError]:
+        """
+        Delete an User ID override.
+
+        :param idview_name: Name of IDView.
+        :type idview_name: str
+        :return: ProcessResult[ProcessError]
+        :rtype: [ProcessError]
+        """
+
+        result = self.role.host.conn.exec(["ipa", "idoverrideuser-del", idview_name, self.name])
+        return result
+
+    def remove_cert(self, idview_name: str, certificate: str | list[str]) -> IDUserOverride:
+        """
+        Remove one or more certificates to the idoverrideuser entry.
+
+        :param idview_name: Name of IDView.
+        :type idview_name: str
+        :param certificate: Overridden Certificate.
+        :type certificate: str | list[str]
+        :return: self.
+        :rtype: IDOverride
+        """
+        self.role.host.conn.exec(
+            ["ipa", "idoverrideuser-remove-cert", idview_name, self.name, f"--certificate={certificate}"]
+        )
+        return self
+
+    def find_override(self, idview_name: str) -> dict[str, list[str]]:
+        """
+        Search for an User ID override.
+
+        :param idview_name: Name of IDView.
+        :type idview_name: str
+        :return: Dict of IDOverride user information.
+        :rtype: dict[str, list[str]]
+        """
+
+        cmd = self.role.host.conn.exec(["ipa", "idoverrideuser-find", idview_name, "--anchor", self.name, "--raw"])
+        cleaned_data = [dedent(line).strip() for line in cmd.stdout_lines if not set(line) == {"-"} and line.strip()]
+
+        lines = [line for line in cleaned_data if ":" in line]
+
+        return attrs_parse(lines)
+
+    def show_override(self, idview_name: str) -> dict[str, list[str]]:
+        """
+        Display information about an User ID override.
+
+        :param idview_name: Name of IDView.
+        :type idview_name: str
+        :return: dict of IDOverride user information.
+        :rtype: dict[str, list[str]]
+        """
+        cmd = self.role.host.conn.exec(["ipa", "idoverrideuser-show", idview_name, self.name, "--raw"])
+
+        lines = [line.strip() for line in cmd.stdout_lines if ":" in line]
+
+        return attrs_parse(lines)
 
 
 class IPAGroup(IPAObject):
@@ -801,6 +1075,148 @@ class IPAGroup(IPAObject):
         groups = [x for item in members if isinstance(item, IPAGroup) for x in ("--groups", item.name)]
         external = [x for item in members if isinstance(item, str) for x in ("--external", item)]
         return [*users, *groups, *external]
+
+    def idgroupoverride(self) -> IDGroupOverride:
+        """
+        Add override to the IPA Group.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.IPA)
+            def test_example(client: Client, ipa: IPA):
+                ipa.idview("newview1").add(description="This is a new view")
+                ipa.idview("newview1").apply(hosts=f"{client.host.hostname}")
+                ipa.group("group-1").add().idgroupoverride().add_override("newview1", gid=1344567)
+                client.sssd.restart()
+                g_lookup = client.tools.getent.group("group-1")
+                assert g_lookup.gid == 1344567
+
+        :return: New IDOverride object.
+        :rtype: IDOverride
+        """
+        return IDGroupOverride(self)
+
+
+class IDGroupOverride(IPAGroup):
+    """
+    IPA group ID override.
+    """
+
+    def __init__(self, group: IPAGroup) -> None:
+        """
+        :param user: IPA group object.
+        :type user: IPAGroup
+        """
+        super().__init__(group.role, group.name)
+        self.name = group.name
+
+    def add_override(
+        self,
+        idview_name: str,
+        *,
+        description: str | None = None,
+        name: str | None = None,
+        gid: int | None = None,
+    ) -> IDGroupOverride:
+        """
+        Add a new Group ID override.
+
+        :param idview_name: Name of IDView.
+        :type idview_name: str
+        :param description: Description.
+        :type description: str | None, defaults to None
+        :param name: Overridden group name.
+        :type name: str | None, defaults to None
+        :param gid: Overridden Group ID Number.
+        :type gid: str | None, defaults to None
+        :return: self.
+        :rtype: IDGroupOverride
+        """
+
+        attrs: CLIBuilderArgs = {
+            "desc": (self.cli.option.VALUE, description),
+            "group-name": (self.cli.option.VALUE, name),
+            "gid": (self.cli.option.VALUE, gid),
+        }
+
+        self.role.host.conn.exec(["ipa", "idoverridegroup-add", idview_name, self.name] + list(self.cli.args(attrs)))
+        return self
+
+    def modify_override(
+        self,
+        idview_name: str,
+        *,
+        description: str | None = None,
+        name: str | None = None,
+        gid: int | None = None,
+    ) -> IDGroupOverride:
+        """
+        Modify an Group ID override.
+
+        :param idview_name: Name of IDView.
+        :type idview_name: str
+        :param description: Description.
+        :type description: str | None, defaults to None
+        :param name: Overridden group name.
+        :type name: str | None, defaults to None
+        :param gid: Overridden Group ID Number.
+        :type gid: str | None, defaults to None
+        :return: self.
+        :rtype: IDGroupOverride
+        """
+
+        attrs: CLIBuilderArgs = {
+            "desc": (self.cli.option.VALUE, description),
+            "group-name": (self.cli.option.VALUE, name),
+            "gid": (self.cli.option.VALUE, gid),
+        }
+        attrs = CLIBuilderArgs(attrs)
+        self.role.host.conn.exec(["ipa", "idoverridegroup-mod", idview_name, self.name] + list(self.cli.args(attrs)))
+
+        return self
+
+    def delete_override(self, idview_name: str) -> ProcessResult[ProcessError]:
+        """
+        Delete an Group ID override.
+        :param idview_name: Name of IDView.
+        :type idview_name: str
+        :return: ProcessResult[ProcessError]
+        :rtype: [ProcessError]
+        """
+        result = self.role.host.conn.exec(["ipa", "idoverridegroup-del", idview_name, self.name])
+        return result
+
+    def find_override(self, idview_name: str) -> dict[str, list[str]]:
+        """
+        Search for an Group ID override.
+
+        :param idview_name: Name of IDView.
+        :type: idview_name: str
+        :return: dict of Group ID override information.
+        :rtype: dict[str, list[str]]
+        """
+        cmd = self.role.host.conn.exec(["ipa", "idoverridegroup-find", idview_name, "--anchor", self.name, "--raw"])
+        cleaned_data = [dedent(line).strip() for line in cmd.stdout_lines if not set(line) == {"-"} and line.strip()]
+
+        lines = [line for line in cleaned_data if ":" in line]
+
+        return attrs_parse(lines)
+
+    def show_override(self, idview_name: str) -> dict[str, list[str]]:
+        """
+        Display information about an Group ID override.
+
+        :param idview_name: Name of IDView.
+        :type idview_name: str
+        :return: dict of Group ID Override information.
+        :rtype: dict[str, list[str]]
+        """
+        cmd = self.role.host.conn.exec(["ipa", "idoverridegroup-show", idview_name, self.name, "--raw"])
+
+        lines = [line.strip() for line in cmd.stdout_lines if ":" in line]
+
+        return attrs_parse(lines)
 
 
 class IPANetgroup(IPAObject):
@@ -1621,6 +2037,75 @@ class IPAAutomountKey(IPAObject):
         return info
 
 
+class IPAPasswordPolicy(IPAObject, GenericPasswordPolicy):
+    """
+    Password policy management.
+    """
+
+    def __init__(self, role: IPA, name: str = "ipausers"):
+        """
+        :param role: IPA host object.
+        :type role: IPAHost
+        :param name: Name of target object, defaults to 'ipausers'.
+        :type name: str
+        """
+        super().__init__(role, name, command_group="pwpolicy")
+
+    def complexity(self, enable: bool) -> IPAPasswordPolicy:
+        """
+        Enable or disable password complexity.
+
+        :param enable: Enable or disable password complexity.
+        :type enable: bool
+        :return: IPAPasswordPolicy object.
+        :rtype: IPAPasswordPolicy
+        """
+        attrs: CLIBuilderArgs
+
+        if enable:
+            attrs = {
+                "dictcheck": (self.cli.option.VALUE, "True"),
+                "usercheck": (self.cli.option.VALUE, "True"),
+                "minlength": (self.cli.option.VALUE, 8),
+                "minclasses": (self.cli.option.VALUE, 4),
+                "priority": (self.cli.option.VALUE, 1),
+            }
+        else:
+            attrs = {
+                "dictcheck": (self.cli.option.VALUE, "False"),
+                "usercheck": (self.cli.option.VALUE, "False"),
+                "minlength": (self.cli.option.VALUE, 0),
+                "minclasses": (self.cli.option.VALUE, 0),
+                "priority": (self.cli.option.VALUE, 1),
+            }
+
+        if self.get() is None:
+            self._add(attrs)
+        else:
+            self._modify(attrs)
+
+        return self
+
+    def lockout(self, duration: int, attempts: int) -> IPAPasswordPolicy:
+        """
+        Set lockout duration and login attempts.
+
+        :param duration: Duration of lockout in seconds.
+        :type duration: int
+        :param attempts: Number of login attempts.
+        :type attempts: int
+        :return: IPAPasswordPolicy object.
+        :rtype: IPAPasswordPolicy
+        """
+        attrs: CLIBuilderArgs = {
+            "lockouttime": (self.cli.option.VALUE, str(duration)),
+            "maxfail": (self.cli.option.VALUE, str(attempts)),
+        }
+        self._add(attrs)
+
+        return self
+
+
 class IPAIDView(IPAObject):
     """
     IPA ID view management.
@@ -1679,18 +2164,18 @@ class IPAIDView(IPAObject):
         self._modify(attrs)
         return self
 
-    def apply(self, *, hosts: list[str] | None = None, hostgroups: str | None = None) -> IPAIDView:
+    def apply(self, *, hosts: list[str] | str | None = None, hostgroups: str | None = None) -> ProcessResult:
         """
         Applies ID View to specified hosts or current members of specified
         hostgroups.
 
         :description: If any other ID View is applied to the host, it is overridden.
         :param hosts: Hosts to apply the ID View to, defaults to None
-        :type hosts: list[str] | None
+        :type hosts: list[str] | str | None
         :param hostgroups: Hostgroups to apply the ID View to, defaults to None
         :type hostgroups: str | None
-        :return: IPAIDView
-        :rtype: self
+        :return: SSH Process result.
+        :rtype: ProcessResult
         """
         if not hosts and not hostgroups:
             raise ValueError("Either 'hosts' or 'hostgroups' must be provided.")
@@ -1701,8 +2186,8 @@ class IPAIDView(IPAObject):
         if hostgroups:
             attrs["hostgroups"] = (self.cli.option.VALUE, hostgroups)
 
-        self._exec("apply", self.cli.args(attrs))
-        return self
+        result = self._exec("apply", self.cli.args(attrs), raise_on_error=False)
+        return result
 
     def delete(self) -> None:
         """

@@ -14,11 +14,12 @@ from ..hosts.ldap import LDAPHost
 from ..misc import attrs_include_value, to_list_without_none
 from ..utils.ldap import LDAPRecordAttributes, LDAPUtils
 from .base import BaseLinuxLDAPRole, BaseObject, DeleteAttribute, HostType
-from .generic import GenericNetgroupMember, ProtocolName
+from .generic import GenericNetgroupMember, GenericPasswordPolicy, ProtocolName
 from .nfs import NFSExport
 
 __all__ = [
     "LDAPRoleType",
+    "LDAPPasswordPolicy",
     "LDAPUserType",
     "LDAPGroupType",
     "LDAP",
@@ -84,6 +85,9 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
         self.aci: LDAPACI = LDAPACI(self)
         """Manage LDAP ACI records."""
 
+        self._password_policy: LDAPPasswordPolicy = LDAPPasswordPolicy(self)
+        """Manage password policy."""
+
         self.automount: LDAPAutomount[LDAPHost, LDAP] = LDAPAutomount[LDAPHost, LDAP](self)
         """
         Manage automount maps and keys.
@@ -136,6 +140,24 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
                 }
         """
 
+    @property
+    def password_policy(self) -> LDAPPasswordPolicy:
+        """
+        Domain password policy management.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.LDAP)
+            def test_example(client: Client, ldap: LDAP):
+                # Enable password complexity
+                ldap.password_policy.complexity(enable=True)
+
+                # Set 3 login attempts and 30 lockout duration
+                ldap.password_policy.lockout(attempts=3, duration=30)
+        """
+        return self._password_policy
+
     def _generate_uid(self) -> int:
         """
         Generate next user id value.
@@ -183,6 +205,19 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
         :rtype: LDAPOrganizationalUnit[LDAPHost, LDAP]
         """
         return LDAPOrganizationalUnit[LDAPHost, LDAP](self, name, basedn)
+
+    def setup(self) -> None:
+        """
+        Add ACI granting users the access to change their passwords..
+        """
+        super().setup()
+
+        try:
+            self.aci.add(
+                '(targetattr="userpassword")(version 3.0; acl "pwp test"; allow (all) userdn="ldap:///self";)'
+            )
+        except ldap.TYPE_OR_VALUE_EXISTS:
+            pass
 
     def user(self, name: str, basedn: LDAPObject | str | None = "ou=users", rdn_attr: str | None = "cn") -> LDAPUser:
         """
@@ -664,7 +699,8 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         shadowLastChange: int | None = None,
         sn: str | None = None,
         givenName: str | None = None,
-        mail: str | None = None,
+        mail: str | None = None,  # Remove later once tests are using the email attribute instead of mail
+        email: str | None = None,
     ) -> LDAPUser:
         """
         Create new LDAP user.
@@ -698,6 +734,8 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         :type givenName: str | None, optional
         :param mail: mail LDAP attribute, defaults to None
         :type mail: str | None, optional
+        :param email: mail LDAP attribute, defaults to None
+        :type mail: str | None, optional
         :return: Self.
         :rtype: LDAPUser
         """
@@ -725,13 +763,13 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
             "shadowLastChange": shadowLastChange,
             "sn": sn,
             "givenName": givenName,
-            "mail": mail,
+            "mail": mail or email,
         }
 
         if to_list_without_none([shadowMin, shadowMax, shadowWarning, shadowLastChange]):
             attrs["objectClass"].append("shadowAccount")
 
-        if to_list_without_none([sn, mail]):
+        if to_list_without_none([sn, mail, email]):
             attrs["sn"] = sn if sn else str(uid)
             attrs["objectClass"].append("inetOrgPerson")
 
@@ -755,6 +793,7 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         sn: str | DeleteAttribute | None = None,
         givenName: str | DeleteAttribute | None = None,
         mail: str | DeleteAttribute | None = None,
+        email: str | DeleteAttribute | None = None,
     ) -> LDAPUser:
         """
         Modify existing LDAP user.
@@ -790,9 +829,12 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         :type givenName: str | DeleteAttribute | None, optional
         :param mail: mail LDAP attribute, defaults to None
         :type mail: str | DeleteAttribute | None, optional
+        :param email: mail LDAP attribute, defaults to None
+        :type mail: str | DeleteAttribute | None, optional
         :return: Self.
         :rtype: LDAPUser
         """
+
         attrs: LDAPRecordAttributes = {
             "uidNumber": uid,
             "gidNumber": gid,
@@ -807,7 +849,7 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
             "cn": cn,
             "sn": sn,
             "givenName": givenName,
-            "mail": mail,
+            "mail": mail or email,
         }
 
         self._set(attrs)
@@ -834,7 +876,6 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         :return: Self.
         :rtype: IPAUser
         """
-
         start = datetime.now()
         end = datetime.strptime(expiration, "%Y%m%d%H%M%S")
         time_diff = end - start
@@ -843,6 +884,21 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
             expires_in = 0
 
         self.modify(shadowMax=expires_in)
+
+        return self
+
+    def password_change_at_logon(self, **kwargs) -> LDAPUser:
+        """
+        Force user to change password next logon.
+
+        :return: Self.
+        :rtype: LDAPUser
+        """
+        if "password" not in kwargs.keys():
+            raise TypeError("Missing argument 'password'!")
+
+        self.role.ldap.modify("cn=config", replace={"passwordMustChange": "on"})
+        self.modify(password=kwargs["password"])
 
         return self
 
@@ -1759,3 +1815,80 @@ class LDAPAutomountKey(LDAPObject[HostType, LDAPRoleType]):
             return info.name
 
         return info
+
+
+class LDAPPasswordPolicy(GenericPasswordPolicy):
+    """
+    Password policy management.
+    """
+
+    def __init__(self, role: LDAP) -> None:
+        """
+        :param role: LDAP role object.
+        :type role: LDAP
+        """
+        super().__init__(role)
+        self.config: str = "cn=config"
+
+    def _get(self, name: str) -> str:
+        """
+        Return password policy value.
+
+        :param name: Password policy setting name.
+        :type name: str
+        :return: Password policy value.
+        :rtype: str
+        """
+        result = (
+            self.role.ldap.conn.search_s(self.config, ldap.SCOPE_BASE, attrlist=[name])
+            .pop()[1]
+            .get(name)[0]
+            .decode("utf-8")
+        )
+        return result
+
+    def _set(self, policy: dict[str, str]) -> None:
+        """
+        Set password policy value.
+
+        :param policy: Password policy key and values.
+        :type policy: dict[str, str]
+        """
+        for k, v in policy.items():
+            if self._get(k) != v:
+                self.role.ldap.modify(self.config, replace={k: v})
+
+    def complexity(self, enable: bool) -> LDAPPasswordPolicy:
+        """
+        Enable or disable password complexity.
+
+        :param enable: Enable or disable password complexity.
+        :type enable: bool
+        :return: LDAPPasswordPolicy object.
+        :rtype: LDAPPasswordPolicy
+        """
+        if enable:
+            self._set({"passwordCheckSyntax": "on", "passwordMinLength": "8"})
+        else:
+            self._set({"passwordCheckSyntax": "off", "passwordMinLength": "0"})
+        return self
+
+    def lockout(self, duration: int, attempts: int) -> LDAPPasswordPolicy:
+        """
+        Set lockout duration and login attempts.
+
+        :param duration: Duration of lockout in seconds, converted to minutes.
+        :type duration: int
+        :param attempts: Number of login attempts.
+        :type attempts: int
+        :return: LDAPPasswordPolicy object.
+        :rtype: LDAPPasswordPolicy
+        """
+        self._set(
+            {
+                "passwordLockout": "on",
+                "passwordMaxFailure": str(attempts),
+                "passwordLockoutDuration": str(duration),
+            }
+        )
+        return self
