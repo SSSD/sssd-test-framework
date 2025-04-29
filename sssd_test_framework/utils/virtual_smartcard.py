@@ -151,3 +151,21 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
             ]
         )
         return key_path, cert_path
+
+    def insert_card(self) -> None:
+        """
+        Simulates card insertion by starting the smart card service.
+        """
+        self.host.conn.exec(["systemctl", "start", "virt_cacard.service"])
+
+    def remove_card(self) -> None:
+        """
+        Simulates card removal by stopping the smart card service.
+        """
+        self.host.conn.exec(["systemctl", "stop", "virt_cacard.service"])
+
+    def reset_service(self) -> None:
+        """
+        Restarts the virtual smart card service.
+        """
+        self.host.conn.exec(["systemctl", "restart", "virt_cacard.service"])
