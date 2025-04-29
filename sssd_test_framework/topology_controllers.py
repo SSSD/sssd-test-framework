@@ -17,6 +17,7 @@ __all__ = [
     "SambaTopologyController",
     "IPATrustADTopologyController",
     "IPATrustSambaTopologyController",
+    "IPA2ClientsTopologyController",
 ]
 
 
@@ -89,6 +90,35 @@ class IPATopologyController(ProvisionedBackupTopologyController):
         client.conn.exec(["realm", "join", ipa.domain], input=ipa.adminpw)
 
         # Backup so we can restore to this state after each test
+        super().topology_setup()
+
+
+class IPA2ClientsTopologyController(ProvisionedBackupTopologyController):
+    """
+    IPA with two clients Topology Controller.
+    """
+
+    @BackupTopologyController.restore_vanilla_on_error
+    def topology_setup(self, client: ClientHost, client2: ClientHost, ipa: IPAHost) -> None:
+        if self.provisioned:
+            self.logger.info(f"Topology '{self.name}' is already provisioned")
+            return
+
+        for cl in (client, client2):
+            self.logger.info(f"Enrolling {cl.hostname} into {ipa.domain}")
+
+            # Remove any existing Kerberos configuration and keytab
+            cl.fs.rm("/etc/krb5.conf")
+            cl.fs.rm("/etc/krb5.keytab")
+
+            # Backup ipa-client-install files
+            cl.fs.backup("/etc/ipa")
+            cl.fs.backup("/var/lib/ipa-client")
+
+            # Join ipa domain
+            cl.conn.exec(["realm", "join", ipa.domain], input=ipa.adminpw)
+
+        # Backup IPA state after both clients are enrolled
         super().topology_setup()
 
 
