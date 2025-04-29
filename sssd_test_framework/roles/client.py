@@ -6,6 +6,7 @@ from pytest_mh.conn import ProcessResult
 
 from ..hosts.client import ClientHost
 from ..topology import SSSDTopologyMark
+from ..utils.adcli import AdcliUtils
 from ..utils.automount import AutomountUtils
 from ..utils.ldb import LDBUtils
 from ..utils.local_users import LocalUsersUtils
@@ -51,6 +52,11 @@ class Client(BaseLinuxRole[ClientHost]):
         self.sssctl: SSSCTLUtils = SSSCTLUtils(self.host, self.fs)
         """
         Call commands from sssctl.
+        """
+
+        self.adcli: AdcliUtils = AdcliUtils(self.host)
+        """
+        Call commands from adcli.
         """
 
         self.ldb: LDBUtils = LDBUtils(self.host)
