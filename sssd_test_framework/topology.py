@@ -14,6 +14,7 @@ from .topology_controllers import (
     IPATopologyController,
     IPATrustADTopologyController,
     IPATrustSambaTopologyController,
+    KeycloakTopologyController,
     LDAPTopologyController,
     SambaTopologyController,
 )
@@ -116,6 +117,19 @@ class KnownTopology(KnownTopologyBase):
     )
     """
     .. topology-mark:: KnownTopology.IPATrustSamba
+    """
+
+    Keycloak = SSSDTopologyMark(
+        name="keycloak",
+        topology=Topology(TopologyDomain("sssd", client=1, keycloak=1)),
+        controller=KeycloakTopologyController(),
+        fixtures=dict(
+            client="sssd.client[0]",
+            keycloak="sssd.keycloak[0]",
+        ),
+    )
+    """
+    .. topology-mark:: KnownTopology.Keycloak
     """
 
 

@@ -7,6 +7,7 @@ from .config import SSSDMultihostConfig
 from .hosts.ad import ADHost
 from .hosts.client import ClientHost
 from .hosts.ipa import IPAHost
+from .hosts.keycloak import KeycloakHost
 from .hosts.samba import SambaHost
 from .misc.ssh import retry_command
 
@@ -17,6 +18,7 @@ __all__ = [
     "SambaTopologyController",
     "IPATrustADTopologyController",
     "IPATrustSambaTopologyController",
+    "KeycloakTopologyController",
 ]
 
 
@@ -173,3 +175,45 @@ class IPATrustSambaTopologyController(IPATrustADTopologyController):
     """
 
     pass
+
+
+class KeycloakTopologyController(ProvisionedBackupTopologyController):
+    """
+    Keycloak Topology Controller.
+    """
+
+    @BackupTopologyController.restore_vanilla_on_error
+    def topology_setup(self, client: ClientHost, keycloak: KeycloakHost) -> None:
+        if self.provisioned:
+            self.logger.info(f"Topology '{self.name}' is already provisioned")
+            return
+
+        self.logger.info(f"Enrolling {client.hostname} into {keycloak.hostname} by creating an IdP client")
+
+        # Create an IdP client
+        keycloak.kclogin()
+        keycloak.conn.run(
+            "/opt/keycloak/bin/kcadm.sh create clients -r master "
+            '-b \'{"clientId": "myclient", "clientAuthenticatorType": "client-secret", '
+            '"secret": "ClientSecret123", "serviceAccountsEnabled": true, '
+            '"attributes": {"oauth2.device.authorization.grant.enabled": "true"}}\' '
+        )
+        keycloak.conn.run(
+            "/opt/keycloak/bin/kcadm.sh add-roles -r master "
+            "--cclientid account --rolename view-groups --uusername service-account-myclient"
+        )
+        keycloak.conn.run(
+            "/opt/keycloak/bin/kcadm.sh add-roles -r master "
+            "--cclientid master-realm --rolename view-users --uusername service-account-myclient"
+        )
+        keycloak.conn.run(
+            "/opt/keycloak/bin/kcadm.sh add-roles -r master "
+            "--cclientid master-realm --rolename query-users --uusername service-account-myclient"
+        )
+        keycloak.conn.run(
+            "/opt/keycloak/bin/kcadm.sh add-roles -r master "
+            "--cclientid master-realm --rolename query-groups --uusername service-account-myclient"
+        )
+
+        # Backup so we can restore to this state after each test
+        super().topology_setup()
