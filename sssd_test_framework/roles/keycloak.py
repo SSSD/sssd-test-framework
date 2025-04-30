@@ -13,6 +13,7 @@ __all__ = [
     "Keycloak",
     "KeycloakUser",
     "KeycloakGroup",
+    "KeycloakIdPClient",
 ]
 
 
@@ -366,3 +367,68 @@ class KeycloakGroup(KeycloakObject):
         users = [x for item in members if isinstance(item, KeycloakUser) for x in (f"users/{item.id}",)]
         groups = [x for item in members if isinstance(item, KeycloakGroup) for x in (f"groups/{item.id}",)]
         return [*users, *groups]
+
+
+class KeycloakIdPClient(KeycloakObject):
+    """
+    Keycloak IdP client management.
+    """
+
+    def __init__(self, role: Keycloak, name: str) -> None:
+        """
+        :param role: Keycloak role object.
+        :type role: Keycloak
+        :param name: IdP client name.
+        :type name: str
+        """
+        super().__init__(role, name)
+
+    def add(
+        self,
+        *,
+        password: str | None = "Secret123",
+    ) -> KeycloakIdPClient:
+        """
+        Create new Keycloak IdP client.
+
+        Parameters that are not set are ignored.
+
+        :param password: Password, defaults to 'Secret123'
+        :type password: str | None, optional
+        :return: Self.
+        :rtype: KeycloakIdPClient
+        """
+        create_idp_client = (
+            "create clients -r master -b '{\""
+            f'clientId": "{self.name}", '
+            f'"clientAuthenticatorType": "client-secret", "secret": "{password}", '
+            '"serviceAccountsEnabled": true, "attributes": {"oauth2.device.authorization.grant.enabled": "true"}}\' '
+        )
+        result = self.role.kcadm(create_idp_client)
+
+        self.id = result.stderr.split()[-1].strip("'")
+
+        self.role.kcadm(
+            "add-roles -r master --cclientid account --rolename view-groups --uusername service-account-myclient"
+        )
+        self.role.kcadm(
+            "add-roles -r master --cclientid master-realm "
+            "--rolename view-users --uusername service-account-myclient"
+        )
+        self.role.kcadm(
+            "add-roles -r master --cclientid master-realm "
+            "--rolename query-users --uusername service-account-myclient"
+        )
+        self.role.kcadm(
+            "add-roles -r master --cclientid master-realm "
+            "--rolename query-groups --uusername service-account-myclient"
+        )
+
+        return self
+
+    def delete(self) -> None:
+        """
+        Delete Keycloak IdP client.
+        """
+        del_idp_client = f"delete clients/{self.id}"
+        self.role.kcadm(del_idp_client)
