@@ -74,6 +74,17 @@ class KnownTopology(KnownTopologyBase):
     .. topology-mark:: KnownTopology.IPA
     """
 
+    IPA2Clients = SSSDTopologyMark(
+        name="ipa2clients",
+        topology=Topology(TopologyDomain("sssd", client=2, ipa=1, nfs=1)),
+        controller=IPATrustADTopologyController(),
+        domains=dict(test="sssd.ipa2clients[0]"),
+        fixtures=dict(client="sssd.client[0]", client2="sssd.client[1]", provider="sssd.ipa[0]", nfs="sssd.nfs[0]"),
+    )
+    """
+    .. topology-mark:: KnownTopology.IPA2Clients
+    """
+
     AD = SSSDTopologyMark(
         name="ad",
         topology=Topology(TopologyDomain("sssd", client=1, ad=1, nfs=1)),
@@ -153,4 +164,8 @@ class KnownTopologyGroup(KnownTopologyGroupBase):
     IPATrust = [KnownTopology.IPATrustAD, KnownTopology.IPATrustSamba]
     """
     .. topology-mark:: KnownTopologyGroup.IPATrust
+    """
+    IPA2Clients = [KnownTopology.IPA2Clients]
+    """
+    .. topology-mark:: KnownTopologyGroup.IPA2Clients
     """
