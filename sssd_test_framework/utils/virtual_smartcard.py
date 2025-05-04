@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from pytest_mh import MultihostHost, MultihostUtility
+
+if TYPE_CHECKING:
+    from ..roles.client import Client
 
 __all__ = [
     "SmartCardUtils",
@@ -30,10 +35,8 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
 
         :param label: Token label, defaults to "sc_test"
         :type label: str, optional
-
         :param so_pin: Security Officer PIN, defaults to "12345678"
         :type so_pin: str, optional
-
         :param user_pin: User PIN, defaults to "123456"
         :type user_pin: str, optional
         """
@@ -54,10 +57,8 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
 
         :param key_path: Path to the private key.
         :type key_path: str
-
         :param key_id: Key ID, defaults to "01"
         :type key_id: str, optional
-
         :param pin: User PIN, defaults to "123456"
         :type pin: str, optional
         """
@@ -85,10 +86,8 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
 
         :param cert_path: Path to the certificate.
         :type cert_path: str
-
         :param cert_id: Certificate ID, defaults to "01"
         :type cert_id: str, optional
-
         :param pin: User PIN, defaults to "123456"
         :type pin: str, optional
         """
@@ -121,13 +120,10 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
 
         :param key_path: Output path for the private key, defaults to "/tmp/selfsigned.key"
         :type key_path: str, optional
-
         :param cert_path: Output path for the certificate, defaults to "/tmp/selfsigned.crt"
         :type cert_path: str, optional
-
         :param subj: Subject for the certificate, defaults to "/CN=Test Cert"
         :type subj: str, optional
-
         :return: Tuple of (key_path, cert_path)
         :rtype: tuple
         """
@@ -169,3 +165,41 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
         Restarts the virtual smart card service.
         """
         self.host.conn.exec(["systemctl", "restart", "virt_cacard.service"])
+
+    def setup_local_card(self, client: Client, username: str) -> None:
+        """
+        Setup local system for smart card authentication
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.Client)
+            def test_example(client: Client):
+                client.smart_card.setup_local_card(client, 'localuser1')
+
+                result = client.host.conn.run("su - localuser1 -c 'su - localuser1 -c whoami'", input="123456")
+                assert "PIN" in result.stderr
+                assert "localuser1" in result.stdout
+
+        :param client: client object needed for sssd and other util configurations.
+        :type client: Client
+        :param username: Name of user to create and configure for local smart card authentication.
+        :type username: str
+        """
+        (key, cert) = self.generate_self_signed_cert()
+
+        self.init()
+        self.add_key(key)
+        self.add_cert(cert)
+        self.reset_service()
+
+        client.sssd.sssd["domains"] = "local"
+        client.sssd.common.local()
+        client.sssd.dom("local")["local_auth_policy"] = "only"
+        client.sssd.section(f"certmap/local/{username}")["matchrule"] = "<SUBJECT>.*CN=Test Cert*"
+        client.sssd.pam["pam_cert_auth"] = "True"
+        client.host.conn.run("echo >> /etc/sssd/pki/sssd_auth_ca_db.pem")
+        client.host.conn.run(f"cat {cert} >> /etc/sssd/pki/sssd_auth_ca_db.pem")
+        client.sssd.start()
+
+        client.local.user(f"{username}").add()
