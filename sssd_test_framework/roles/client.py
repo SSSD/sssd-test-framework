@@ -14,6 +14,7 @@ from ..utils.sbus import DBUSDestination, DBUSKnownBus
 from ..utils.sss_override import SSSOverrideUtils
 from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
+from ..utils.virtual_smartcard import SmartCardUtils
 from .base import BaseLinuxRole
 
 __all__ = [
@@ -84,6 +85,11 @@ class Client(BaseLinuxRole[ClientHost]):
         )
         """
         The D-bus destination for infopipe.
+        """
+
+        self.smart_card: SmartCardUtils = SmartCardUtils(self.host)
+        """
+        Utility class for managing smart card operations using SoftHSM and PKCS#11.
         """
 
     def setup(self) -> None:
