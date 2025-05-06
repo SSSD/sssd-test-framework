@@ -14,6 +14,7 @@ from ..utils.sbus import DBUSDestination, DBUSKnownBus
 from ..utils.sss_override import SSSOverrideUtils
 from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
+from ..utils.gdm import GDM
 from .base import BaseLinuxRole
 
 __all__ = [
@@ -84,6 +85,11 @@ class Client(BaseLinuxRole[ClientHost]):
         )
         """
         The D-bus destination for infopipe.
+        """
+
+        self.gdm: GDM = GDM(self.host)
+        """
+        Managing GDM interface from SCAutolib
         """
 
     def setup(self) -> None:
