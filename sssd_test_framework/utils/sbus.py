@@ -177,14 +177,14 @@ class ProxyMethod(ProxyObject):
             raise RuntimeError("Execution failed: no interface.")
 
         objargs = []
-        if self.input is not None:
+        if self.input is not None and len(self.input) > 0:
             for i in range(len(self.input)):
                 obj = self.input[i].mimic()
                 try:
                     obj.value = args[i]
                 except IndexError:
                     raise RuntimeError(
-                        f"Execution failed: {len(self.input)} " f"arguments required but only {i} provided."
+                        f"Execution failed: {len(self.input)} arguments required but only {i} provided."
                     )
                 objargs.append(obj)
 
@@ -193,19 +193,21 @@ class ProxyMethod(ProxyObject):
         if res.rc != 0:
             raise RuntimeError(f'Execution of \'{self.child.attrib["name"]}{args}\' failed: ' + res.stderr)
 
-        if self.output is None:
-            ret = None
-        else:
-            values = []
-            result = DBUSResult(res.stdout)
-            for i in range(len(self.output)):
-                obj = self.output[i].mimic()
-                obj.parse(result)
-                values.append(obj.value)
+        # Skip output processing if no output is expected
+        if self.output is None or len(self.output) == 0:
+            return None
 
-            ret = tuple(values) if len(values) > 1 else values[0]
+        values = []
+        result = DBUSResult(res.stdout)
+        for i in range(len(self.output)):
+            obj = self.output[i].mimic()
+            obj.parse(result)
+            values.append(obj.value)
 
-        return ret
+        # Handle empty results safely
+        if not values:
+            return None
+        return tuple(values) if len(values) > 1 else values[0]
 
 
 class DBUSObject:
