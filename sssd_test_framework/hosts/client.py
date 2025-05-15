@@ -57,6 +57,12 @@ class ClientHost(BaseHost, BaseLinuxHost):
             # enumerate (bool) Feature is only supported for domains with id_provider = ldap or id_provider = proxy.
             MANWIDTH=10000 man sssd.conf | grep -q "id_provider = ldap or id_provider = proxy" && \
             echo "limited_enumeration" || :
+            # Check if BEAKER_RECIPE_ID environment variable is set
+            if [ -n "${BEAKER_RECIPE_ID}" ]; then
+                if ip -6 addr show scope global | grep -q "inet6 "; then
+                    echo "ipv6"
+                fi
+            fi
             """,
             log_level=ProcessLogLevel.Error,
         )
@@ -69,6 +75,7 @@ class ClientHost(BaseHost, BaseLinuxHost):
             "ldap_use_ppolicy": False,
             "knownhosts": False,
             "limited_enumeration": False,
+            "ipv6": False,
         }
 
         self._features.update({k: True for k in result.stdout_lines})
