@@ -46,6 +46,24 @@ class KeycloakHost(BaseDomainHost, BaseLinuxHost):
 
         self.adminpw = self.config.get("adminpw", "Secret123")
 
+        self.client.setdefault("id_provider", "idp")
+        self.client.setdefault("idp_type", f"keycloak:https://{self.hostname}:8443/auth/admin/realms/master/")
+        self.client.setdefault("idp_client_id", "myclient")
+        self.client.setdefault("idp_client_secret", "ClientSecret123")
+        self.client.setdefault(
+            "idp_token_endpoint", f"https://{self.hostname}:8443/auth/realms/master/protocol/openid-connect/token"
+        )
+        self.client.setdefault(
+            "idp_userinfo_endpoint",
+            f"https://{self.hostname}:8443/auth/realms/master/protocol/openid-connect/userinfo",
+        )
+        self.client.setdefault(
+            "idp_device_auth_endpoint",
+            "https://{self.hostname}:8443/auth/realms/master/protocol/openid-connect/auth/device",
+        )
+        self.client.setdefault("idp_id_scope", "profile")
+        self.client.setdefault("idp_auth_scope", "openid profile email")
+
     def kclogin(self) -> None:
         """
         Obtain ``admin`` user credentials for Keycloak.

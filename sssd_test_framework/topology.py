@@ -123,6 +123,7 @@ class KnownTopology(KnownTopologyBase):
         name="keycloak",
         topology=Topology(TopologyDomain("sssd", client=1, keycloak=1)),
         controller=KeycloakTopologyController(),
+        domains=dict(test="sssd.keycloak[0]"),
         fixtures=dict(
             client="sssd.client[0]",
             keycloak="sssd.keycloak[0]",
