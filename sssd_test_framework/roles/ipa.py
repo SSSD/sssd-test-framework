@@ -6,6 +6,7 @@ import os
 import re
 import shlex
 import uuid
+from itertools import groupby
 from textwrap import dedent
 from typing import Any, Literal, Optional
 
@@ -15,7 +16,15 @@ from pytest_mh.conn import ProcessError, ProcessResult
 from pytest_mh.utils.fs import LinuxFileSystem
 
 from ..hosts.ipa import IPAHost
-from ..misc import attrs_include_value, attrs_parse, ip_version, to_list, to_list_of_strings, to_list_without_none
+from ..misc import (
+    attrs_include_value,
+    attrs_parse,
+    get_attr,
+    ip_version,
+    to_list,
+    to_list_of_strings,
+    to_list_without_none,
+)
 from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
 from .base import BaseLinuxRole, BaseObject
@@ -36,6 +45,10 @@ __all__ = [
     "IPADNSServer",
     "IPADNSZone",
     "IPACertificateAuthority",
+    "IPAHBACService",
+    "IPAHBACServiceGroup",
+    "IPAHostGroup",
+    "IPAHBAC",
 ]
 
 RevocationReason = Literal[
@@ -240,6 +253,52 @@ class IPA(BaseLinuxRole[IPAHost]):
         """
         return f"{name}@{self.domain}"
 
+    @staticmethod
+    def ipa_search(
+        role: IPA,
+        command: str,
+        criteria: str | None = None,
+        attr: str = "cn",
+        all: bool = False,
+    ) -> list[str]:
+        """
+        Perform a generic IPA search command and extract attribute values.
+
+        :param role: IPA role object.
+        :type role: IPA
+        :param command: IPA command to run (e.g., 'hostgroup-find').
+        :type command: str
+        :param criteria: Optional search filter string.
+        :type criteria: str or None, optional
+        :param attr: Attribute name to extract from each entry.
+        :type attr: str, optional
+        :param all: Prints all attributes, default is False.
+        :type all: bool, optional
+        :return: List of extracted attribute values.
+        :rtype: list[str]
+        """
+        cmd = ["ipa", command]
+        if all:
+            cmd.append("--all")
+        if criteria:
+            cmd.append(criteria)
+        result = role.host.conn.exec(cmd)
+
+        names: list[str] = []
+        blocks = (
+            list(group) for key, group in groupby(result.stdout_lines, key=lambda line: line.strip() == "") if not key
+        )
+
+        for block in blocks:
+            attrs = attrs_parse(block)
+            values = attrs.get(attr, [])
+            for value in values:
+                if isinstance(value, list):
+                    names.extend(value)
+                else:
+                    names.append(value)
+        return names
+
     def user(self, name: str) -> IPAUser:
         """
         Get user object.
@@ -438,6 +497,230 @@ class IPA(BaseLinuxRole[IPAHost]):
             ipa.dns().clear_forwarders()
         """
         return IPADNSServer(self)
+
+    def hbac(self, name: str) -> IPAHBAC:
+        """
+        IPA HBAC object.
+
+        Provides access to manage HBAC (Host-Based Access Control) rules in IPA.
+        This allows creating rules and setting access controls for particular hosts and services.
+
+        .. rubric:: Example usage
+
+        .. code-block:: python
+
+            @pytest.mark.topology(KnownTopology.IPA)
+            def test_ipa__validate_hbac_rule_check_access_sshd_service(client: Client, ipa: IPA):
+                # Disable all users to access all services on all hosts.
+                ipa.hbac("allow_all").disable()
+
+                ssh_access_rule = ipa.hbac("ssh_access_user1").create(
+                    description="SSH access rule for user1",
+                    users="user1",
+                    hosts="client.test",
+                    services="sshd"
+                )
+
+                hbactest_out1 = ssh_access_rule.test(user="user1", host="client.test",
+                                                    service="sshd", rule="ssh_access_user1")
+                assert hbactest_out1["access_granted"], "Access was not granted as expected"
+                assert "ssh_access_user1" in hbactest_out1["matched_rules"], \
+                    "Matched rule ssh_access_user1 was not found as expected"
+
+                hbactest_out2 = ssh_access_rule.test(user="user2", host="client.test",
+                                                    service="sshd", rule="ssh_access_user1")
+                assert not hbactest_out2["access_granted"], "Access was granted which is not expected"
+                assert "ssh_access_user1" in hbactest_out2["not_matched_rules"], \
+                    "Rule should not match for user2"
+
+                hbactest_out3 = ssh_access_rule.test(user="user1", host="client.test",
+                                                    service="sshd", rule="nonexistent_rule")
+                assert "nonexistent_rule" in hbactest_out3["invalid_rules"], \
+                    "Non-existent rule nonexistent_rule should be reported as invalid"
+
+                hbactest_out4 = ssh_access_rule.test(user="user2", host="client.test",
+                                                    service="sshd", rule="nonexistent_rule")
+                assert "nonexistent_rule" in hbactest_out4["invalid_rules"], \
+                    "Non-existent rule nonexistent_rule should be reported as invalid"
+
+                client.sssd.restart()
+
+                assert client.auth.ssh.password("user1", "Secret123"), "user1 should be able to SSH"
+                assert not client.auth.ssh.password("user2", "Secret123"), "user2 should be denied SSH"
+                assert not client.auth.ssh.password("user3", "Secret123"), "user3 should be denied SSH"
+
+                ssh_access_rule.delete()
+
+                client.sssd.restart()
+
+                assert not client.auth.ssh.password("user1", "Secret123"), "user1 should be denied after rule deletion"
+                assert not client.auth.ssh.password("user2", "Secret123"), "user2 should be denied after rule deletion"
+                assert not client.auth.ssh.password("user3", "Secret123"), "user3 should be denied after rule deletion"
+
+        :param name: IPA HBAC rule name.
+        :type name: str
+        :return: New HBAC object.
+        :rtype: IPAHBAC
+        """
+        return IPAHBAC(self, name)
+
+    def hostgroup(self, name: str) -> IPAHostGroup:
+        """
+        IPA Host Group object.
+
+        Here, we can create and manage IPA host groups, which are collections
+        of hosts that can be used in HBAC rules for simplified host management.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.IPA)
+            def test_ipa__validate_hbac_rule_host_group_access(client: Client, ipa: IPA):
+                # Create users for testing
+                users = ["user1", "user2"]
+                for user in users:
+                    ipa.user(user).add()
+
+                # Create host groups
+                web_group = ipa.hostgroup("webservers").add(description="Web servers group")
+                db_group = ipa.hostgroup("dbservers").add(description="Database servers group")
+
+                # Add hosts to webservers group
+                web_group.add_member(host=["client.test"])
+
+                # Disable default allow_all rule
+                ipa.hbac("allow_all").disable()
+
+                # Create HBAC rule using host group
+                webservers_ssh_rule = ipa.hbac("webservers_ssh_access").create(
+                    description="SSH access for webservers host group",
+                    users="user1",
+                    hostgroups="webservers",
+                    services="sshd"
+                )
+
+                # Test access via host group
+                hbactest_result = webservers_ssh_rule.test(user="user1", host="client.test", service="sshd")
+                assert hbactest_result["access_granted"], "user1 should have access via host group"
+
+                # Remove host from group and test access is denied
+                web_group.remove_member(host=["client.test"])
+                client.sssd.restart()
+
+                assert not client.auth.ssh.password("user1", "Secret123"), "user1 should be denied after host removal"
+
+        :param name: IPA host group name.
+        :type name: str
+        :return: New host group object.
+        :rtype: IPAHostGroup
+        """
+        return IPAHostGroup(self, name)
+
+    def hbacsvc(self, name: str) -> IPAHBACService:
+        """
+        IPA HBAC Service object.
+
+        This method creates and returns an IPA HBAC service object, which represents
+        individual services that can be used in HBAC rules to control access at the service level.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.IPA)
+            def test_ipa__validate_hbac_rule_service_access(client: Client, ipa: IPA):
+                # Create users for testing
+                users = ["user1", "user2"]
+                for user in users:
+                    ipa.user(user).add()
+
+                # Create HBAC service
+                ssh_service = ipa.hbacsvc("sshd").add(description="SSH service")
+
+                # Disable default allow_all rule
+                ipa.hbac("allow_all").disable()
+
+                # Create HBAC rule using the service
+                remote_services_rule = ipa.hbac("remote_services_access").create(
+                    description="Remote access via specific services",
+                    users="user1",
+                    hosts="client.test",
+                    services="sshd"
+                )
+
+                # Test access to the sshd service
+                hbactest_ssh = remote_services_rule.test(user="user1", host="client.test", service="sshd")
+                assert hbactest_ssh["access_granted"], "user1 should have sshd access"
+
+                # Test access to a service not authorized
+                hbactest_http = remote_services_rule.test(user="user1", host="client.test", service="httpd")
+                assert not hbactest_http["access_granted"], "user1 should be denied httpd access"
+
+                # Remove service from the HBAC rule and test access is denied
+                ipa.hbacsvc("sshd").remove_member()
+                client.sssd.restart()
+
+                assert not client.auth.ssh.password("user1", "Secret123"), "user1 denied after service removal"
+
+        :param name: IPA HBAC service name.
+        :type name: str
+        :return: New HBAC service object.
+        :rtype: IPAHBACService
+        """
+        return IPAHBACService(self, name)
+
+    def hbacsvcgroup(self, name: str) -> IPAHBACServiceGroup:
+        """
+        IPA HBAC Service Group object.
+
+        In this we can create and manage IPA HBAC service groups, which are collections
+        of services that can be used in HBAC rules for simplified service management.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.IPA)
+            def test_ipa__validate_hbac_rule_service_group_access(client: Client, ipa: IPA):
+                # Create users for testing
+                users = ["user1", "user2"]
+                for user in users:
+                    ipa.user(user).add()
+
+                # Create service group and add services
+                remote_svc_group = ipa.hbacsvcgroup("remote_access").add(description="Remote access services")
+                remote_svc_group.add_member(hbacsvc=["sshd"])
+
+                # Disable default allow_all rule
+                ipa.hbac("allow_all").disable()
+
+                # Create HBAC rule using service group
+                remote_services_rule = ipa.hbac("remote_services_access").create(
+                    description="Remote access via service groups",
+                    users="user1",
+                    hosts="client.test",
+                    servicegroups="remote_access"
+                )
+
+                # Test access to services in the group
+                hbactest_ssh = remote_services_rule.test(user="user1", host="client.test", service="sshd")
+                assert hbactest_ssh["access_granted"], "user1 should have sshd access via service group"
+
+
+                # Test access to service not in group
+                hbactest_http = remote_services_rule.test(user="user1", host="client.test", service="httpd")
+                assert not hbactest_http["access_granted"], "user1 should be denied httpd access"
+
+                # Remove service from group and test access is denied
+                remote_svc_group.remove_member(hbacsvc=["sshd"])
+                client.sssd.restart()
+
+                assert not client.auth.ssh.password("user1", "Secret123"), "user1 denied after service removal"
+
+        :param name: IPA HBAC service group name.
+        :type name: str
+        :return: New HBAC service group object.
+        :rtype: IPAHBACServiceGroup
+        """
+        return IPAHBACServiceGroup(self, name)
 
 
 class IPAObject(BaseObject[IPAHost, IPA]):
@@ -2744,3 +3027,813 @@ class IPACertificateAuthority:
         lines = [line.strip() for line in (output or "").splitlines() if line.strip()]
 
         return attrs_parse(lines)
+
+
+class IPAHostGroup(IPAObject):
+    """
+    IPA host group management.
+    """
+
+    def __init__(self, role: IPA, name: str) -> None:
+        """
+        Initialize IPAHostGroup.
+
+        :param role: IPA role object.
+        :type role: IPA
+        :param name: Host group name.
+        :type name: str
+        """
+        super().__init__(role, name, command_group="hostgroup")
+
+    def add(
+        self,
+        description: str | None = None,
+    ) -> IPAHostGroup:
+        """
+        Create new IPA host group.
+
+        :param description: Description, defaults to None.
+        :type description: str | None, optional
+        :return: Self.
+        :rtype: IPAHostGroup
+        """
+        attrs: CLIBuilderArgs = {}
+        if description is not None:
+            attrs["desc"] = (self.cli.option.VALUE, description)
+        self._add(attrs)
+        return self
+
+    def modify(
+        self,
+        description: str | None = None,
+    ) -> IPAHostGroup:
+        """
+        Modify existing IPA host group.
+
+        :param description: Description, defaults to None
+        :type description: str | None, optional
+        :return: Self.
+        :rtype: IPAHostGroup
+        """
+        attrs: CLIBuilderArgs = {}
+        if description is not None:
+            attrs["desc"] = (self.cli.option.VALUE, description)
+        self._modify(attrs)
+        return self
+
+    def delete(self) -> None:
+        """
+        Delete the IPA host group.
+        """
+        cmd = ["ipa", f"{self.command_group}-del", self.name]
+        self.role.host.conn.exec(cmd)
+
+    def show(self, attrs: list[str] | None = None) -> dict[str, list[str]] | None:
+        """
+        Show detailed info of the host group or selected attributes.
+
+        :param attrs: List of attributes to show, None shows all, defaults to None.
+        :type: list[str] | None, optional
+        :return: Dictionary of requested host group attributes or None if not found.
+        :rtype: dict[str, list[str]]
+        """
+        cmd = ["ipa", f"{self.command_group}-show", self.name, "--raw"]
+        result = self.role.host.conn.exec(cmd)
+        lines = result.stdout.splitlines()
+        parsed_attrs = attrs_parse(lines)
+        if parsed_attrs is None:
+            return None
+        if attrs is None:
+            return parsed_attrs
+        else:
+            return {attr: get_attr(parsed_attrs, attr) for attr in attrs}
+
+    @classmethod
+    def search(cls, role: IPA, criteria: str, all: bool = False) -> list[str]:
+        """
+        Search for host groups matching criteria.
+
+        :param role: IPA role object.
+        :type role: IPA
+        :param criteria: Search filter string.
+        :type criteria: str
+        :param all: Prints all attributes, default is False.
+        :type all: bool
+        :return: List of matching HBAC host group names.
+        :rtype: list[str]
+        """
+        return IPA.ipa_search(role, "hostgroup-find", criteria, all=all)
+
+    def add_member(
+        self,
+        host: list[str] | str | None = None,
+        hostgroup: list[str] | str | None = None,
+    ) -> IPAHostGroup:
+        """
+        Add host group members.
+
+        :param host: Host(s) to add as member(s), defaults to None.
+        :type host: list[str] | str | None, optional
+        :param hostgroup: Host group(s) to add as member(s), defaults to None.
+        :type hostgroup: list[str] | str | None, optional
+        :return: Self.
+        :rtype: IPAHostGroup
+        """
+        cmd = ["ipa", f"{self.command_group}-add-member", self.name]
+        if host:
+            hosts_list = [host] if isinstance(host, str) else host
+            cmd.append(f"--hosts={','.join(hosts_list)}")
+        if hostgroup:
+            hostgroups_list = [hostgroup] if isinstance(hostgroup, str) else hostgroup
+            cmd.append(f"--hostgroups={','.join(hostgroups_list)}")
+        if host or hostgroup:
+            self.role.host.conn.exec(cmd)
+        return self
+
+    def remove_member(
+        self,
+        host: list[str] | str | None = None,
+        hostgroup: list[str] | str | None = None,
+    ) -> IPAHostGroup:
+        """
+        Remove host group members.
+
+        :param host: Host(s) to remove as member(s), defaults to None.
+        :type host: list[str] | str | None, optional
+        :param hostgroup: Host group(s) to remove as member(s), defaults to None.
+        :type hostgroup: list[str] | str | None, optional
+        :return: Self.
+        :rtype: IPAHostGroup
+        """
+        cmd = ["ipa", f"{self.command_group}-remove-member", self.name]
+        if host:
+            hosts_list = [host] if isinstance(host, str) else host
+            cmd.append(f"--hosts={','.join(hosts_list)}")
+        if hostgroup:
+            hostgroups_list = [hostgroup] if isinstance(hostgroup, str) else hostgroup
+            cmd.append(f"--hostgroups={','.join(hostgroups_list)}")
+        if host or hostgroup:
+            self.role.host.conn.exec(cmd)
+        return self
+
+    def add_member_manager(
+        self,
+        host: list[str] | str | None = None,
+        hostgroup: list[str] | str | None = None,
+    ) -> IPAHostGroup:
+        """
+        Add host group member managers.
+
+        :param host: Host(s) to add as member manager(s), defaults to None.
+        :type host: list[str] | str | None, optional
+        :param hostgroup: Host group(s) to add as member manager(s), defaults to None.
+        :type hostgroup: list[str] | str | None, optional
+        :return: Self.
+        :rtype: IPAHostGroup
+        """
+        cmd = ["ipa", f"{self.command_group}-add-member-manager", self.name]
+        if host:
+            hosts_list = [host] if isinstance(host, str) else host
+            cmd.append(f"--hosts={','.join(hosts_list)}")
+        if hostgroup:
+            hostgroups_list = [hostgroup] if isinstance(hostgroup, str) else hostgroup
+            cmd.append(f"--hostgroups={','.join(hostgroups_list)}")
+        if host or hostgroup:
+            self.role.host.conn.exec(cmd)
+        return self
+
+    def remove_member_manager(
+        self,
+        host: list[str] | str | None = None,
+        hostgroup: list[str] | str | None = None,
+    ) -> IPAHostGroup:
+        """
+        Remove host group member managers.
+
+        :param host: Host(s) to remove as member manager(s), defaults to None.
+        :type host: list[str] | str | None, optional
+        :param hostgroup: Host group(s) to remove as member manager(s), defaults to None.
+        :type hostgroup: list[str] | str | None, optional
+        :return: Self.
+        :rtype: IPAHostGroup
+        """
+        cmd = ["ipa", f"{self.command_group}-remove-member-manager", self.name]
+        if host:
+            hosts_list = [host] if isinstance(host, str) else host
+            cmd.append(f"--hosts={','.join(hosts_list)}")
+        if hostgroup:
+            hostgroups_list = [hostgroup] if isinstance(hostgroup, str) else hostgroup
+            cmd.append(f"--hostgroups={','.join(hostgroups_list)}")
+        if host or hostgroup:
+            self.role.host.conn.exec(cmd)
+        return self
+
+
+class IPAHBACService(IPAObject):
+    """
+    IPA HBAC service management.
+    """
+
+    def __init__(self, role: IPA, name: str) -> None:
+        """
+        :param role: IPA role object.
+        :type role: IPA
+        :param name: HBAC service name.
+        :type name: str
+        """
+        super().__init__(role, name, command_group="hbacsvc")
+
+    def add(
+        self,
+        *,
+        description: str | None = None,
+    ) -> IPAHBACService:
+        """
+        Create new IPA HBAC service.
+
+        :param description: Description, defaults to None
+        :type description: str | None, optional
+        :return: Self.
+        :rtype: IPAHBACService
+        """
+        attrs: CLIBuilderArgs = {}
+        if description is not None:
+            attrs["desc"] = (self.cli.option.VALUE, description)
+        self._add(attrs)
+        return self
+
+    def modify(
+        self,
+        *,
+        description: str | None = None,
+    ) -> IPAHBACService:
+        """
+        Modify existing IPA HBAC service.
+
+        :param description: Description, defaults to None
+        :type description: str | None, optional
+        :return: Self.
+        :rtype: IPAHBACService
+        """
+        attrs: CLIBuilderArgs = {}
+        if description is not None:
+            attrs["desc"] = (self.cli.option.VALUE, description)
+        self._modify(attrs)
+        return self
+
+    def delete(self) -> None:
+        """
+        Delete the IPA HBAC service.
+        """
+        self._exec("del")
+
+    def show(self, attrs: list[str]) -> dict[str, list[str]] | None:
+        """
+        Show detailed info of the HBAC service.
+
+        :param attrs: Returned attributes.
+        :type attrs: list[str]
+        :return: Service attributes, None if not found.
+        :rtype: dict[str, list[str]] | None
+        """
+        return self.get(attrs)
+
+    @classmethod
+    def search(cls, role: IPA, criteria: str, all: bool = False) -> list[str]:
+        """
+        Search for HBAC services matching criteria.
+
+        :param role: IPA role object.
+        :type role: IPA
+        :param criteria: Search filter string.
+        :type criteria: str
+        :param all: Prints all attributes, default is False.
+        :type all: bool
+        :return: List of matching HBAC host group names.
+        :rtype: list[str]
+        """
+        return IPA.ipa_search(role, "hbacsvc-find", criteria, all=all)
+
+
+class IPAHBACServiceGroup(IPAObject):
+    """
+    IPA HBAC service group management.
+    """
+
+    def __init__(self, role: IPA, name: str) -> None:
+        """
+        :param role: IPA role object.
+        :type role: IPA
+        :param name: HBAC service group name.
+        :type name: str
+        """
+        super().__init__(role, name, command_group="hbacsvcgroup")
+
+    def add(
+        self,
+        *,
+        description: str | None = None,
+    ) -> IPAHBACServiceGroup:
+        """
+        Create new IPA HBAC service group.
+
+        :param description: Description, defaults to None
+        :type description: str | None, optional
+        :return: Self.
+        :rtype: IPAHBACServiceGroup
+        """
+        attrs: CLIBuilderArgs = {
+            "desc": (self.cli.option.VALUE, description),
+        }
+
+        self._add(attrs)
+        return self
+
+    def modify(
+        self,
+        *,
+        description: str | None = None,
+    ) -> IPAHBACServiceGroup:
+        """
+        Modify existing IPA HBAC service group.
+
+        :param description: Description, defaults to None
+        :type description: str | None, optional
+        :return: Self.
+        :rtype: IPAHBACServiceGroup
+        """
+        attrs: CLIBuilderArgs = {
+            "desc": (self.cli.option.VALUE, description),
+        }
+
+        self._modify(attrs)
+        return self
+
+    def add_member(
+        self,
+        *,
+        hbacsvc: list[str] | str | None = None,
+        hbacsvcgroup: list[str] | str | None = None,
+    ) -> IPAHBACServiceGroup:
+        """
+        Add HBAC service group members.
+
+        :param hbacsvc: HBAC service(s) to add as member(s).
+        :type hbacsvc: list[str] | str | None, optional
+        :param hbacsvcgroup: HBAC service group(s) to add as member(s).
+        :type hbacsvcgroup: list[str] | str | None, optional
+        :return: Self.
+        :rtype: IPAHBACServiceGroup
+        """
+        cmd = ["ipa", f"{self.command_group}-add-member", self.name]
+
+        if hbacsvc:
+            services_list = [hbacsvc] if isinstance(hbacsvc, str) else hbacsvc
+            for service in services_list:
+                cmd.append(f"--hbacsvcs={service}")
+
+        if hbacsvcgroup:
+            servicegroups_list = [hbacsvcgroup] if isinstance(hbacsvcgroup, str) else hbacsvcgroup
+            for servicegroup in servicegroups_list:
+                cmd.append(f"--hbacsvcgroups={servicegroup}")
+
+        if hbacsvc or hbacsvcgroup:
+            self.role.host.conn.exec(cmd)
+
+        return self
+
+    def remove_member(
+        self,
+        *,
+        hbacsvc: list[str] | str | None = None,
+        hbacsvcgroup: list[str] | str | None = None,
+    ) -> IPAHBACServiceGroup:
+        """
+        Remove HBAC service group members.
+
+        :param hbacsvc: HBAC service(s) to remove as member(s).
+        :type hbacsvc: list[str] | str | None, optional
+        :param hbacsvcgroup: HBAC service group(s) to remove as member(s).
+        :type hbacsvcgroup: list[str] | str | None, optional
+        :return: Self.
+        :rtype: IPAHBACServiceGroup
+        """
+        cmd = ["ipa", f"{self.command_group}-remove-member", self.name]
+
+        if hbacsvc:
+            services_list = [hbacsvc] if isinstance(hbacsvc, str) else hbacsvc
+            for service in services_list:
+                cmd.append(f"--hbacsvcs={service}")
+
+        if hbacsvcgroup:
+            servicegroups_list = [hbacsvcgroup] if isinstance(hbacsvcgroup, str) else hbacsvcgroup
+            for servicegroup in servicegroups_list:
+                cmd.append(f"--hbacsvcgroups={servicegroup}")
+
+        if hbacsvc or hbacsvcgroup:
+            self.role.host.conn.exec(cmd)
+
+        return self
+
+    def delete(self) -> None:
+        """
+        Delete the IPA HBAC service group.
+        """
+
+        cmd = ["ipa", f"{self.command_group}-del", self.name]
+        self.role.host.conn.exec(cmd)
+
+    def show(self, attrs: list[str] | None = None) -> dict[str, list[str]] | None:
+        """
+        Show detailed info of the HBAC service group.
+
+        :param attrs: If set, only requested attributes are returned, defaults to None
+        :type attrs: list[str] | None, optional
+        :return: Dictionary of HBAC service group attributes or None if not found
+        :rtype: dict[str, list[str]]
+        """
+        return self.get(attrs)
+
+    @classmethod
+    def search(cls, role: IPA, criteria: str, all: bool = False) -> list[str]:
+        """
+        Search for host groups matching criteria.
+
+        :param role: IPA role object.
+        :type role: IPA
+        :param criteria: Search filter string.
+        :type criteria: str
+        :param all: Prints all attributes, default is False.
+        :type all: bool
+        :return: List of matching HBAC host group names.
+        :rtype: list[str]
+        """
+        return IPA.ipa_search(role, "hbacsvcgroup-find", criteria, all=all)
+
+
+class IPAHBAC(IPAObject):
+    """
+    Manages IPA HBAC (Host-Based Access Control) rule.
+    """
+
+    def __init__(self, role: IPA, name: str):
+        """
+        Initializes an HBAC rule manager.
+
+        :param role: IPA role.
+        :type role: IPA
+        :param name: Name of IPA HBAC rule.
+        :type name: str
+        """
+        super().__init__(role, name, command_group="hbacrule")
+
+    def _add_members_to_rule(self, command: str, items: list[str] | str | None, option: str) -> None:
+        """
+        Helper method to add members to HBAC rule.
+
+        :param command: IPA command to use (e.g., "hbacrule-add-user")
+        :type command: str
+        :param items: Items to add (single string or list of strings)
+        :type items: list[str] | str | None, optional
+        :param option: Command line option (e.g., "--users", "--groups")
+        :type option: str
+        """
+        if items:
+            items_list = [items] if isinstance(items, str) else items
+            for item in items_list:
+                self.role.host.conn.exec(["ipa", command, self.name, f"{option}={item}"])
+
+    def create(
+        self,
+        users: list[str] | str | None = None,
+        groups: list[str] | str | None = None,
+        hosts: list[str] | str | None = None,
+        hostgroups: list[str] | str | None = None,
+        services: list[str] | str | None = None,
+        servicegroups: list[str] | str | None = None,
+        description: str | None = None,
+        hostcat: str | None = None,
+        servicecat: str | None = None,
+        usercat: str | None = None,
+        **kwargs,
+    ) -> IPAHBAC:
+        """
+        Creates a new HBAC rule with all components in one call.
+        Can also be used to add components to existing rules.
+
+        :param users: User(s) to create HBAC rule.
+        :type users: list[str] | str | None
+        :param groups: Group(s) to create HBAC rule.
+        :type groups: list[str] | str | None
+        :param hosts: Host(s) to create HBAC rule.
+        :type hosts: list[str] | str | None
+        :param hostgroups: Host(s) group(s) to create HBAC rule.
+        :type hostgroups: list[str] | str | None
+        :param services: Service(s) to create HBAC rule.
+        :type services: list[str] | str | None
+        :param servicegroups: Service(group(s) to create HBAC rule.)
+        :type servicegroups: list[str] | str | None
+        :param description: Description(s) to create HBAC rule.
+        :type description: str | None
+        :param hostcat: Host(cat) to create HBAC rule.
+        :type hostcat: str | None
+        :param servicecat: Service(cat) to create HBAC rule.
+        :type servicecat: str | None
+        :param usercat: User(cat) to create HBAC rule.
+        :type usercat: str | None
+        :return: Self.
+        :rtype: IPAHBAC
+        """
+        try:
+            self.role.host.conn.exec(["ipa", "hbacrule-show", self.name], raise_on_error=True)
+            rule_exists = True
+        except Exception:
+            rule_exists = False
+
+        if not rule_exists:
+            cmd = ["ipa", "hbacrule-add", self.name]
+
+            if description:
+                cmd.extend(["--desc", description])
+            if hostcat:
+                cmd.append(f"--hostcat={hostcat}")
+            if servicecat:
+                cmd.append(f"--servicecat={servicecat}")
+            if usercat:
+                cmd.append(f"--usercat={usercat}")
+
+            self.role.host.conn.exec(cmd, **kwargs)
+
+        # Add all components (works for both new and existing rules)
+        self._add_members_to_rule("hbacrule-add-user", users, "--users")
+        self._add_members_to_rule("hbacrule-add-user", groups, "--groups")
+        self._add_members_to_rule("hbacrule-add-host", hosts, "--hosts")
+        self._add_members_to_rule("hbacrule-add-host", hostgroups, "--hostgroups")
+        self._add_members_to_rule("hbacrule-add-service", services, "--hbacsvcs")
+        self._add_members_to_rule("hbacrule-add-service", servicegroups, "--hbacsvcgroups")
+
+        return self
+
+    def modify(
+        self,
+        description: str | None = None,
+        hostcat: str | None = None,
+        servicecat: str | None = None,
+        usercat: str | None = None,
+        **kwargs,
+    ) -> IPAHBAC:
+        """
+        Modifies an existing HBAC rule.
+
+        :param description: Description(s) to modify HBAC rule.
+        :type description: str | None
+        :param hostcat: Host(cat) to modify HBAC rule.
+        :type hostcat: str | None
+        :param servicecat: Service(cat) to modify HBAC rule.
+        :type servicecat: str | None
+        :param usercat: User(cat) to modify HBAC rule.
+        :type usercat: str | None
+        :return: Self.
+        :rtype: IPAHBAC
+        """
+        cmd = ["ipa", "hbacrule-mod", self.name]
+
+        if description is not None:
+            cmd.extend(["--desc", description])
+        if hostcat is not None:
+            cmd.append(f"--hostcat={hostcat}")
+        if servicecat is not None:
+            cmd.append(f"--servicecat={servicecat}")
+        if usercat is not None:
+            cmd.append(f"--usercat={usercat}")
+
+        self.role.host.conn.exec(cmd, **kwargs)
+        return self
+
+    def delete(self) -> None:
+        """
+        Deletes the HBAC rule.
+        """
+        self.role.host.conn.exec(["ipa", "hbacrule-del", self.name])
+
+    def enable(self) -> IPAHBAC:
+        """
+        Enables the HBAC rule.
+
+        :return: Self.
+        :rtype: IPAHBAC
+        """
+        self.role.host.conn.exec(["ipa", "hbacrule-enable", self.name])
+        return self
+
+    def disable(self) -> IPAHBAC:
+        """
+        Disables the HBAC rule.
+
+        :return: Self.
+        :rtype: IPAHBAC
+        """
+        self.role.host.conn.exec(["ipa", "hbacrule-disable", self.name])
+        return self
+
+    def _fetch_rule_data(self) -> dict[str, Any]:
+        """
+        Return parsed ``hbacrule-show`` output for the rule.
+
+        :return: Parsed ``hbacrule-show`` output.
+        :rtype: dict[str, Any]
+        """
+        result = self.role.host.conn.exec(["ipa", "hbacrule-show", self.name, "--all"])
+        lines = [line.strip() for line in result.stdout_lines if ":" in line]
+        return attrs_parse(lines)
+
+    @classmethod
+    def search(cls, role: IPA, criteria: str, all: bool = False) -> list[str]:
+        """
+        Search for HBAC rules.
+
+        :param role: IPA role object.
+        :type role: IPA
+        :param criteria: Search filter string.
+        :type criteria: str
+        :param all: Prints all attributes, default is False.
+        :type all: bool
+        :return: List of matching List of matching HBAC rules names.
+        :rtype: list[str]
+        """
+        return IPA.ipa_search(role, "hbacrule-find", criteria, all=all)
+
+    def remove_members(
+        self,
+        *,
+        users: list[str] | str | None = None,
+        hosts: list[str] | str | None = None,
+        services: list[str] | str | None = None,
+    ) -> IPAHBAC:
+        """
+        Remove users, hosts, and/or services from HBAC rule.
+
+        :param users: Users to remove.
+        :type users: list[str] | str | None, default to None
+        :param hosts: Hosts to remove.
+        :type hosts: list[str] | str | None, default to None
+        :param services: Services to remove.
+        :type services: list[str] | str | None, default to None
+        :return: Self.
+        :rtype: IPAHBAC
+        """
+        errors = []
+
+        def remove_items(item_type: str, items):
+            items_list = [items] if isinstance(items, str) else items
+            for item in items_list:
+                try:
+                    self.role.host.conn.exec(
+                        ["ipa", f"hbacrule-remove-{item_type}", self.name, f"--{item_type}={item}"]
+                    )
+                except Exception as e:
+                    errors.append(f"Failed to remove {item_type[:-1]} '{item}': {e}")
+
+        if users:
+            remove_items("users", users)
+        if hosts:
+            remove_items("hosts", hosts)
+        if services:
+            remove_items("services", services)
+
+        if errors:
+            error_message = "Errors occurred while removing members:\n" + "\n".join(errors)
+            raise RuntimeError(error_message)
+
+        return self
+
+    def test(
+        self,
+        user: str,
+        host: str,
+        service: str,
+        nodetail: bool = False,
+        **kwargs,
+    ) -> dict[str, Any]:
+        """
+        Tests HBAC rule evaluation and returns comprehensive results.
+        Evaluates all configured rules to determine access and shows which rules match.
+
+        :param user: User(s) to create HBAC rule.
+        :type user: str | None
+        :param host: Host(s) to create HBAC rule.
+        :type host: str | None
+        :param service: Service(s) to create HBAC rule.
+        :type service: str | None
+        :param nodetail: Whether to return nodetail rules.
+        :type nodetail: bool | None
+        :param kwargs: Keyword arguments to pass to ``ipa.hbacrule-test``.
+        :type kwargs: dict[str, Any]
+        :return: parsed ``hbacrule-test`` output.
+        :rtype: dict[str, Any]
+        """
+        cmd = ["ipa", "hbactest", f"--user={user}", f"--host={host}", f"--service={service}"]
+
+        if nodetail:
+            cmd.append("--nodetail")
+
+        # Handle negative test cases by not raising errors on command failure
+        result = self.role.host.conn.exec(cmd, raise_on_error=False, **kwargs)
+        lines = [line.strip() for line in result.stdout_lines if ":" in line]
+
+        raw_results = attrs_parse(lines)
+
+        # Return comprehensive results
+        return {
+            "access_granted": get_attr(raw_results, "Access granted") == "True",
+            "matched_rules": to_list(get_attr(raw_results, "Matched rules")),
+            "not_matched_rules": to_list(get_attr(raw_results, "Not matched rules")),
+            "invalid_rules": to_list(get_attr(raw_results, "Non-existent or invalid rules")),
+            "raw_output": raw_results,
+            "user": user,
+            "host": host,
+            "service": service,
+        }
+
+    def status(
+        self,
+        *,
+        user: str | None = None,
+        group: str | None = None,
+        host: str | None = None,
+        service: str | None = None,
+        include_members: bool = False,
+    ) -> dict[str, Any]:
+        """
+        Get rule status, optionally checking membership and returning the raw member lists.
+
+        :param user: Username to check for membership in the rule.
+        :type: str | None, default to None
+        :param group: Group name to check for membership in the rule.
+        :type: str | None, default to None
+        :param host: Hostname to check for membership in the rule.
+        :type: str | None, default to None
+        :param service: Service name to check for membership in the rule.
+        :type: str | None, default to None
+        :param include_members: When ``True`` return the resolved member lists in the output.
+        :type: bool | None, default to False
+        :return: Dictionary with rule status information and optional membership results.
+        :rtype: dict[str, Any]
+        """
+        raw_data = self._fetch_rule_data()
+
+        users = to_list(get_attr(raw_data, "Users", default=[]))
+        user_groups = to_list(get_attr(raw_data, "User Groups", default=[]))
+        hosts = to_list(get_attr(raw_data, "Hosts", default=[]))
+        host_groups = to_list(get_attr(raw_data, "Host Groups", default=[]))
+        services = to_list(get_attr(raw_data, "HBAC Services", default=[]))
+        service_groups = to_list(get_attr(raw_data, "HBAC Service Groups", default=[]))
+
+        membership_checks: dict[str, bool] = {}
+        if user is not None:
+            membership_checks["user"] = user in users
+        if group is not None:
+            membership_checks["group"] = group in user_groups
+        if host is not None:
+            membership_checks["host"] = host in hosts
+        if service is not None:
+            membership_checks["service"] = service in services
+
+        payload: dict[str, Any] = {
+            "name": self.name,
+            "enabled": str(get_attr(raw_data, "Enabled", default="FALSE")).upper() == "TRUE",
+            "description": get_attr(raw_data, "Description"),
+            "user_count": len(users) + len(user_groups),
+            "host_count": len(hosts) + len(host_groups),
+            "service_count": len(services) + len(service_groups),
+            "categories": {
+                "user": get_attr(raw_data, "User category"),
+                "host": get_attr(raw_data, "Host category"),
+                "service": get_attr(raw_data, "Service category"),
+            },
+        }
+
+        if membership_checks:
+            payload["membership"] = membership_checks
+
+        if include_members:
+            payload["members"] = {
+                "users": users,
+                "user_groups": user_groups,
+                "hosts": hosts,
+                "host_groups": host_groups,
+                "services": services,
+                "service_groups": service_groups,
+            }
+
+        return payload
+
+    def contains(self, **kwargs) -> bool:
+        """
+        Convenience method to check if any membership filter matches.
+
+        :return: True if any membership filter matches, else False.
+        :rtype: bool
+        """
+        membership = self.status(**kwargs).get("membership", {})
+        return any(membership.values()) if membership else False
