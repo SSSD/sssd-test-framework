@@ -328,6 +328,39 @@ class IPA(BaseLinuxRole[IPAHost]):
         """
         return IPAIDView(self, name)
 
+    def hbac(self, name: str) -> IPAHbac:
+        """
+        IPA HBAC object.
+
+        Here, we can the IPA HBAC, that can be used
+        to create the rule, set the access for perticular host
+        for perticular services
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.IPA)
+            def test_ipa__validate_hbac_rule_check_access_sshd_service(client: Client, ipa: IPA):
+                # Disable all users to access all services on all hosts.
+                ipa.hbac("allow_all").disable()
+
+                rule1 = ipa.hbac("rule1").create(description="This is a new rule1").add_user("user1").add_host("client.test").add_service("sshd")
+
+                # Run and parse hbactest
+                # user1 and user2 with valid rule1
+                hbactest_out1 = rule1.hbactest(user="user1", host="client.test", service="sshd", rule="rule1")
+                hbactest_out2 = rule1.hbactest(user="user2", host="client.test", service="sshd", rule="rule1")
+
+                # user1 and user2 with invalid rule2
+                hbactest_out3 = rule1.hbactest(user="user1", host="client.test", service="sshd", rule="rule2")
+                hbactest_out4 = rule1.hbactest(user="user2", host="client.test", service="sshd", rule="rule2")
+
+        :param name: IPA HBAC rule name.
+        :type name: str
+        :return: New HBAC object.
+        """
+        return IPAHbac(self, name)
+
 
 class IPAObject(BaseObject[IPAHost, IPA]):
     """
@@ -2194,3 +2227,163 @@ class IPAIDView(IPAObject):
         Delete existing IPA ID view.
         """
         self._exec("del", ["--continue"])
+
+
+class IPAHbac(IPAObject):
+    """
+    Manages a single IPA HBAC (Host-Based Access Control) rule.
+    """
+
+    def __init__(self, role: IPA, name: str):
+        """
+        Initializes an HBAC rule manager.
+
+        Args:
+            role: The IPA server role object.
+            name: The name of the HBAC rule.
+        """
+        super().__init__(role, name, command_group="hbacrule")
+
+    def create(
+        self,
+        description: str | None = None,
+        hostcat: str | None = None,
+        servicecat: str | None = None,
+        **kwargs,
+    ) -> IPAHbac:
+        """
+        Creates a new HBAC rule.
+
+            description: Optional description for the rule.
+            hostcat: Optional host category (e.g., "all").
+            servicecat: Optional service category (e.g., "all").
+        """
+        cmd = ["ipa", "hbacrule-add", self.name]
+
+        if description:
+            cmd.extend(["--desc", description])
+        if hostcat:
+            cmd.append(f"--hostcat={hostcat}")
+        if servicecat:
+            cmd.append(f"--servicecat={servicecat}")
+
+        self.role.host.conn.exec(cmd, **kwargs)
+        return self
+
+    def add_user(
+        self,
+        users: list[str] | str | None = None,
+        groups: list[str] | str | None = None,
+    ) -> IPAHbac:
+        """
+        Adds users or groups to the HBAC rule.
+
+            users: A list or single username(s) to add.
+            groups: A list or single group name(s) to add.
+        """
+        cmd = ["ipa", f"{self.command_group}-add-user", self.name]
+        if users:
+            if isinstance(users, str):
+                users = [users]
+            cmd.append(f"--users={','.join(users)}")
+        if groups:
+            if isinstance(groups, str):
+                groups = [groups]
+            cmd.append(f"--groups={','.join(groups)}")
+
+        self.role.host.conn.exec(cmd)
+        return self
+
+    def add_host(self, hosts: list[str] | str) -> IPAHbac:
+        """Adds one or more hosts to the rule."""
+        hosts = [hosts] if isinstance(hosts, str) else hosts
+        for host in hosts:
+            self.role.host.conn.exec(["ipa", "hbacrule-add-host", self.name, f"--hosts={host}"])
+        return self
+
+    def add_service(self, services: list[str] | str) -> IPAHbac:
+        """Adds one or more services to the rule."""
+        services = [services] if isinstance(services, str) else services
+        for svc in services:
+            self.role.host.conn.exec(["ipa", "hbacrule-add-service", self.name, f"--hbacsvcs={svc}"])
+        return self
+
+    def show(self) -> dict[str, list[str]]:
+        """Displays the HBAC rule."""
+        cmd = self.role.host.conn.exec(["ipa", "hbacrule-show", self.name, "--all"])
+        # return result.stdout_lines
+        lines = [line.strip() for line in cmd.stdout_lines if ":" in line]
+
+        return attrs_parse(lines)
+
+    def delete(self) -> None:
+        """
+        Deletes the HBAC rule.
+        """
+        self.role.host.conn.exec(["ipa", "hbacrule-del", self.name])
+
+    def enable(self) -> None:
+        """
+        Enables the HBAC rule.
+        """
+        self.role.host.conn.exec(["ipa", "hbacrule-enable", self.name])
+
+    def disable(self) -> None:
+        """
+        Disables the HBAC rule.
+        """
+        self.role.host.conn.exec(["ipa", "hbacrule-disable", self.name])
+
+    def remove_users(self, users: IPAUser | list[IPAUser]) -> None:
+        """
+        Removes users from the HBAC rule.
+        """
+        self.role.host.conn.exec(["ipa", "hbacrule-remove-user", self.name, f"--users={users}"])
+
+    def add_groups(self, groups: IPAGroup | list[IPAGroup]) -> None:
+        """
+        Adds groups to the HBAC rule.
+        """
+        self.role.host.conn.exec(["ipa", "hbacrule-add-group", self.name, f"--groups={groups}"])
+
+    def remove_groups(self, groups: IPAGroup) -> None:
+        """
+        Removes groups from the HBAC rule.
+        """
+        self.role.host.conn.exec(["ipa", "hbacrule-remove-group", self.name, f"--groups={groups}"])
+
+    def remove_hosts(self, hosts) -> None:
+        """
+        Removes hosts from the HBAC rule.
+        """
+        self.role.host.conn.exec(
+            ["ipa", "hbacrule-remove-host", self.name, f"--hosts={','.join(hosts)}"],
+        )
+
+    def remove_services(self, services) -> None:
+        """
+        Removes services from the HBAC rule.
+        """
+        self.role.host.conn.exec(["ipa", "hbacrule-remove-service", self.name, f"--services={','.join(services)}"])
+
+    def hbactest(
+        self,
+        user: str,
+        host: str,
+        service: str,
+        rule: str | None = None,
+        nodetail: bool = False,
+    ) -> dict[str, list[str]]:
+        cmd = ["ipa", "hbactest", f"--user={user}", f"--host={host}", f"--service={service}"]
+        if rule:
+            cmd.append(f"--rule={rule}")
+        if nodetail:
+            cmd.append("--nodetail")
+
+        # to handle the negative test case,
+        # ipa hbactest --user=user2 --host=client.test --service=sshd --rule=rule1 | grep -Ex '(Access granted: False|  notmatched: rule1)
+        # added raise_on_error=False
+        result = self.host.conn.exec(cmd, raise_on_error=False)
+        lines = [line.strip() for line in result.stdout_lines if ":" in line]
+
+        return attrs_parse(lines)
