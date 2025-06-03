@@ -12,6 +12,7 @@ from ..utils.ldb import LDBUtils
 from ..utils.local_users import LocalUsersUtils
 from ..utils.realmd import RealmUtils
 from ..utils.sbus import DBUSDestination, DBUSKnownBus
+from ..utils.smartcard import SmartCardUtils
 from ..utils.sss_override import SSSOverrideUtils
 from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
@@ -90,6 +91,11 @@ class Client(BaseLinuxRole[ClientHost]):
         )
         """
         The D-bus destination for infopipe.
+        """
+
+        self.smartcard: SmartCardUtils = SmartCardUtils(self.host, self.fs, self.svc)
+        """
+        Utility class for managing smart card operations using SoftHSM and PKCS#11.
         """
 
     def setup(self) -> None:

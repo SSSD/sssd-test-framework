@@ -156,7 +156,16 @@ class PasswdEntry(object):
     Result of ``getent passwd``
     """
 
-    def __init__(self, name: str, password: str, uid: int, gid: int, gecos: str, home: str, shell: str) -> None:
+    def __init__(
+        self,
+        name: str | None,
+        password: str | None,
+        uid: int,
+        gid: int,
+        gecos: str | None,
+        home: str | None,
+        shell: str | None,
+    ) -> None:
         self.name: str | None = name
         """
         User name.
@@ -201,13 +210,13 @@ class PasswdEntry(object):
     @classmethod
     def FromDict(cls, d: dict[str, Any]) -> PasswdEntry:
         return cls(
-            name=d.get("username", None),
-            password=d.get("password", None),
-            uid=d.get("uid", None),
-            gid=d.get("gid", None),
-            gecos=d.get("comment", None),
-            home=d.get("home", None),
-            shell=d.get("shell", None),
+            name=d.get("username"),
+            password=d.get("password"),
+            uid=d.get("uid", 0),
+            gid=d.get("gid", 0),
+            gecos=d.get("comment"),
+            home=d.get("home"),
+            shell=d.get("shell"),
         )
 
     @classmethod
@@ -228,7 +237,7 @@ class GroupEntry(object):
     Result of ``getent group``
     """
 
-    def __init__(self, name: str, password: str, gid: int, members: list[str]) -> None:
+    def __init__(self, name: str | None, password: str | None, gid: int, members: list[str]) -> None:
         self.name: str | None = name
         """
         Group name.
@@ -258,9 +267,9 @@ class GroupEntry(object):
     @classmethod
     def FromDict(cls, d: dict[str, Any]) -> GroupEntry:
         return cls(
-            name=d.get("group_name", None),
-            password=d.get("password", None),
-            gid=d.get("gid", None),
+            name=d.get("group_name"),
+            password=d.get("password"),
+            gid=d.get("gid", 0),
             members=d.get("members", []),
         )
 
