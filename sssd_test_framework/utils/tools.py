@@ -156,7 +156,16 @@ class PasswdEntry(object):
     Result of ``getent passwd``
     """
 
-    def __init__(self, name: str, password: str, uid: int, gid: int, gecos: str, home: str, shell: str) -> None:
+    def __init__(
+        self,
+        name: str | None,
+        password: str | None,
+        uid: int | None,
+        gid: int | None,
+        gecos: str | None,
+        home: str | None,
+        shell: str | None,
+    ) -> None:
         self.name: str | None = name
         """
         User name.
@@ -167,12 +176,12 @@ class PasswdEntry(object):
         User password.
         """
 
-        self.uid: int = uid
+        self.uid: int | None = uid
         """
         User id.
         """
 
-        self.gid: int = gid
+        self.gid: int | None = gid
         """
         Group id.
         """
@@ -199,15 +208,44 @@ class PasswdEntry(object):
         return str(self)
 
     @classmethod
-    def FromDict(cls, d: dict[str, Any]) -> PasswdEntry:
+    def FromDict(cls, d: dict[str, str | int | None]) -> PasswdEntry:
+        username = d.get("username", None)
+        password = d.get("password", None)
+        uid = d.get("uid", None)
+        gid = d.get("gid", None)
+        comment = d.get("comment", None)
+        home = d.get("home", None)
+        shell = d.get("shell", None)
+
+        if username is not None and not isinstance(username, str):
+            raise ValueError("username is not instance of str")
+
+        if password is not None and not isinstance(password, str):
+            raise ValueError("password is not instance of str")
+
+        if uid is not None and not isinstance(uid, int):
+            raise ValueError("uid is not instance of int")
+
+        if gid is not None and not isinstance(gid, int):
+            raise ValueError("gid is not instance of int")
+
+        if comment is not None and not isinstance(comment, str):
+            raise ValueError("comment is not instance of str")
+
+        if home is not None and not isinstance(home, str):
+            raise ValueError("home is not instance of str")
+
+        if shell is not None and not isinstance(shell, str):
+            raise ValueError("shell is not instance of str")
+
         return cls(
-            name=d.get("username", None),
-            password=d.get("password", None),
-            uid=d.get("uid", None),
-            gid=d.get("gid", None),
-            gecos=d.get("comment", None),
-            home=d.get("home", None),
-            shell=d.get("shell", None),
+            name=username,
+            password=password,
+            uid=uid,
+            gid=gid,
+            gecos=comment,
+            home=home,
+            shell=shell,
         )
 
     @classmethod
@@ -228,7 +266,7 @@ class GroupEntry(object):
     Result of ``getent group``
     """
 
-    def __init__(self, name: str, password: str, gid: int, members: list[str]) -> None:
+    def __init__(self, name: str | None, password: str | None, gid: int | None, members: list[str]) -> None:
         self.name: str | None = name
         """
         Group name.
@@ -239,7 +277,7 @@ class GroupEntry(object):
         Group password.
         """
 
-        self.gid: int = gid
+        self.gid: int | None = gid
         """
         Group id.
         """
@@ -256,12 +294,29 @@ class GroupEntry(object):
         return str(self)
 
     @classmethod
-    def FromDict(cls, d: dict[str, Any]) -> GroupEntry:
+    def FromDict(cls, d: dict[str, str | int | list[str] | None]) -> GroupEntry:
+        group_name = d.get("group_name", None)
+        password = d.get("password", None)
+        gid = d.get("gid", None)
+        members = d.get("members", [])
+
+        if group_name is not None and not isinstance(group_name, str):
+            raise ValueError("group_name is not instance of str")
+
+        if password is not None and not isinstance(password, str):
+            raise ValueError("password is not instance of str")
+
+        if gid is not None and not isinstance(gid, int):
+            raise ValueError("gid is not instance of int")
+
+        if members is not None or not isinstance(members, list):
+            raise ValueError("members is not instance of list")
+
         return cls(
-            name=d.get("group_name", None),
-            password=d.get("password", None),
-            gid=d.get("gid", None),
-            members=d.get("members", []),
+            name=group_name,
+            password=password,
+            gid=gid,
+            members=members,
         )
 
     @classmethod
