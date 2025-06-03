@@ -51,6 +51,13 @@ class KnownTopology(KnownTopologyBase):
     .. topology-mark:: KnownTopology.Client
     """
 
+    GDM = SSSDTopologyMark(
+        name="gdm",
+        topology=Topology(TopologyDomain("sssd", client=1, ipa=1, keycloak=1)),
+        controller=ClientTopologyController(),
+        fixtures=dict(client="sssd.client[0]", ipa="sssd.ipa[0]", provider="sssd.ipa[0]", keycloak="sssd.keycloak[0]"),
+    )
+
     LDAP = SSSDTopologyMark(
         name="ldap",
         topology=Topology(TopologyDomain("sssd", client=1, ldap=1, nfs=1, kdc=1)),
