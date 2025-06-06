@@ -309,7 +309,7 @@ class GroupEntry(object):
         if gid is not None and not isinstance(gid, int):
             raise ValueError("gid is not instance of int")
 
-        if members is not None or not isinstance(members, list):
+        if not isinstance(members, list):
             raise ValueError("members is not instance of list")
 
         return cls(
