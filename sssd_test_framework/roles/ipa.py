@@ -65,6 +65,16 @@ class IPA(BaseLinuxRole[IPAHost]):
         Kerberos realm.
         """
 
+        self.name: str = "ipa"
+        """
+        Generic provider name.
+        """
+
+        self.server: str = self.host.hostname
+        """
+        Generic server name.
+        """
+
         self.sssd: SSSDUtils = SSSDUtils(self.host, self.fs, self.svc, self.authselect, load_config=True)
         """
         Managing and configuring SSSD.
@@ -154,12 +164,36 @@ class IPA(BaseLinuxRole[IPAHost]):
         """
         return self._password_policy
 
+    @property
+    def naming_context(self) -> str:
+        """
+        LDAP  suffix.
+        """
+        if len(self.host.domain.split(".")) < 1:
+            raise IndexError("Second level domain missing!")
+
+        tld = self.host.domain.split(".")[-1]
+        sld = self.host.domain.split(".")[-2]
+        return f"dc={sld},dc={tld}"
+
     def setup(self) -> None:
         """
         Obtain IPA admin Kerberos TGT.
         """
         super().setup()
         self.host.kinit()
+
+    def fqn(self, name: str) -> str:
+        """
+        Return fully qualified name in form name@domain.
+        """
+        return f"{name}@{self.domain}"
+
+    def dn(self, name: str) -> str:
+        """
+        Returns distinguished name in form of cn=name,naming_context.
+        """
+        return f"cn={name},{self.naming_context}"
 
     def user(self, name: str) -> IPAUser:
         """
