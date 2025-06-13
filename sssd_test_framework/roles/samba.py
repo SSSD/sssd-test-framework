@@ -55,8 +55,8 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-
         self.domain: str = self.host.domain
+
         """
         Samba domain name.
         """
@@ -69,6 +69,16 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
         self._password_policy: SambaPasswordPolicy = SambaPasswordPolicy(self)
         """
         Samba password policy.
+        """
+
+        self.name: str = "ad"
+        """
+        Provider name, samba is an "ad" alternative.
+        """
+
+        self.server: str = self.host.hostname
+        """
+        Generic server name.
         """
 
         self.automount: SambaAutomount = SambaAutomount(self)
@@ -158,6 +168,12 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
         Return fully qualified name in form name@domain.
         """
         return f"{name}@{self.domain}"
+
+    def dn(self, name: str) -> str:
+        """
+        Returns distinguished name in form of cn=name,naming_context.
+        """
+        return f"cn={name},{self.naming_context}"
 
     def user(self, name: str) -> SambaUser:
         """

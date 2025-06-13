@@ -69,6 +69,30 @@ class GenericProvider(ABC, MultihostRole[BaseHost]):
 
     @property
     @abstractmethod
+    def name(self) -> str:
+        """
+        Generic provider name.
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def server(self) -> str:
+        """
+        Generic server hostname.
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def naming_context(self) -> str:
+        """
+        Naming context.
+        """
+        pass
+
+    @property
+    @abstractmethod
     def features(self) -> dict[str, Any]:
         pass
 
@@ -93,6 +117,22 @@ class GenericProvider(ABC, MultihostRole[BaseHost]):
 
                 # Set 3 login attempts and 30 lockout duration
                 provider.password_policy.lockout(attempts=3, duration=30)
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def fqn(self) -> str:
+        """
+        Return fully qualified name.
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def dn(self) -> str:
+        """
+        Returns distinguished name.
         """
         pass
 
@@ -300,17 +340,11 @@ class GenericADProvider(GenericProvider):
         """
         pass
 
+    @property
     @abstractmethod
-    def fqn(self, name: str) -> str:
+    def fqn(self) -> str:
         """
         Return fully qualified name in form name@domain.
-        """
-        pass
-
-    @abstractmethod
-    def naming_context(self) -> str:
-        """
-        Return domain naming context in form of dc=domain,dc=com.
         """
         pass
 

@@ -70,6 +70,16 @@ class AD(BaseWindowsRole[ADHost]):
         Kerberos realm.
         """
 
+        self.name: str = "ad"
+        """
+        Generic provider name.
+        """
+
+        self.server: str = self.host.hostname
+        """
+        Generic server name.
+        """
+
         self.auto_ou: dict[str, bool] = {}
         """Organizational units that were automatically created."""
 
@@ -160,6 +170,12 @@ class AD(BaseWindowsRole[ADHost]):
         Return fully qualified name in form name@domain.
         """
         return f"{name}@{self.domain}"
+
+    def dn(self, name: str) -> str:
+        """
+        Returns distinguished name in form of cn=name,naming_context.
+        """
+        return f"cn={name},{self.naming_context}"
 
     def user(self, name: str, basedn: ADObject | str | None = "cn=users") -> ADUser:
         """
