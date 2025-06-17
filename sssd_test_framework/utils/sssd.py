@@ -1043,3 +1043,41 @@ class SSSDCommonConfiguration(object):
 
         self.sssd.authselect.select("sssd", features)
         self.sssd.enable_responder("pam")
+
+    def socket_responders(self, responders: list[str] | None = None) -> None:
+        """
+        Configure SSSD for socket-activated responders.
+
+        Removes specified responders from the services line in sssd.conf
+        to enable socket activation, while keeping other services running
+        as traditional services.
+
+        :param responders: List of responders to enable via socket activation.
+                          If None, enables all known socket responders.
+        :type responders: list[str] | None
+        :raises RuntimeError: If starting a socket unit fails.
+        """
+        # All known SSSD responders that support socket activation
+        all_responders = ["nss", "pam", "sudo", "ssh", "pac", "autofs"]
+
+        if responders is None:
+            responders = all_responders
+
+        # Get current services list from the configuration
+        current_services = self.sssd.sssd.get("services", "")
+
+        # Parse the current services line
+        services_list = [s.strip() for s in current_services.split(",")] if current_services else []
+
+        # Remove responders that should use socket activation
+        updated_services = [s for s in services_list if s not in responders]
+
+        # Update the services line
+        # - Empty string: all responders use socket activation
+        # - Non-empty: listed services run as traditional, others use socket activation
+        self.sssd.sssd["services"] = ", ".join(updated_services) if updated_services else ""
+
+        # Ensure socket units are started using SystemdServices for proper management
+        for responder in responders:
+            socket_unit = f"sssd-{responder}.socket"
+            self.sssd.svc.start(socket_unit)
