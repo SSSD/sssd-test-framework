@@ -12,6 +12,7 @@ from ..utils.ldb import LDBUtils
 from ..utils.local_users import LocalUsersUtils
 from ..utils.realmd import RealmUtils
 from ..utils.sbus import DBUSDestination, DBUSKnownBus
+from ..utils.socket import SSSDSocketUtils
 from ..utils.sss_override import SSSOverrideUtils
 from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
@@ -90,6 +91,10 @@ class Client(BaseLinuxRole[ClientHost]):
         )
         """
         The D-bus destination for infopipe.
+        """
+        self.socket: SSSDSocketUtils = SSSDSocketUtils(self.host)
+        """
+        Manage socket-activated SSSD responders (e.g., nss, pam).
         """
 
     def setup(self) -> None:
