@@ -198,3 +198,103 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
                 raise_on_error=False,
             )
         return command
+
+    def preset_computer(
+        self,
+        domain: str,
+        *,
+        password: str,
+        args: list[str] | None = None,
+        login_user: str,
+        krb: bool = False,
+    ) -> ProcessResult:
+        """
+        Preset computer.
+
+        :param domain: Domain.
+        :type domain: str
+        :param args: additional arguments, defaults to None
+        :type args: list[str] | None, optional
+        :param password: Password
+        :type password: str
+        :param login_user: Authenticating User
+        :type login_user: str
+        :param krb: Use Kerberos credentials, defaults to False
+        :type krb: bool, optional
+        :return: Result of called command.
+        :rtype: ProcessResult
+        """
+        if args is None:
+            args = []
+
+        if krb:
+            self.host.conn.exec(["kinit", f"{login_user}@{domain.upper()}"], input=password)
+            command = self.host.conn.exec(
+                ["adcli", "preset-computer", f"--domain={domain}", "--verbose", "-C", *args], raise_on_error=False
+            )
+        else:
+            command = self.host.conn.exec(
+                [
+                    "adcli",
+                    "preset-computer",
+                    "--stdin-password",
+                    "-U",
+                    login_user,
+                    f"--domain={domain}",
+                    "--verbose",
+                    *args,
+                ],
+                input=password,
+                raise_on_error=False,
+            )
+        return command
+
+    def reset_computer(
+        self,
+        domain: str,
+        *,
+        password: str,
+        args: list[str] | None = None,
+        login_user: str,
+        krb: bool = False,
+    ) -> ProcessResult:
+        """
+        Reset computer.
+
+        :param domain: Domain.
+        :type domain: str
+        :param args: additional arguments, defaults to None
+        :type args: list[str] | None, optional
+        :param password: Password
+        :type password: str
+        :param login_user: Authenticating User
+        :type login_user: str
+        :param krb: Use Kerberos credentials, defaults to False
+        :type krb: bool, optional
+        :return: Result of called command.
+        :rtype: ProcessResult
+        """
+        if args is None:
+            args = []
+
+        if krb:
+            self.host.conn.exec(["kinit", f"{login_user}@{domain.upper()}"], input=password)
+            command = self.host.conn.exec(
+                ["adcli", "reset-computer", f"--domain={domain}", "--verbose", "-C", *args], raise_on_error=False
+            )
+        else:
+            command = self.host.conn.exec(
+                [
+                    "adcli",
+                    "reset-computer",
+                    "--stdin-password",
+                    "-U",
+                    login_user,
+                    f"--domain={domain}",
+                    "--verbose",
+                    *args,
+                ],
+                input=password,
+                raise_on_error=False,
+            )
+        return command
