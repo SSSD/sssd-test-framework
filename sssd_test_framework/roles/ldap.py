@@ -76,6 +76,16 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
         Kerberos realm.
         """
 
+        self.name: str = "ldap"
+        """
+        Generic provider name.
+        """
+
+        self.server: str = self.host.hostname
+        """
+        Generic server name.
+        """
+
         self.auto_uid: int = 23000
         """The next automatically assigned user id."""
 
@@ -158,6 +168,18 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
         """
         return self._password_policy
 
+    @property
+    def naming_context(self) -> str:
+        """
+        LDAP  suffix.
+        """
+        if len(self.host.domain.split(".")) < 1:
+            raise IndexError("Second level domain missing!")
+
+        tld = self.host.domain.split(".")[-1]
+        sld = self.host.domain.split(".")[-2]
+        return f"dc={sld},dc={tld}"
+
     def _generate_uid(self) -> int:
         """
         Generate next user id value.
@@ -218,6 +240,18 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
             )
         except ldap.TYPE_OR_VALUE_EXISTS:
             pass
+
+    def fqn(self, name: str) -> str:
+        """
+        Return fully qualified name in form name@domain.
+        """
+        return f"{name}@{self.domain}"
+
+    def dn(self, name: str) -> str:
+        """
+        Returns distinguished name in form of cn=name,naming_context.
+        """
+        return f"cn={name},{self.naming_context}"
 
     def user(self, name: str, basedn: LDAPObject | str | None = "ou=users", rdn_attr: str | None = "cn") -> LDAPUser:
         """
