@@ -13,13 +13,17 @@ from pytest_mh.conn import Process, ProcessLogLevel, ProcessResult
 from ..hosts.base import BaseDomainHost
 from ..hosts.client import ClientHost
 from ..misc import to_list
+from ..roles.ad import AD
+from ..roles.ldap import LDAP
 
 if TYPE_CHECKING:
     from pytest_mh.utils.fs import LinuxFileSystem
     from pytest_mh.utils.services import SystemdServices
 
     from ..roles.base import BaseRole
+    from ..roles.ipa import IPA
     from ..roles.kdc import KDC
+    from ..roles.samba import Samba
     from .authselect import AuthselectUtils
 
 
@@ -379,6 +383,37 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         cmd += "rm -f /var/lib/sss/db/fast_ccache_* || true"
         self.host.conn.run(cmd)
         self.svc.reload_daemon()
+
+    def set_server(self, role: MultihostRole, failover: bool = False) -> None:
+        """
+        Set the correct 'ldap_server | ipa_server | ad_server'  parameter and value for the role.
+
+         Optionally sets  'ldap_backup_server | ipa_backup_server | ad_backup_server' for failover testing.
+         When enabled, the working provider server is set to be the backup and a non-existent host is used
+         as the first server.
+
+        :param role:  Multihostrole object.
+        :type role: MultihostRole
+        :param failover:  Configure client for failover, defaults to False
+        :type failover: bool, optional
+        """
+        if failover:
+            if isinstance(role, LDAP):
+                self.domain["ldap_uri"] = f"ldap://invalid.{role.domain}"
+                self.domain["ldap_backup_uri"] = f"ldap://{role.server}"
+            elif isinstance(role, IPA):
+                self.domain["ipa_server"] = f"invalid.{role.domain}"
+                self.domain["ipa_backup_server"] = role.server
+            elif isinstance(role, (AD, Samba)):
+                self.domain["ad_server"] = f"invalid.{role.domain}"
+                self.domain["ad_backup_server"] = role.server
+        else:
+            if isinstance(role, LDAP):
+                self.domain["ldap_uri"] = f"ldap://{role.server}"
+            elif isinstance(role, IPA):
+                self.domain["ipa_server"] = role.server
+            elif isinstance(role, (AD, Samba)):
+                self.domain["ad_server"] = role.server
 
     def enable_responder(self, responder: str) -> None:
         """
