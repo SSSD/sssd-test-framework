@@ -146,6 +146,14 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
                 """
                 set -x
 
+                # Workaround https://issues.redhat.com/browse/RHEL-101926
+                if [ ! -f /usr/sbin/dsctl ]; then
+                    echo "/usr/sbin/dsctl is missing, creating symlink..."
+                    ln -s /usr/bin/dsctl /usr/sbin/dsctl
+                else
+                    echo "/usr/sbin/dsctl found, skipping..."
+                fi
+
                 function backup {
                     if [ -d "$1" ] || [ -f "$1" ]; then
                         cp --force --archive "$1" "$2"
