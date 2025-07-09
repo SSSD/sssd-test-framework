@@ -70,6 +70,16 @@ class AD(BaseWindowsRole[ADHost]):
         Kerberos realm.
         """
 
+        self.name: str = "ad"
+        """
+        Generic provider name.
+        """
+
+        self.server: str = self.host.hostname
+        """
+        Generic server name.
+        """
+
         self.auto_ou: dict[str, bool] = {}
         """Organizational units that were automatically created."""
 
@@ -149,9 +159,7 @@ class AD(BaseWindowsRole[ADHost]):
     @property
     def naming_context(self) -> str:
         """
-        Active Directory naming context.
-
-        :rtype: str
+        Naming context.
         """
         return self.host.naming_context
 

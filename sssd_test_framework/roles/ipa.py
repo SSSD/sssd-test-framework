@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 from textwrap import dedent
 from typing import Any
 
@@ -63,6 +64,16 @@ class IPA(BaseLinuxRole[IPAHost]):
         self.realm: str = self.host.realm
         """
         Kerberos realm.
+        """
+
+        self.name: str = "ipa"
+        """
+        Generic provider name.
+        """
+
+        self.server: str = self.host.hostname
+        """
+        Generic server name.
         """
 
         self.sssd: SSSDUtils = SSSDUtils(self.host, self.fs, self.svc, self.authselect, load_config=True)
@@ -154,12 +165,30 @@ class IPA(BaseLinuxRole[IPAHost]):
         """
         return self._password_policy
 
+    @property
+    def naming_context(self) -> str:
+        """
+        Naming context.
+        """
+        ipa_default = self.fs.read("/etc/ipa/default.conf")
+        _ipa_default = dict(csv.reader([x for x in ipa_default.splitlines() if x], delimiter="="))
+        if "base_dn" not in _ipa_default:
+            raise ValueError("base_dn not found in ipa_default.conf!")
+        else:
+            return _ipa_default["base_dn"]
+
     def setup(self) -> None:
         """
         Obtain IPA admin Kerberos TGT.
         """
         super().setup()
         self.host.kinit()
+
+    def fqn(self, name: str) -> str:
+        """
+        Return fully qualified name in form name@domain.
+        """
+        return f"{name}@{self.domain}"
 
     def user(self, name: str) -> IPAUser:
         """

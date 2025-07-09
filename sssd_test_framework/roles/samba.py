@@ -71,6 +71,16 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
         Samba password policy.
         """
 
+        self.name: str = "ad"
+        """
+        Provider name, samba is an "ad" alternative.
+        """
+
+        self.server: str = self.host.hostname
+        """
+        Generic server name.
+        """
+
         self.automount: SambaAutomount = SambaAutomount(self)
         """
         Manage automount maps and keys.
