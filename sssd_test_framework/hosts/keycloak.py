@@ -68,7 +68,7 @@ class KeycloakHost(BaseDomainHost, BaseLinuxHost):
         """
         Obtain ``admin`` user credentials for Keycloak.
         """
-        for x in range(0, 5):
+        for x in range(0, 20):
             try:
                 str_error = None
                 self.conn.exec(
@@ -90,7 +90,7 @@ class KeycloakHost(BaseDomainHost, BaseLinuxHost):
                 str_error = str(err)
 
             if str_error:
-                time.sleep(30)
+                time.sleep(2)
             else:
                 break
 
