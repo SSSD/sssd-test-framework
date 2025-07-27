@@ -20,6 +20,7 @@ from pytest_mh.utils.tc import LinuxTrafficControl
 from ..hosts.base import BaseHost, BaseLDAPDomainHost
 from ..utils.authentication import AuthenticationUtils
 from ..utils.authselect import AuthselectUtils
+from ..utils.ip import IPUtils
 from ..utils.ldap import LDAPUtils
 from ..utils.sshd import SSHDUtils
 from ..utils.tools import LinuxToolsUtils
@@ -176,6 +177,11 @@ class BaseLinuxRole(BaseRole[HostType]):
         self.tools: LinuxToolsUtils = LinuxToolsUtils(self.host, self.fs)
         """
         Standard tools interface.
+        """
+
+        self.ip: IPUtils = IPUtils(self.host)
+        """
+        IP utilities..
         """
 
         self.auth: AuthenticationUtils = AuthenticationUtils(self.host, self.fs)
