@@ -629,6 +629,44 @@ class LinuxToolsUtils(MultihostUtility[MultihostHost]):
 
         return command
 
+    def dig(self, args: list[Any] | None = None) -> Any:
+        """
+        Execute and parse dig command with given arguments.
+
+        Useful keys and values,
+        {"status":  "NOERROR"}, query is a success.
+        {"status":  "NXDOMAIN"}, query did not return any results.
+
+        {"answer_num": int}, number of results.
+        {"answer": list[dict{name: str, class: str, type: str, ttl: int, data: str}]
+
+        When querying a server, the results may have several answers. If you need a simple does it exist assertion,
+        use ``nslookup``.
+
+        :param args: Arguments to ``dig``, defaults to None
+        :type args: list[Any] | None, optional
+        :return: JC parsed dictionary of results.
+        :rtype: Any
+        """
+        if args is None:
+            args = []
+
+        return jc.parse("dig", self.host.conn.exec(["dig", *args]).stdout)
+
+    def nslookup(self, args: list[Any] | None = None) -> ProcessResult:
+        """
+        Execute nslookup command with given arguments.
+
+        :param args: Arguments to ``nslookup``, defaults to None
+        :type args: list[Any] | None, optional
+        :return: SSH Process result
+        :rtype: ProcessResult
+        """
+        if args is None:
+            args = []
+
+        return self.host.conn.exec(["nslookup", *args])
+
     def faillock(self, args: list[Any]) -> ProcessResult:
         """
         Execute faillock command.
