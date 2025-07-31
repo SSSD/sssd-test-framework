@@ -71,6 +71,17 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
         Samba password policy.
         """
 
+        self.name: str = "ad"
+        """
+        Provider name, samba is a community developed AD clone.
+        SSSD does not have dedicated samba provider, thus uses 'ad'.
+        """
+
+        self.server: str = self.host.hostname
+        """
+        Generic server name.
+        """
+
         self.automount: SambaAutomount = SambaAutomount(self)
         """
         Manage automount maps and keys.
@@ -156,6 +167,11 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
     def fqn(self, name: str) -> str:
         """
         Return fully qualified name in form name@domain.
+        
+        :param name: Username.
+        :type name: str
+        :return: Fully qualified name.
+        :rtype: str
         """
         return f"{name}@{self.domain}"
 

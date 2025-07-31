@@ -76,6 +76,16 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
         Kerberos realm.
         """
 
+        self.name: str = "ldap"
+        """
+        Generic provider name.
+        """
+
+        self.server: str = self.host.hostname
+        """
+        Generic server name.
+        """
+
         self.auto_uid: int = 23000
         """The next automatically assigned user id."""
 
@@ -158,6 +168,13 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
         """
         return self._password_policy
 
+    @property
+    def naming_context(self) -> str:
+        """
+        Naming context.
+        """
+        return self.ldap.naming_context
+
     def _generate_uid(self) -> int:
         """
         Generate next user id value.
@@ -218,6 +235,17 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
             )
         except ldap.TYPE_OR_VALUE_EXISTS:
             pass
+
+    def fqn(self, name: str) -> str:
+        """
+        Return fully qualified name in form name@domain.
+                
+        :param name: Username.
+        :type name: str
+        :return: Fully qualified name.
+        :rtype: str
+        """
+        return f"{name}@{self.domain}"
 
     def user(self, name: str, basedn: LDAPObject | str | None = "ou=users", rdn_attr: str | None = "cn") -> LDAPUser:
         """
