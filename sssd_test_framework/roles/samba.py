@@ -167,7 +167,7 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
     def fqn(self, name: str) -> str:
         """
         Return fully qualified name in form name@domain.
-        
+
         :param name: Username.
         :type name: str
         :return: Fully qualified name.
