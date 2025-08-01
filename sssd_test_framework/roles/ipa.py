@@ -10,6 +10,7 @@ from pytest_mh.conn import ProcessError, ProcessResult
 
 from ..hosts.ipa import IPAHost
 from ..misc import attrs_include_value, attrs_parse, to_list, to_list_of_strings, to_list_without_none
+from ..utils.ipa_ca import IPACertificateAuthority
 from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
 from .base import BaseLinuxRole, BaseObject
@@ -134,6 +135,22 @@ class IPA(BaseLinuxRole[IPAHost]):
                         'keys': [str(key3)]
                     },
                 }
+        """
+
+        self.ca = IPACertificateAuthority(self.host, self.fs)
+        """
+        IPA Certificate Authority management.
+
+        Provides certificate operations:
+        - Request certificates for services/users
+        - Revoke certificates with configurable reasons
+        - Manage certificate holds
+        - Retrieve certificate details
+
+        Example:
+            cert, key, csr = ipa.ca.request(principal="HTTP/client.ipa.test")
+            ipa.ca.revoke_hold(cert)
+            ipa.ca.revoke(cert, reason="key_compromise")
         """
 
     @property
