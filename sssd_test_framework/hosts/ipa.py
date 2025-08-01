@@ -235,3 +235,15 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
         self.logger.info(f"Restoring IPA server from {backup_path}")
         _restore()
         self.svc.restart("sssd.service")
+
+    def teardown(self) -> None:
+        """
+        Clean up temporary directories used by IPA-related roles (e.g., CA).
+
+        Logs a warning if cleanup fails.
+        """
+        try:
+            tmp_dir_pattern = "/tmp/ipa_test_certs_*"
+            self.conn.run(f"rm -rf {tmp_dir_pattern}", raise_on_error=False)
+        except Exception as e:
+            self.logger.warning(f"Failed to clean up IPA temp directories: {e}")
