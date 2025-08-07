@@ -30,7 +30,7 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
        kerberos based authentication.
     """
 
-    def info(self, domain: str, *, args: list[str] | None = None) -> ProcessResult:
+    def info(self, *, domain: str, args: list[str] | None = None) -> ProcessResult:
         """
         Discover AD domain.
 
@@ -44,14 +44,14 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
         if args is None:
             args = []
 
-        command = self.host.conn.exec(["adcli", "info", *args, "--verbose", f"{domain}"], raise_on_error=False)
+        command = self.host.conn.exec(["adcli", "info", *args, domain], raise_on_error=False)
 
         return command
 
     def testjoin(
         self,
-        domain: str,
         *,
+        domain: str,
         args: list[str] | None = None,
     ) -> ProcessResult:
         """
@@ -67,12 +67,12 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
         if args is None:
             args = []
 
-        return self.host.conn.exec(["adcli", "testjoin", "--verbose", domain, *args], raise_on_error=False)
+        return self.host.conn.exec(["adcli", "testjoin", domain, *args], raise_on_error=False)
 
     def join(
         self,
-        domain: str,
         *,
+        domain: str,
         args: list[str] | None = None,
         password: str,
         login_user: str,
@@ -99,10 +99,10 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
 
         if krb:
             self.host.conn.exec(["kinit", f"{login_user}@{domain.upper()}"], input=password)
-            command = self.host.conn.exec(["adcli", "join", "--verbose", "-C", *args, domain], raise_on_error=False)
+            command = self.host.conn.exec(["adcli", "join", "-C", *args, domain], raise_on_error=False)
         else:
             command = self.host.conn.exec(
-                ["adcli", "join", "--stdin-password", "--verbose", f"--login-user={login_user}", *args, domain],
+                ["adcli", "join", "--stdin-password", f"--login-user={login_user}", *args, domain],
                 input=password,
                 raise_on_error=False,
             )
@@ -111,8 +111,8 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
 
     def delete_computer(
         self,
-        domain: str,
         *,
+        domain: str,
         args: list[str] | None = None,
         password: str,
         login_user: str,
@@ -139,10 +139,25 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
 
         if krb:
             self.host.conn.exec(["kinit", f"{login_user}@{domain.upper()}"], input=password)
-            command = self.host.conn.exec(["adcli", "delete-computer", "--verbose", "-C", *args], raise_on_error=False)
+            command = self.host.conn.exec(
+                [
+                    "adcli",
+                    "delete-computer",
+                    "-C",
+                    f"--domain={domain}",
+                    *args,
+                ],
+                raise_on_error=False,
+            )
         else:
             command = self.host.conn.exec(
-                ["adcli", "delete-computer", "--stdin-password", "--verbose", *args],
+                [
+                    "adcli",
+                    "delete-computer",
+                    "--stdin-password",
+                    f"--domain={domain}",
+                    *args,
+                ],
                 input=password,
                 raise_on_error=False,
             )
@@ -151,8 +166,8 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
 
     def show_computer(
         self,
-        domain: str,
         *,
+        domain: str,
         password: str,
         args: list[str] | None = None,
         login_user: str,
@@ -180,7 +195,7 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
         if krb:
             self.host.conn.exec(["kinit", f"{login_user}@{domain.upper()}"], input=password)
             command = self.host.conn.exec(
-                ["adcli", "show-computer", f"--domain={domain}", "--verbose", "-C", *args], raise_on_error=False
+                ["adcli", "show-computer", f"--domain={domain}", "-C", *args], raise_on_error=False
             )
         else:
             command = self.host.conn.exec(
@@ -191,7 +206,6 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
                     "-U",
                     login_user,
                     f"--domain={domain}",
-                    "--verbose",
                     *args,
                 ],
                 input=password,
@@ -201,8 +215,8 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
 
     def preset_computer(
         self,
-        domain: str,
         *,
+        domain: str,
         password: str,
         args: list[str] | None = None,
         login_user: str,
@@ -230,7 +244,7 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
         if krb:
             self.host.conn.exec(["kinit", f"{login_user}@{domain.upper()}"], input=password)
             command = self.host.conn.exec(
-                ["adcli", "preset-computer", f"--domain={domain}", "--verbose", "-C", *args], raise_on_error=False
+                ["adcli", "preset-computer", f"--domain={domain}", "-C", *args], raise_on_error=False
             )
         else:
             command = self.host.conn.exec(
@@ -241,7 +255,6 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
                     "-U",
                     login_user,
                     f"--domain={domain}",
-                    "--verbose",
                     *args,
                 ],
                 input=password,
@@ -251,8 +264,8 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
 
     def reset_computer(
         self,
-        domain: str,
         *,
+        domain: str,
         password: str,
         args: list[str] | None = None,
         login_user: str,
@@ -280,7 +293,7 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
         if krb:
             self.host.conn.exec(["kinit", f"{login_user}@{domain.upper()}"], input=password)
             command = self.host.conn.exec(
-                ["adcli", "reset-computer", f"--domain={domain}", "--verbose", "-C", *args], raise_on_error=False
+                ["adcli", "reset-computer", f"--domain={domain}", "-C", *args], raise_on_error=False
             )
         else:
             command = self.host.conn.exec(
@@ -291,7 +304,6 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
                     "-U",
                     login_user,
                     f"--domain={domain}",
-                    "--verbose",
                     *args,
                 ],
                 input=password,
