@@ -570,46 +570,6 @@ class LinuxToolsUtils(MultihostUtility[MultihostHost]):
 
         return command.rc == 0
 
-    def connected_interface(self) -> str:
-        """
-        Test to retrieve and validate the default network interface from the system's routing table.
-
-        This test executes the `ip route show default` command on the host and parses the output
-        using `jc.parse` to extract routing information. It ensures the output is in the expected format,
-        validates the presence of a single default interface, and extracts the interface name.
-
-        Raises:
-            ValueError: If the output from `jc.parse` is not in the expected format (a list of dictionaries),
-                       if there is no default interface or multiple default interfaces are found,
-                       or if the default interface is not set.
-
-        Returns:
-            str: The name of the default network interface.
-
-        Example:
-            >>> client.tools.connected_interface()
-            eth0
-        """
-        result = self.host.conn.exec(["ip", "route", "show", "default"])
-        output = jc.parse("ip_route", result.stdout)
-
-        # Ensure output is a list
-        if isinstance(output, dict):
-            output = [output]  # Convert single dictionary to a list of one dictionary
-        elif not isinstance(output, list):
-            raise ValueError("Unexpected output format from jc.parse")
-
-        # Validate the output
-        if not output or len(output) != 1:
-            raise ValueError("Unexpected number of default interfaces")
-
-        # Extract the interface
-        interface = output[0].get("dev")
-        if not interface:
-            raise ValueError("Default interface is not set")
-
-        return interface
-
     def tcpdump(self, pcap_path: str, args: list[Any] | None = None) -> SSHKillableProcess:
         """
         Run tcpdump. The packets are captured in ``pcap_path``.
@@ -668,6 +628,44 @@ class LinuxToolsUtils(MultihostUtility[MultihostHost]):
             self.__rollback.append(f"dnf history -y undo {dnf_id_after}")
 
         return command
+
+    def dig(self, args: list[Any] | None = None) -> Any:
+        """
+        Execute and parse dig command with given arguments.
+
+        Useful keys and values,
+        {"status":  "NOERROR"}, query is a success.
+        {"status":  "NXDOMAIN"}, query did not return any results.
+
+        {"answer_num": int}, number of results.
+        {"answer": list[dict{name: str, class: str, type: str, ttl: int, data: str}]
+
+        When querying a server, the results may have several answers. If you need a simple does it exist assertion,
+        use ``nslookup``.
+
+        :param args: Arguments to ``dig``, defaults to None
+        :type args: list[Any] | None, optional
+        :return: JC parsed dictionary of results.
+        :rtype: Any
+        """
+        if args is None:
+            args = []
+
+        return jc.parse("dig", self.host.conn.exec(["dig", *args]).stdout)
+
+    def nslookup(self, args: list[Any] | None = None) -> ProcessResult:
+        """
+        Execute nslookup command with given arguments.
+
+        :param args: Arguments to ``nslookup``, defaults to None
+        :type args: list[Any] | None, optional
+        :return: SSH Process result
+        :rtype: ProcessResult
+        """
+        if args is None:
+            args = []
+
+        return self.host.conn.exec(["nslookup", *args])
 
     def faillock(self, args: list[Any]) -> ProcessResult:
         """
