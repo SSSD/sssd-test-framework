@@ -161,12 +161,16 @@ Param = ParamSpec("Param")
 RetType = TypeVar("RetType")
 
 
-def seconds_to_timespan(seconds: int) -> str:
+def seconds_to_timespan(seconds: int, ttl: bool = False) -> str:
     """
-    Convert seconds to powershell timespan format, 'Days:Hours:Minutes:Seconds:Fractions'.
+    Convert seconds to powershell timespan format, 'Days:Hours:Minutes:Seconds:Fractions' by default.
+
+    DNS cmdlets accept time with less increments, setting ttl returns 'Days:Hours:Minutes'.
 
     :param seconds: Seconds.
     :type seconds: int
+    :param ttl:  TTL format.
+    :type ttl: bool
     :return: Time in timespan format.
     :rtype: str
     """
@@ -174,7 +178,52 @@ def seconds_to_timespan(seconds: int) -> str:
     h, m = divmod(m, 60)
     d, h = divmod(h, 24)
 
-    return f"{d:02d}:{h:02d}:{m:02d}:{s:02d}:00"
+    if ttl:
+        return f"{d:02d}:{h:02d}:{m:02d}"
+    else:
+        return f"{d:02d}:{h:02d}:{m:02d}:{s:02d}:00"
+
+
+def ps_csv_attrs_parse(stdout_lines: list[str]) -> list[dict[str, str]]:
+    """
+    Parse attributes from powershell output that is converted to a csv.
+
+    This functions requires the following piped to the cmdlet,
+    | ConvertTo-CSV -NoTypeInformation -Delimiter ';'
+
+    :param stdout_lines: CSV converted stdout lines.
+    :type stdout_lines: list[str]
+    :return: Parsed attributes.
+    :rtype: list[dict[str, str]]
+    """
+    data = []
+    values = {}
+
+    keys = [i.replace('"', "").strip() for i in stdout_lines.pop(0).split(";")]
+
+    for x in range(len(stdout_lines)):
+        value = [y.replace('"', "").strip() for y in stdout_lines[x].split(";")]
+        for z in range(len(keys)):
+            values[keys[z]] = value[z] if value[z] != "" else None
+        data.append(values)
+
+    return data
+
+
+def ip_to_zone_name(address: str) -> str:
+    """
+    Get PTR zone name from given address.
+
+    :param address: Address.
+    :type address: str
+    :return: PTR zone name.
+    :rtype: str
+    """
+    parts = address.split(".")
+    if parts < 4:
+        raise ValueError("Address must be in the format x.x.x.x")
+
+    return f"{'.'.join(parts[1:])}.in-addr.arpa"
 
 
 def retry(

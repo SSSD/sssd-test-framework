@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from abc import ABC
 from textwrap import dedent
 from typing import Any
 
@@ -27,6 +28,8 @@ __all__ = [
     "IPAAutomountLocation",
     "IPAAutomountMap",
     "IPAAutomountKey",
+    "IPADNSServer",
+    "IPADNSZone",
 ]
 
 
@@ -362,6 +365,12 @@ class IPA(BaseLinuxRole[IPAHost]):
         """
         return IPAIDView(self, name)
 
+    def dns(self) -> IPADNSServer:
+        """
+        Get dns server object.
+        """
+        return IPADNSServer(self)
+
 
 class IPAObject(BaseObject[IPAHost, IPA]):
     """
@@ -452,8 +461,8 @@ class IPAObject(BaseObject[IPAHost, IPA]):
 
         :param attrs: If set, only requested attributes are returned, defaults to None
         :type attrs: list[str] | None, optional
-        :return: Dictionary with attribute name as a key.
-        :rtype: dict[str, list[str]]
+        :return: Dictionary with attribute name as a key or None if no such attribute is found.
+        :rtype: dict[str, list[str]] | None
         """
         cmd = self._exec("show", ["--all", "--raw"], raise_on_error=False)
 
@@ -2228,3 +2237,148 @@ class IPAIDView(IPAObject):
         Delete existing IPA ID view.
         """
         self._exec("del", ["--continue"])
+
+
+class IPADNSServer(BaseObject[IPAHost, IPA]):
+    def __init__(self, role: IPA):
+        """
+        :param role: IPA host object.
+        :type role: ADHost
+        """
+        super().__init__(role)
+
+    def zone(self, name: str) -> IPADNSZone:
+        """
+        Get IPADNSZone object.
+
+        :param name: Zone name.
+        :type name: str
+        :return: IPADNSZone object.
+        :rtype: IPADNSZone
+        """
+        return IPADNSZone(self, name)
+
+    def get_forwarders(self) -> list[str]:
+        """
+        Get DNS global forwarders.
+
+        :return: DNS global forwarders.
+        :rtype: list[str]
+        """
+
+    def add_forwarders(self, ip_address: str) -> IPADNSServer:
+        """
+        Add DNS server forwarders.
+
+        :param ip_address: IP address.,
+        :type ip_address: str
+        :return:  Self.
+        :rtype: IPADNSServer
+        """
+        #   ipa dnsforwardzone-add external.example.com --forward-policy=first  --forwarder=203.0.113.1
+
+        return self
+
+    def remove_forwarders(self, ip_address: str) -> IPADNSServer:
+        """
+        Remove DNS server forwarders.
+
+        :param ip_address: IP address.
+        :type ip_address: str
+        :return:  Self.
+        :rtype: IPADNSServer
+        """
+
+    def list_zones(self) -> list[str]:
+        """
+        List zones.
+        :return: List of zones.
+        :rtype: list[str]
+        """
+
+
+class IPADNSZone(IPADNSServer, ABC):
+    """
+    DNS zone management.
+    """
+
+    def __init__(self, role: IPA, name: str):
+        """
+        :param role: IPA host object.
+        :type role: ADHost
+        """
+        super().__init__(role)
+
+        self.name: str = name
+        """Zone name."""
+
+    def create(self) -> IPADNSZone:
+        """
+        Create new zone.
+
+        :return: IPADNSServer object.
+        :rtype: IPADNSServer
+        """
+
+    def delete(self) -> None:
+        """
+        Delete zone.
+        """
+
+    def add_record(self, name: str, data: str, record_type: str = "A", ttl: str = "86400") -> IPADNSZone:
+        """
+        Add DNS record.
+
+        :param name: Name of the record.
+        :type name: str
+        :param record_type: Type of the record, defaults to "A"
+        :type record_type: str
+        :param ttl: Time to live, defaults to "86400"
+        :type ttl: str
+        :param data: Data for the record.
+        :type data: str
+        """
+
+    def delete_record(self) -> IPADNSZone:
+        """
+        Delete DNS record.
+        """
+        #    ipa dnsrecord-del example.com www
+
+    def check_record(self, record: str) -> bool:
+        """
+        Check if DNS record exists.
+
+        :param record: DNS record.
+        :type record: str
+        :return: True if record exists, false otherwise.
+        :rtype: bool
+        """
+
+    def get_record(self, record: str) -> tuple[str, str, str, str]:
+        """
+        Get DNS record.
+
+        :param record:
+        :type record: str
+        :return: Tuple with record information, name, type, ttl and data.
+        :rtype: tuple[str, str, str, str]
+        """
+        #    ipa dnsrecord-find example.com www
+        #    ipa dnsrecord-find example.com --a-rec=192.0.2.2
+
+    def print(self) -> list[dict[str, Any]]:
+        """
+         Parses all dns records in zone.
+
+        :return: Parsed zone records.
+        :rtype: list[dict[str, str]]
+        """
+
+    def print_text(self) -> str:
+        """
+        Prints all dns records in a zone.
+        :return: Print zone data.
+        :rtype: str
+        """
+        #    ipa dnszone-show example.com

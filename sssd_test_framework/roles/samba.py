@@ -28,6 +28,8 @@ __all__ = [
     "SambaAutomount",
     "SambaSudoRule",
     "SambaGPO",
+    "SambaDNSServer",
+    "SambaDNSZone",
 ]
 
 
@@ -300,6 +302,16 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
         :rtype: ADComputer
         """
         return SambaComputer(self, name)
+
+    def dns(self) -> SambaDNSServer:
+        """
+        Get dns server object.
+
+        .. code-block:: python
+            :caption: Example usage
+
+        """
+        return SambaDNSServer(self)
 
     def gpo(self, name: str) -> SambaGPO:
         """
@@ -887,8 +899,8 @@ class SambaComputer(SambaObject):
 
     def __init__(self, role: Samba, name: str) -> None:
         """
-        :param role: AD role object.
-        :type role: AD
+        :param role: Samba role object.
+        :type role: Samba
         :param name: Computer name.
         :type name: str
         """
@@ -1170,6 +1182,186 @@ class SambaPasswordPolicy(GenericPasswordPolicy):
         self.host.conn.run(self.cli.command("samba-tool domain passwordsettings set", args))
 
         return self
+
+
+class SambaDNSServer(BaseObject[SambaHost, Samba]):
+    def __init__(self, role: Samba):
+        """
+        :param role: Samba host object.
+        :type role: SambaHost
+        """
+        super().__init__(role)
+
+        self.credentials: str = f" --username={self.role.host.adminuser} --password={self.role.host.adminpw}"
+        """Credentials to manage GPOs."""
+
+    def zone(self, name: str) -> SambaDNSZone:
+        """
+        Get SambaDNSZone object.
+
+        :param name: Zone name.
+        :type name: str
+        :return: SambaDNSZone object.
+        :rtype: SambaDNSZone
+        """
+        return SambaDNSZone(self, name)
+
+    def get_forwarders(self) -> list[str]:
+        """
+        Get DNS global forwarders.
+
+        :return: DNS global forwarders.
+        :rtype: list[str]
+        """
+
+    def add_forwarders(self, ip_address: str) -> SambaDNSServer:
+        """
+        Add DNS server forwarders.
+
+        :param ip_address: IP address.,
+        :type ip_address: str
+        :return:  Self.
+        :rtype: SambaDNSServer
+        """
+
+    def remove_forwarders(self, ip_address: str) -> SambaDNSServer:
+        """
+        Remove DNS server forwarders.
+
+        :param ip_address: IP address.
+        :type ip_address: str
+        :return:  Self.
+        :rtype: SambaDNSServer
+        """
+
+    def list_zones(self) -> list[str]:
+        """
+        List zones.
+
+        :return: List of zones.
+        :rtype: list[str]
+        """
+        result = self.role.host.conn.run(f"samba-tool dns zonelist {self.role.domain} {self.credentials}").stdout_lines
+        result = [i for i in result if "pszZoneName" in i]
+        result = [z.split(":")[1].strip() for z in result]
+
+        return result
+
+
+class SambaDNSZone(SambaDNSServer):
+    """
+    DNS zone management.
+    """
+
+    def __init__(self, role: Samba, name: str):
+        """
+        :param role: Samba host object.
+        :type role: SambaHost
+        """
+        super().__init__(role)
+
+        self.name: str = name
+        """Zone name."""
+
+    def create(self) -> SambaDNSZone:
+        """
+        Create new zone.
+
+        :return: SambaDNSServer object.
+        :rtype: SambaDNSServer
+        """
+
+    def delete(self) -> None:
+        """
+        Delete zone.
+        """
+
+    def add_record(self, name: str, data: str, record_type: str = "A", ttl: int = 86400) -> SambaDNSZone:
+        """
+        Add DNS record.
+
+        ttl parameter is not used in the Samba role but required in the AD role.
+
+        :param name: Name of the record.
+        :type name: str
+        :param record_type: Type of the record, defaults to "A"
+        :type record_type: str
+        :param ttl: Time to live, defaults to "86400"
+        :type ttl: int
+        :param data: Data for the record.
+        :type data: str
+        """
+        self.role.host.conn.run(
+            f"samba-tool dns add "
+            f"{self.role.server} {self.name} "
+            f"{name} {record_type} {data} "
+            f"{self.credentials}"
+        )
+
+        return self
+
+    def delete_record(self, name: str | None = None, record_type: str = "A", data: str | None = None) -> SambaDNSZone:
+        """
+        Delete DNS record.
+        
+        :param name: Name of the record.
+        :type name: str
+        :param record_type: Type of the record, defaults to "A"
+        :type record_type: str
+        :param data: Data for the record.
+        :type data: str
+        """
+        self.role.host.conn.run(
+            f"samba-tool dns delete "
+            f"{self.role.server} {self.name} "
+            f"{name} {record_type} {data} "
+            f"{self.credentials}"
+        )
+        
+        return self
+
+    def check_record(self, record: str) -> bool:
+        """
+        Check if DNS record exists.
+
+        :param record: DNS record.
+        :type record: str
+        :return: True if record exists, false otherwise.
+        :rtype: bool
+        """
+        pass
+
+    def get_record(self, record: str) -> tuple[str, str, str, str]:
+        """
+        Get DNS record.
+
+        :param record:
+        :type record: str
+        :return: Tuple with record information, name, type, ttl and data.
+        :rtype: tuple[str, str, str, str]
+        """
+        pass
+
+    def print(self) -> list[dict[str, Any]]:
+        """
+         Parses all dns records in zone.
+
+        :return: Parsed zone records.
+        :rtype: list[dict[str, str]]
+        """
+        result = self.role.host.conn.run(f"samba-tool zonelist {self.name} {self.credentials}").stdout_lines
+
+        return attrs_parse(result)
+
+    def print_text(self) -> str:
+        """
+        Prints all dns records in a zone.
+        :return: Print zone data.
+        :rtype: str
+        """
+        result = self.role.host.conn.run(f"samba-tool zonelist {self.name} {self.credentials}").stdout_lines
+
+        return result
 
 
 SambaOrganizationalUnit: TypeAlias = LDAPOrganizationalUnit[SambaHost, Samba]
