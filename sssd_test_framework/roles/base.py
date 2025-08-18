@@ -21,6 +21,7 @@ from ..hosts.base import BaseHost, BaseLDAPDomainHost
 from ..utils.authentication import AuthenticationUtils
 from ..utils.authselect import AuthselectUtils
 from ..utils.ldap import LDAPUtils
+from ..utils.network import NetworkUtils
 from ..utils.sshd import SSHDUtils
 from ..utils.tools import LinuxToolsUtils
 
@@ -176,6 +177,11 @@ class BaseLinuxRole(BaseRole[HostType]):
         self.tools: LinuxToolsUtils = LinuxToolsUtils(self.host, self.fs)
         """
         Standard tools interface.
+        """
+
+        self.net: NetworkUtils = NetworkUtils(self.host, self.fs)
+        """
+        Network tools interface.
         """
 
         self.auth: AuthenticationUtils = AuthenticationUtils(self.host, self.fs)
