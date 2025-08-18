@@ -177,6 +177,22 @@ def seconds_to_timespan(seconds: int) -> str:
     return f"{d:02d}:{h:02d}:{m:02d}:{s:02d}:00"
 
 
+def ip_to_zone_name(address: str) -> str:
+    """
+    Get PTR zone name from given address.
+
+    :param address: Address.
+    :type address: str
+    :return: PTR zone name.
+    :rtype: str
+    """
+    parts = address.split(".")
+    if len(parts) != 4:
+        raise ValueError("Address must be in the format x.x.x.x")
+
+    return f"{'.'.join(parts[1:])}.in-addr.arpa"
+
+
 def retry(
     max_retries: int = 5,
     delay: float = 1,
