@@ -65,6 +65,16 @@ class IPA(BaseLinuxRole[IPAHost]):
         Kerberos realm.
         """
 
+        self.name: str = "ipa"
+        """
+        Generic provider name.
+        """
+
+        self.server: str = self.host.hostname
+        """
+        Generic server name.
+        """
+
         self.sssd: SSSDUtils = SSSDUtils(self.host, self.fs, self.svc, self.authselect, load_config=True)
         """
         Managing and configuring SSSD.
@@ -154,12 +164,36 @@ class IPA(BaseLinuxRole[IPAHost]):
         """
         return self._password_policy
 
+    @property
+    def naming_context(self) -> str:
+        """
+        Naming context.
+        """
+        ipa_default = self.fs.read("/etc/ipa/default.conf")
+        _ipa_default = ipa_default.strip().splitlines()
+        for i in _ipa_default:
+            if "basedn" in i:
+                return str(i.split("=", 1)[1])
+
+        raise ValueError("basedn not found in /etc/ipa/default.conf!")
+
     def setup(self) -> None:
         """
         Obtain IPA admin Kerberos TGT.
         """
         super().setup()
         self.host.kinit()
+
+    def fqn(self, name: str) -> str:
+        """
+        Return fully qualified name in form name@domain.
+
+        :param name: Username.
+        :type name: str
+        :return: Fully qualified name.
+        :rtype: str
+        """
+        return f"{name}@{self.domain}"
 
     def user(self, name: str) -> IPAUser:
         """
