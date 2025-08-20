@@ -7,6 +7,7 @@ from typing import Any
 
 from pytest_mh.conn import ProcessLogLevel
 
+from ..misc import attrs_parse
 from .base import BaseDomainHost
 
 __all__ = [
@@ -39,6 +40,8 @@ class ADHost(BaseDomainHost):
         super().__init__(*args, **kwargs)
 
         self._features: dict[str, bool] | None = None
+
+        self._forwarders: list[str] | None = None
 
         self.adminpw: str = self.config.get("adminpw", "Secret123")
         """Password of the Administrator user, defaults to ``Secret123``."""
@@ -83,6 +86,19 @@ class ADHost(BaseDomainHost):
         return self._features
 
     @property
+    def forwarders(self) -> list[str]:
+        """
+        List of DNS forwarders.
+
+        :return: List of DNS forwarders.
+        :rtype: list[str]
+        """
+        global_forwarders = attrs_parse(self.conn.run("Get-DnsServerForwarder").stdout_lines, ["IPAddress"])
+        _global_forwarders = global_forwarders.get("IPAddress")[0].strip("{}").split(",")
+
+        return _global_forwarders
+
+    @property
     def naming_context(self) -> str:
         """
         Default naming context.
@@ -111,20 +127,24 @@ class ADHost(BaseDomainHost):
 
     def backup(self) -> Any:
         """
-        Perform limited backup of the domain controller data. Content under
-        ``$default_naming_context``. Site, groupPolicyContainer and computer
-        objects are explicitly exported so GPO setup can be undone. These
-        operations are usually very fast.
+        Perform limited backup of the domain controller data. Users, groups, dns records, settings, sites,
+        groupPolicyContainer and computer objects are explicitly exported so GPO setup can be undone.
+        These operations are usually very fast.
 
         :return: Backup data.
         :rtype: Any
         """
+        self.logger.info("Getting list of global DNS forwarders")
+        if self._forwarders is None:
+            self._forwarders = self.forwarders
+
         self.logger.info("Creating backup of Active Directory")
 
         result = self.conn.run(
             rf"""
             $basedn = '{self.naming_context}'
             $sitesdn = "cn=sites,cn=configuration,$basedn"
+            $dnsdn = "cn=microsoftdns,dc=domaindnszones,$basedn"
 
             # Create temporary directory to store backups
             $tmpdir = New-TemporaryFile | % {{ Remove-Item $_; New-Item -ItemType Directory -Path $_ }}
@@ -132,10 +152,11 @@ class ADHost(BaseDomainHost):
             $backup_gpo = Join-Path $tmpdir gpo.txt
             $backup_computers = Join-Path $tmpdir computers.txt
 
-            # Backup DC content and sites
+            # Backup DC content, dns and sites
             $result_basedn = Get-ADObject -SearchBase "$basedn" -Filter "*"
             $result_sitesdn = Get-ADObject -SearchBase "$sitesdn" -LDAPFilter "objectClass=site"
-            $result = $result_basedn + $result_sitesdn
+            $result_dns = Get-ADObject -SearchBase "$dnsdn" -Filter "*"
+            $result =   $result_basedn + $result_sitesdn + $result_dns
             foreach ($r in $result) {{
                 $r.DistinguishedName | Add-Content -Path $backup_dc
             }}
@@ -163,8 +184,9 @@ class ADHost(BaseDomainHost):
         """
         Perform limited restoration of the domain controller state.
 
-        This is done by removing all records under ``$default_naming_context``
-        and that are not present in the original state.
+        This is done by removing all records under the base dns;``$default_naming_context``
+        and ``$domaindnszones`` that are not present in the original state. Any changes to
+        DNS forwarders are also reverted.
 
         If GPOs are found, some additional steps are performed. The policy directory
         located at 'C:\\Windows\\SYSVOL\\domain\\Policies\\{{GUID}}' is deleted.
@@ -179,6 +201,17 @@ class ADHost(BaseDomainHost):
         :return: Backup data.
         :rtype: Any
         """
+        if self._forwarders == self.forwarders:
+            self.logger.info("DNS forwarders have not been modified, skipping")
+        else:
+            self.logger.info("DNS forwarders have been modified, reverting changes")
+            for i in self.forwarders:
+                if i not in self._forwarders:
+                    self.conn.run(f"Remove-DnsServerForwarder {i} -PassThru -Force")
+            for y in self._forwarders:
+                if y not in self.forwarders:
+                    self.conn.run(f"Add-DnsServerForwarder -IPAddress {y}")
+
         if backup_data is None:
             return
 
@@ -192,6 +225,7 @@ class ADHost(BaseDomainHost):
             rf"""
             $basedn = '{self.naming_context}'
             $sitesdn = "cn=sites,cn=configuration,$basedn"
+            $dnsdn = "cn=microsoftdns,dc=domaindnszones,$basedn"
 
             # Load backup data
             $tmpdir = '{backup_path}'
@@ -238,10 +272,11 @@ class ADHost(BaseDomainHost):
             # An extra gplink clear on the sites target.
             Set-ADObject -Identity "cn=Default-First-Site-Name,$sitesdn" -Clear gPLink
 
-            # Restore DC content and site
+            # Restore DC content, dns  and site
             $result_basedn = Get-ADObject -SearchBase "$basedn" -Filter "*"
             $result_sitesdn = Get-ADObject -SearchBase "$sitesdn" -LDAPFilter ("objectClass=site")
-            $result = $result_basedn + $result_sitesdn
+            $result_dnsdn = Get-ADObject -SearchBase "$dnsdn" -Filter  "*"
+            $result = $result_basedn + $result_sitesdn + $result_dnsdn
             foreach ($r in $result) {{
                 if (!$backup_dc.contains($r.DistinguishedName)) {{
                     Write-Host "Removing: $r"
@@ -252,6 +287,8 @@ class ADHost(BaseDomainHost):
                     }}
                 }}
             }}
+            # Restart dns to clear the cache
+            Restart-Service -name dns -force
 
             # If we got here, make sure we exit with 0
             Exit 0
