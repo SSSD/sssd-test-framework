@@ -183,6 +183,7 @@ def seconds_to_timespan(seconds: int, ttl: bool = False) -> str:
     else:
         return f"{d:02d}:{h:02d}:{m:02d}:{s:02d}:00"
 
+
 def retry(
     max_retries: int = 5,
     delay: float = 1,

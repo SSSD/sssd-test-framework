@@ -43,6 +43,8 @@ class ADHost(BaseDomainHost):
 
         self._forwarders: list[str] | None = None
 
+        self._zones: list[str] | None = None
+
         self.adminpw: str = self.config.get("adminpw", "Secret123")
         """Password of the Administrator user, defaults to ``Secret123``."""
 
@@ -93,10 +95,27 @@ class ADHost(BaseDomainHost):
         :return: List of DNS forwarders.
         :rtype: list[str]
         """
-        global_forwarders = attrs_parse(self.conn.run("Get-DnsServerForwarder").stdout_lines, ["IPAddress"])
-        _global_forwarders = global_forwarders.get("IPAddress")[0].strip("{}").split(",")
+        forwarders = self.conn.run("Get-DnsServerForwarder").stdout_lines
+        if forwarders is not None:
+            parsed_forwarders = attrs_parse(forwarders, ["IPAddress"])
+            if isinstance(parsed_forwarders, dict):
+             _forwarders = parsed_forwarders.get("IPAddress")[0].strip("{}").split(",")
 
-        return _global_forwarders
+        return _forwarders
+
+    @property
+    def zones(self) -> list[str]:
+        """
+        List of DNS zones.
+        :return: List of DNS zones.
+        :rtype: list[str]
+        """
+        result = self.conn.run("Get-DnsServerZone | Format-List -Property ZoneName").stdout_lines
+        result = [x for x in result if x not in ["\r", "", None]]
+        result = [y.replace("\r", "").strip() for y in result]
+        result = [z.split(":")[1].strip() for z in result]
+
+        return result
 
     @property
     def naming_context(self) -> str:
@@ -134,9 +153,12 @@ class ADHost(BaseDomainHost):
         :return: Backup data.
         :rtype: Any
         """
-        self.logger.info("Getting list of global DNS forwarders")
+        self.logger.info("Getting list of global DNS forwarders and zones")
+
         if self._forwarders is None:
             self._forwarders = self.forwarders
+        if self._zones is None:
+            self._zones = self.zones
 
         self.logger.info("Creating backup of Active Directory")
 
@@ -144,7 +166,7 @@ class ADHost(BaseDomainHost):
             rf"""
             $basedn = '{self.naming_context}'
             $sitesdn = "cn=sites,cn=configuration,$basedn"
-            $dnsdn = "cn=microsoftdns,dc=domaindnszones,$basedn"
+            $dnsdn = "dc=domaindnszones,$basedn"
 
             # Create temporary directory to store backups
             $tmpdir = New-TemporaryFile | % {{ Remove-Item $_; New-Item -ItemType Directory -Path $_ }}
@@ -155,8 +177,8 @@ class ADHost(BaseDomainHost):
             # Backup DC content, dns and sites
             $result_basedn = Get-ADObject -SearchBase "$basedn" -Filter "*"
             $result_sitesdn = Get-ADObject -SearchBase "$sitesdn" -LDAPFilter "objectClass=site"
-            $result_dns = Get-ADObject -SearchBase "$dnsdn" -Filter "*"
-            $result =   $result_basedn + $result_sitesdn + $result_dns
+            $result_dnsdn = Get-ADObject -SearchBase "$dnsdn" -Filter "*"
+            $result =   $result_basedn + $result_sitesdn + $result_dnsdn
             foreach ($r in $result) {{
                 $r.DistinguishedName | Add-Content -Path $backup_dc
             }}
@@ -184,9 +206,8 @@ class ADHost(BaseDomainHost):
         """
         Perform limited restoration of the domain controller state.
 
-        This is done by removing all records under the base dns;``$default_naming_context``
-        and ``$domaindnszones`` that are not present in the original state. Any changes to
-        DNS forwarders are also reverted.
+        This is done by removing all records under ``$default_naming_context``
+        and that are not present in the original state.
 
         If GPOs are found, some additional steps are performed. The policy directory
         located at 'C:\\Windows\\SYSVOL\\domain\\Policies\\{{GUID}}' is deleted.
@@ -204,13 +225,25 @@ class ADHost(BaseDomainHost):
         if self._forwarders == self.forwarders:
             self.logger.info("DNS forwarders have not been modified, skipping")
         else:
+            print(self.forwarders, self._forwarders, "DOES NOT EQUAL")
             self.logger.info("DNS forwarders have been modified, reverting changes")
             for i in self.forwarders:
                 if i not in self._forwarders:
-                    self.conn.run(f"Remove-DnsServerForwarder {i} -PassThru -Force")
+                    self.conn.run(f"Add-DnsServerForwarder -IPAddress {i}")
             for y in self._forwarders:
-                if y not in self.forwarders:
-                    self.conn.run(f"Add-DnsServerForwarder -IPAddress {y}")
+                if y in self.forwarders:
+                    self.conn.run(f"Remove-DnsServerForwarder {y} -PassThru -Force")
+
+        if self._zones == self.zones:
+            self.logger.info("DNS zones have not been modified, skipping")
+        else:
+            self.logger.info("DNS zones have been modified, reverting changes")
+            for i in self.zones:
+                if i not in self._zones:
+                    self.conn.run(f"Add-DnsServerPrimaryZone -Name {i} -ReplicationScope Forest -PassThru")
+            for y in self._zones:
+                if y in self.zones:
+                    self.conn.run(f"Remove-DnsServerZone {y} -Force")
 
         if backup_data is None:
             return
@@ -225,7 +258,7 @@ class ADHost(BaseDomainHost):
             rf"""
             $basedn = '{self.naming_context}'
             $sitesdn = "cn=sites,cn=configuration,$basedn"
-            $dnsdn = "cn=microsoftdns,dc=domaindnszones,$basedn"
+            $dnsdn = "dc=domaindnszones,$basedn"
 
             # Load backup data
             $tmpdir = '{backup_path}'
@@ -272,10 +305,10 @@ class ADHost(BaseDomainHost):
             # An extra gplink clear on the sites target.
             Set-ADObject -Identity "cn=Default-First-Site-Name,$sitesdn" -Clear gPLink
 
-            # Restore DC content, dns  and site
+            # Restore DC content,  and site
             $result_basedn = Get-ADObject -SearchBase "$basedn" -Filter "*"
             $result_sitesdn = Get-ADObject -SearchBase "$sitesdn" -LDAPFilter ("objectClass=site")
-            $result_dnsdn = Get-ADObject -SearchBase "$dnsdn" -Filter  "*"
+            $result_dnsdn = Get-ADObject -SearchBase "$dnsdn" -Filter "*"
             $result = $result_basedn + $result_sitesdn + $result_dnsdn
             foreach ($r in $result) {{
                 if (!$backup_dc.contains($r.DistinguishedName)) {{
@@ -287,8 +320,8 @@ class ADHost(BaseDomainHost):
                     }}
                 }}
             }}
-            # Restart dns to clear the cache
-            Restart-Service -name dns -force
+            # Removing DNS record using ldap, the service needs to be restarted.
+            Restart-Service -Name DNS 
 
             # If we got here, make sure we exit with 0
             Exit 0
