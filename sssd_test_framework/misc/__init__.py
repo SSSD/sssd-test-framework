@@ -161,12 +161,16 @@ Param = ParamSpec("Param")
 RetType = TypeVar("RetType")
 
 
-def seconds_to_timespan(seconds: int) -> str:
+def seconds_to_timespan(seconds: int, ttl: bool = False) -> str:
     """
-    Convert seconds to powershell timespan format, 'Days:Hours:Minutes:Seconds:Fractions'.
+    Convert seconds to powershell timespan format, 'Days:Hours:Minutes:Seconds:Fractions' by default.
+
+    DNS cmdlets accept time with less increments, setting ttl returns 'Days:Hours:Minutes'.
 
     :param seconds: Seconds.
     :type seconds: int
+    :param ttl:  TTL format.
+    :type ttl: bool
     :return: Time in timespan format.
     :rtype: str
     """
@@ -174,8 +178,10 @@ def seconds_to_timespan(seconds: int) -> str:
     h, m = divmod(m, 60)
     d, h = divmod(h, 24)
 
-    return f"{d:02d}:{h:02d}:{m:02d}:{s:02d}:00"
-
+    if ttl:
+        return f"{d:02d}:{h:02d}:{m:02d}"
+    else:
+        return f"{d:02d}:{h:02d}:{m:02d}:{s:02d}:00"
 
 def retry(
     max_retries: int = 5,
