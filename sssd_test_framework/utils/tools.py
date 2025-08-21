@@ -9,8 +9,6 @@ from pytest_mh import MultihostHost, MultihostUtility
 from pytest_mh.conn import Process, ProcessResult
 from pytest_mh.utils.fs import LinuxFileSystem
 
-from ..misc.ssh import SSHKillableProcess
-
 __all__ = [
     "GetentUtils",
     "GroupEntry",
@@ -569,83 +567,6 @@ class LinuxToolsUtils(MultihostUtility[MultihostHost]):
         command = self.host.conn.exec(["grep", *args, pattern, *paths], raise_on_error=False)
 
         return command.rc == 0
-
-    def connected_interface(self) -> str:
-        """
-        Test to retrieve and validate the default network interface from the system's routing table.
-
-        This test executes the `ip route show default` command on the host and parses the output
-        using `jc.parse` to extract routing information. It ensures the output is in the expected format,
-        validates the presence of a single default interface, and extracts the interface name.
-
-        Raises:
-            ValueError: If the output from `jc.parse` is not in the expected format (a list of dictionaries),
-                       if there is no default interface or multiple default interfaces are found,
-                       or if the default interface is not set.
-
-        Returns:
-            str: The name of the default network interface.
-
-        Example:
-            >>> client.tools.connected_interface()
-            eth0
-        """
-        result = self.host.conn.exec(["ip", "route", "show", "default"])
-        output = jc.parse("ip_route", result.stdout)
-
-        # Ensure output is a list
-        if isinstance(output, dict):
-            output = [output]  # Convert single dictionary to a list of one dictionary
-        elif not isinstance(output, list):
-            raise ValueError("Unexpected output format from jc.parse")
-
-        # Validate the output
-        if not output or len(output) != 1:
-            raise ValueError("Unexpected number of default interfaces")
-
-        # Extract the interface
-        interface = output[0].get("dev")
-        if not interface:
-            raise ValueError("Default interface is not set")
-
-        return interface
-
-    def tcpdump(self, pcap_path: str, args: list[Any] | None = None) -> SSHKillableProcess:
-        """
-        Run tcpdump. The packets are captured in ``pcap_path``.
-
-        :param pcap_path: Path to the capture file.
-        :type pcap_path: str
-        :param args: Arguments to ``tcpdump``, defaults to None
-        :type args: list[Any] | None, optional
-        :return: Killable process.
-        :rtype: SSHKillableProcess
-        """
-        if args is None:
-            args = []
-
-        self.__fs.backup(pcap_path)
-
-        command = SSHKillableProcess(self.host.conn, ["tcpdump", *args, "-w", pcap_path])
-
-        # tcpdump requires some time to process and capture packets
-        command.kill_delay = 1
-
-        return command
-
-    def tshark(self, args: list[Any] | None = None) -> ProcessResult:
-        """
-        Execute tshark command with given arguments.
-
-        :param args: Arguments to ``tshark``, defaults to None
-        :type args: list[Any] | None, optional
-        :return: SSH Process result
-        :rtype: ProcessResult
-        """
-        if args is None:
-            args = []
-
-        return self.host.conn.exec(["tshark", *args])
 
     def dnf(self, args: list[Any] | None = None) -> ProcessResult:
         """
