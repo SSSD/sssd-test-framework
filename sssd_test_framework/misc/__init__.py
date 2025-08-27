@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import itertools
+import struct
 from functools import wraps
 from time import sleep
 from typing import Any, Callable, ParamSpec, TypeVar
@@ -41,6 +42,21 @@ def attrs_parse(lines: list[str], attrs: list[str] | None = None) -> dict[str, l
             out[key].append(value)
         i += 1
     return out
+
+
+def attrs_parse_ipa(lines: list[str], attrs: list[str] | None = None) -> dict[str, list[str]] | None:
+    """
+    Cleans IPA stdout to be parsed by`attrs_parse`.
+
+    :param lines: Output.
+    :type lines: list[str]
+    :param attrs: If set, only requested attributes are returned, defaults to None
+    :type attrs: list[str] | None, optional
+    :return: Dictionary with attribute name as a key.
+    :rtype: dict[str, list[str]]
+    """
+    clean_lines = [line.strip() for line in lines if line.startswith(" ")]
+    return attrs_parse(clean_lines, attrs)
 
 
 def attrs_include_value(attr: Any | list[Any] | None, value: Any) -> list[Any]:
@@ -133,6 +149,42 @@ def parse_ldif(ldif: str) -> dict[str, dict[str, list[str]]]:
     return output
 
 
+def encode_dns_record(ip: str, serial: int, ttl: int, ipv6: bool | None = False) -> bytes:
+    """
+    Encode dns_record attribute for an A/AAAA record.
+
+    :param ip: IP address.
+    :type ip: str
+    :param serial: Serial number.
+    :type serial: int
+    :param ttl: Time to live, in seconds.
+    :type ttl: int
+    :param ipv6: IPv6 switch, optional
+    :type ipv6: bool | None = False
+    :return:  dns_record value in bytes.
+    :rtype:  bytes
+    """
+    if ipv6:
+        ip_bytes = IPv6Address(ip).packed
+        record_type = 0x001C
+        data_length = 16
+    else:
+        ip_bytes = bytes(map(int, ip.split(".")))
+        record_type = 0x0001
+        data_length = 4
+
+    dns_record = (
+        struct.pack("<I", serial)  # Serial (4 bytes)
+        + struct.pack("<I", ttl)  # TTL (4 bytes)
+        + struct.pack("<H", 0)  # Version/Reserved (2 bytes)
+        + struct.pack("<H", 0)  # Rank/Flags (2 bytes)
+        + struct.pack("<H", record_type)  # Type (A record = 1, 2 bytes)
+        + struct.pack("<H", data_length)  # Data length (4 bytes for IPv4)
+        + ip_bytes  # IP address (4 bytes)
+    )
+    return dns_record
+
+
 def attrs_to_hash(attrs: dict[str, Any]) -> str | None:
     """
     Convert attributes into an Powershell hash table records.
@@ -182,6 +234,7 @@ def seconds_to_timespan(seconds: int, ttl: bool = False) -> str:
         return f"{d:02d}:{h:02d}:{m:02d}"
     else:
         return f"{d:02d}:{h:02d}:{m:02d}:{s:02d}:00"
+
 
 def retry(
     max_retries: int = 5,

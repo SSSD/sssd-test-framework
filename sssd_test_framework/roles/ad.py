@@ -2259,13 +2259,13 @@ class ADDNSZone(ADDNSServer, ABC):
         )
         return self
 
-    def add_ptr_record(self, fqname: str, ip_octet4: int, ttl: int = 86400) -> ADDNSZone:
+    def add_ptr_record(self, fqname: str, ip: str, ttl: int = 86400) -> ADDNSZone:
         """
         Add DNS ptr record.
         :param fqname: Fully qualified hostname.
         :type fqname: str
-        :param ip_octet4: IP address, last octet only.
-        :type ip_octet4: int
+        :param ip: IP address.
+        :type ip: str
         :param ttl: Time to live, optional
         :type ttl: int | None = "86400"
         :return: ADDNSZone object.
@@ -2273,7 +2273,7 @@ class ADDNSZone(ADDNSServer, ABC):
         """
         self.host.conn.run(
             f"Add-DnsServerResourceRecord -ZoneName {self.zone} -PTR "
-            f"-Name {str(ip_octet4)} -AllowUpdateAny -PtrDomainName {fqname}. "
+            f"-Name {ip.split('.')[-1]} -AllowUpdateAny -PtrDomainName {fqname}. "
             f"-TimeToLive {seconds_to_timespan(ttl, ttl = True)}"
         )
         return self
@@ -2305,7 +2305,7 @@ class ADDNSZone(ADDNSServer, ABC):
         :return: True if record exists, false otherwise.
         :rtype: bool
         """
-        return True if self.get_record(fqname, ipv6=ipv6) is not None else False
+        return True if self.get_record(fqname, ipv6=ipv6)[0] is not None else False
 
     def ptr_record_exists(self, ip: str) -> bool:
         """
@@ -2316,53 +2316,64 @@ class ADDNSZone(ADDNSServer, ABC):
         :return: True if record exists, false otherwise.
         :rtype: bool
         """
-        return True if self.get_ptr_record(ip) is not None else False
+        return True if self.get_ptr_record(ip)[0] is not None else False
 
-    def get_record(self, fqname: str, ipv6: bool | None = False) -> list[dict[str]]:
+    def get_record(self, fqname: str, ipv6: bool | None = False) -> tuple[dict | None, Any | None]:
         """
-        Get DNS record.
+        Get DNS record
 
         :param fqname: Fully qualified hostname.
         :type fqname: str
         :param ipv6: IPv6 switch, optional
         :type ipv6: bool | None = False
-        :return: Parsed dns record.
-        :rtype: list[dict[str]]
+        :return: Parsed a/aaaa record, soa record.
+        :rtype: tuple[dict | None, Any | None]
         """
         record_type = "AAAA" if ipv6 else "A"
-
         result = self.host.conn.run(f"dig {fqname} {record_type}").stdout
-
         jc_result = jc.parse("dig", result)
+        answer = None
+        authority = None
+
         if isinstance(jc_result, list):
             for i in jc_result:
                 if isinstance(i, dict):
+                    if i.get("authority") is not None:
+                        for y in i.get("authority"):
+                            soa = y.get("data") if isinstance(y, dict) else None
+                            authority = soa.split(" ") if isinstance(soa, str) else None
                     if i.get("answer") is not None:
                         for y in i.get("answer"):
-                            return y if isinstance(y, dict) else None
-                    else:
-                        return None
+                            answer = y if isinstance(y, dict) else None
 
-    def get_ptr_record(self, ip: str):
+                    return answer, authority
+
+    def get_ptr_record(self, ip: str) -> tuple[dict | None, Any | None]:
         """
-        Get DNS ptr record.
+        Get DNS ptr or soa record data.
 
         :param ip: IP address.
         :type ip: str
-        :return: Parsed dns record.
-        :rtype: list[dict[str]]
+        :return: Parsed ptr record, soa record.
+        :rtype:  tuple[dict | None, Any | None]
         """
         result = self.host.conn.run(f"dig -x {ip}").stdout
-
         jc_result = jc.parse("dig", result)
+        answer = None
+        authority = None
+
         if isinstance(jc_result, list):
             for i in jc_result:
                 if isinstance(i, dict):
+                    if i.get("authority") is not None:
+                        for y in i.get("authority"):
+                            soa = y.get("data") if isinstance(y, dict) else None
+                            authority = soa.split(" ") if isinstance(soa, str) else None
                     if i.get("answer") is not None:
                         for y in i.get("answer"):
-                            return y if isinstance(y, dict) else None
-                    else:
-                        return None
+                            answer = y if isinstance(y, dict) else None
+
+                    return answer, authority
 
     def print(self) -> str:
         """
