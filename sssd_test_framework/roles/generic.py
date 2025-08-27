@@ -29,6 +29,8 @@ __all__ = [
     "GenericAutomountMap",
     "GenericAutomountKey",
     "GenericGPO",
+    "GenericDNSServer",
+    "GenericDNSZone",
 ]
 
 
@@ -124,6 +126,28 @@ class GenericProvider(ABC, MultihostRole[BaseHost]):
     def fqn(self, name: str) -> str:
         """
         Return fully qualified name.
+        """
+        pass
+
+    @abstractmethod
+    def dns(self) -> GenericDNSServer:
+        """
+        DNS server management.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopologyGroup.AnyDC)
+            def test_example(client: Client, provider: GenericProvider)::
+
+                # Create ptr  zone
+                zone = provider.dns().zone("0.10.10.in-addr.arpa").create()
+
+                # Start SSSD
+                client.sssd.start()
+
+                assert provider.dns().zone("0.10.10.in-addr.arpa").check_record(client.ip, "PTR")
+
         """
         pass
 
@@ -335,6 +359,21 @@ class GenericADProvider(GenericProvider):
     def fqn(self, name: str) -> str:
         """
         Return fully qualified name in form name@domain.
+        """
+        pass
+
+    @abstractmethod
+    def naming_context(self) -> str:
+        """
+        Return domain naming context in form of dc=domain,dc=com.
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def dn(self) -> str:
+        """
+        Distinguished Name.
         """
         pass
 
@@ -1362,3 +1401,197 @@ class GenericPasswordPolicy(ABC, BaseObject):
         :rtype: GenericPasswordPolicy
         """
         pass
+
+
+class GenericDNSServer(ABC, BaseObject):
+    """
+    DNS/Bind management utilities.
+    """
+
+    @abstractmethod
+    def zone(self, name: str) -> GenericDNSZone:
+        """
+        Get Generic DNS zone object.
+        :param name: Zone name.
+        :type name: str
+        :return: GenericDNSZone object.
+        :rtype: GenericDNSZone
+        """
+        ...
+
+    @abstractmethod
+    def get_forwarders(self) -> list[str]:
+        """
+        Get DNS global forwarders.
+
+        :return:  List of forwarders.
+        :rtype: list[str]
+        """
+        pass
+
+    @abstractmethod
+    def add_forwarders(self, forwarders: list[str]) -> GenericDNSServer:
+        """
+        Set DNS forwarders.
+
+        :param forwarders: List of DNS servers, optional
+        :type forwarders: list[str] | None = None
+        :return: Self.
+        :rtype: GenericDNSServer
+        """
+        pass
+
+    @abstractmethod
+    def remove_forwarders(self, ip_address: str) -> GenericDNSServer:
+        """
+        Remove DNS server forwarders.
+
+        :param ip_address: IP address.
+        :type ip_address: str
+        :return:  Self.
+        :rtype: GenericDNSServer
+        """
+        pass
+
+    @abstractmethod
+    def list_zones(self) -> list[str]:
+        """
+        List all DNS zones.
+        """
+        pass
+
+
+class GenericDNSZone(GenericDNSServer):
+    """
+    Generic DNS zone management.
+    """
+
+    def __init__(self, name: str):
+        """
+        :param name: DNS zone name.
+        :type name: str
+        """
+        self.name: str = name
+        """Zone name."""
+
+    @abstractmethod
+    def zone(self, name: str) -> GenericDNSZone:
+        pass
+
+    @abstractmethod
+    def create(self) -> GenericDNSZone:
+        """
+        Create DNS zone.
+
+        :return: GenericDNSServer object.
+        :rtype: GenericDNSServer
+        """
+        pass
+
+    @abstractmethod
+    def delete(self) -> None:
+        """
+        Delete DNS zone.
+
+        :return:  None
+        :rtype: None
+        """
+        pass
+
+    @abstractmethod
+    def add_record(
+        self, shortname: str, ip: str, ipv6: bool | None = False, ttl: int | None = 86400
+    ) -> GenericDNSZone:
+        """
+        Add DNS record.
+
+        :param shortname:  Short hostname.
+        :type shortname: str
+        :param ip: IP address.
+        :type ip: str
+        :param ipv6: IPv6 switch, optional
+        :type ipv6: bool | None = False
+        :param ttl: Time to live, defaults to "86400"
+        :type ttl: int | None = "86400"
+        :return: GenericDNSZone object.
+        :rtype: GenericDNSZone
+        """
+        pass
+
+    @abstractmethod
+    def add_ptr_record(self, fqname: str, ip_octet4: int, ttl: int = 86400) -> GenericDNSZone:
+        """
+        Add DNS ptr record.
+        :param fqname: Fully qualified hostname.
+        :type fqname: str
+        :param ip_octet4: IP address, last octet only.
+        :type ip_octet4: int
+        :param ttl: Time to live, optional
+        :type ttl: int | None = "86400"
+        :return: GenericDNSZone object.
+        :rtype: GenericDNSZone
+        """
+        pass
+
+    @abstractmethod
+    def delete_record(self, name: str, record_type: str) -> GenericDNSZone:
+        """
+        Delete DNS record.
+
+        :param name: Name of the record.
+        :type name: str
+        :param record_type: Type of the record, defaults to "A"
+        :type record_type: str
+        :return: GenericDNSZone object.
+        :rtype: GenericDNSZone
+        """
+        pass
+
+    @abstractmethod
+    def record_exists(self, fqname: str, ipv6: bool | None = False) -> bool:
+        """
+        Check if A/AAAA record exists.
+
+        :param fqname: Fully qualified hostname.
+        :type fqname: str
+        :param ipv6: IPv6 switch, optional
+        :type ipv6: bool | None = False
+        :return: True if record exists, false otherwise.
+        :rtype: bool
+        """
+        pass
+
+    @abstractmethod
+    def ptr_record_exists(self, ip: str) -> bool:
+        """
+        Get DNS ptr record.
+
+        :param ip: IP address.
+        :type ip: str
+        :return: True if record exists, false otherwise.
+        :rtype: bool
+        """
+        return True if self.get_ptr_record(ip) is not None else False
+
+    @abstractmethod
+    def get_record(self, fqname: str, ipv6: bool | None = False) -> list[dict[str]]:
+        """
+        Get DNS record.
+
+        :param fqname: Fully qualified hostname.
+        :type fqname: str
+        :param ipv6: IPv6 switch, optional
+        :type ipv6: bool | None = False
+        :return: Parsed dns record.
+        :rtype: list[dict[str]]
+        """
+        pass
+
+    @abstractmethod
+    def print(self) -> str:
+        """
+        Print zone data as text.
+
+        :return: Printed file as text.
+        :rtype: str
+        """
