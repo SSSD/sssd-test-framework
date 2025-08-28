@@ -163,7 +163,7 @@ class AuthenticationUtils(MultihostUtility[MultihostHost]):
 
         return getattr(self, method)
 
-    def kerberos(self, ssh: Connection) -> KerberosAuthenticationUtils:
+    def kerberos(self, ssh: Connection | None = None) -> KerberosAuthenticationUtils:
         """
         Test authentication and authorization via Kerberos.
 
@@ -1099,6 +1099,24 @@ class KerberosAuthenticationUtils(MultihostUtility[MultihostHost]):
         tickets = principals.get(f"{principal}@{realm}", [])
 
         return "krbtgt/{realm}@{realm}" in tickets
+
+    def user_has_tgt(self, username: str, realm: str) -> bool:
+        """
+        Check that the specified user has obtained Kerberos Ticket Granting Ticket for
+        itself.  This is for use cases where SSH cannot be used to check for the ticket
+        like with users that authenticate through Identity Providers via other means than
+        SSH such as GDM logins.
+
+        :param username: User to check for TGT default principal.
+        :type username: str
+        :param realm: Expected realm for which the TGT was obtained.
+        :type realm: str
+        :return: True if TGT is available, False otherwise.
+        :rtype: bool
+        """
+
+        result = self.conn.run(f"su - {username} -c klist")
+        return f"krbtgt/{realm}@{realm}" in result.stdout
 
     def has_primary_cache(self, principal: str, realm: str) -> bool:
         """
