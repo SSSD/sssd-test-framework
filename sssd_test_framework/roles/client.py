@@ -8,6 +8,7 @@ from ..hosts.client import ClientHost
 from ..topology import SSSDTopologyMark
 from ..utils.adcli import AdcliUtils
 from ..utils.automount import AutomountUtils
+from ..utils.gdm import GDM
 from ..utils.ldb import LDBUtils
 from ..utils.local_users import LocalUsersUtils
 from ..utils.realmd import RealmUtils
@@ -96,6 +97,11 @@ class Client(BaseLinuxRole[ClientHost]):
         self.smartcard: SmartCardUtils = SmartCardUtils(self.host, self.fs, self.svc)
         """
         Utility class for managing smart card operations using SoftHSM and PKCS#11.
+        """
+
+        self.gdm: GDM = GDM(self.host)
+        """
+        Managing GDM interface from SCAutolib
         """
 
     def setup(self) -> None:
