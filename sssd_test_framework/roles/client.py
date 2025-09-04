@@ -16,6 +16,7 @@ from ..utils.smartcard import SmartCardUtils
 from ..utils.sss_override import SSSOverrideUtils
 from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
+from ..utils.sssd_sockets import SSSDSocketUtils
 from .base import BaseLinuxRole
 
 __all__ = [
@@ -96,6 +97,11 @@ class Client(BaseLinuxRole[ClientHost]):
         self.smartcard: SmartCardUtils = SmartCardUtils(self.host, self.fs, self.svc)
         """
         Utility class for managing smart card operations using SoftHSM and PKCS#11.
+        """
+
+        self.socket: SSSDSocketUtils = SSSDSocketUtils(self.host)
+        """
+        Manage socket-activated SSSD responders (e.g., nss, pam, ifp).
         """
 
     def setup(self) -> None:
