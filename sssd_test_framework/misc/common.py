@@ -26,6 +26,7 @@ def _normalize_value(value: Union[str, List[str]]) -> Any:
             return False
         if val.isdigit():
             return int(val)
+        return val
 
     return value
 
