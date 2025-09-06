@@ -11,7 +11,7 @@ from pytest_mh.cli import CLIBuilderArgs
 from pytest_mh.conn import ProcessResult
 
 from ..hosts.samba import SambaHost
-from ..misc import attrs_parse, to_list_of_strings
+from ..misc import attrs_parse, jc_parse_dig, to_list_of_strings
 from ..utils.ldap import LDAPRecordAttributes
 from .base import BaseLinuxLDAPRole, BaseObject, DeleteAttribute
 from .generic import GenericPasswordPolicy
@@ -28,6 +28,8 @@ __all__ = [
     "SambaAutomount",
     "SambaSudoRule",
     "SambaGPO",
+    "SambaDNSServer",
+    "SambaDNSZone",
 ]
 
 
@@ -300,6 +302,34 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
         :rtype: ADComputer
         """
         return SambaComputer(self, name)
+
+    def dns(self) -> SambaDNSServer:
+        """
+        Get DNS server object.
+
+            Get methods use dig and is parsed by jc. The data from jc contains several nested dict,
+            but two are returned as a tuple, ``answer, authority``.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            # Create forward zone, add and get record and assert ip
+            forward_zone = samba.dns().zone("smb.test").create()
+            forward_zone.add_record("client", "172.16.200.5")
+            result = forward_zone.get_record("client.smb.test")
+            assert result[0].get("data") == "172.16.200.5"
+
+            # Create reverse zone, add and get record and assert ttl
+            reverse_zone = samba.dns().zone("10.0.10.in-addr.arpa").create()
+            reverse_zone.add_ptr_record("client.samba.test", 15)
+
+            result = reverse_zone.get_ptr_record("10.0.10.15")
+            assert "3600" == result[0].get("ttl"), "ttl does not equal 3600!"
+
+            # Assert if the record exists
+            assert reverse_zone.ptr_record_exists("10.0.10.15"), "ptr record does not exist!"
+        """
+        return SambaDNSServer(self)
 
     def gpo(self, name: str) -> SambaGPO:
         """
@@ -887,8 +917,8 @@ class SambaComputer(SambaObject):
 
     def __init__(self, role: Samba, name: str) -> None:
         """
-        :param role: AD role object.
-        :type role: AD
+        :param role: Samba role object.
+        :type role: Samba
         :param name: Computer name.
         :type name: str
         """
@@ -1170,6 +1200,258 @@ class SambaPasswordPolicy(GenericPasswordPolicy):
         self.host.conn.run(self.cli.command("samba-tool domain passwordsettings set", args))
 
         return self
+
+
+class SambaDNSServer(BaseObject[SambaHost, Samba]):
+    """
+    DNS management utilities.
+    """
+
+    def __init__(self, role: Samba):
+        """
+        :param role: Samba host object.
+        :type role: SambaHost
+        """
+        super().__init__(role)
+
+        self.domain: str = role.domain
+        """Domain name."""
+
+        self.server: str = role.server
+        """Server name."""
+
+        self.naming_context: str = role.naming_context
+        """Naming context."""
+
+        self.credentials: str = f" --username={self.role.host.adminuser} --password={self.role.host.adminpw}"
+        """Credentials to manage GPOs."""
+
+        self.smb_conf: str = "/etc/samba/smb.conf"
+
+    def zone(self, name: str) -> SambaDNSZone:
+        """
+        Get SambaDNSZone object.
+
+        :param name: Zone name.
+        :type name: str
+        :return: SambaDNSZone object.
+        :rtype: SambaDNSZone
+        """
+        return SambaDNSZone(self.role, name)
+
+    def get_forwarders(self) -> list[str] | None:
+        """
+        Get DNS global forwarders.
+
+        Global forwarders are configured in /etc/smb.conf
+
+        :return: DNS global forwarders.
+        :rtype: list[str]
+        """
+        result = [line.strip() for line in self.host.fs.read(self.smb_conf).split("\n")]
+        if result is not None and isinstance(result, list):
+            for i in result:
+                if "dns forwarder" in i:
+                    # The additional split is to support more than one server
+                    return i.split("=")[1].strip().split(" ")
+        return None
+
+    def add_forwarders(self, ip_address: str) -> SambaDNSServer:
+        """
+        Add DNS server forwarders.
+
+        :param ip_address: IP address.,
+        :type ip_address: str
+        :return:  Self.
+        :rtype: SambaDNSServer
+        """
+        self.host.fs.backup(self.smb_conf)
+        self.host.fs.sed(f"s/dns forwarder = .*/& {ip_address}/", self.smb_conf, ["-i"])
+        self.host.svc.reload("samba.service")
+        return self
+
+    def remove_forwarders(self, ip_address: str) -> None:
+        """
+        Remove DNS server forwarders.
+
+        :param ip_address: IP address.
+        :type ip_address: str
+        """
+        ip_address = ip_address.replace(".", "\\.")
+        self.host.fs.backup(self.smb_conf)
+        self.host.fs.sed(f"/dns forwarder/s/{ip_address}//", self.smb_conf, ["-i"])
+        self.host.svc.reload("samba.service")
+
+    def list_zones(self) -> list[str]:
+        """
+        List zones.
+
+        :return: List of zones.
+        :rtype: list[str]
+        """
+        result = self.host.conn.run(f"samba-tool dns zonelist {self.server} {self.credentials}").stdout_lines
+        result = [i for i in result if "pszZoneName" in i]
+        result = [z.split(":")[1].strip() for z in result]
+
+        return result
+
+
+class SambaDNSZone(SambaDNSServer):
+    """
+    DNS zone management.
+    """
+
+    def __init__(self, role: Samba, name: str):
+        """
+        :param role: Samba host object.
+        :type role: SambaHost
+        :param name: DNS zone name.
+        :type name: str
+        """
+        super().__init__(role)
+
+        self.zone_name: str = name
+        """Zone name."""
+
+    def create(self) -> SambaDNSZone:
+        """
+        Create new zone.
+
+        :return: SambaDNSServer object.
+        :rtype: SambaDNSServer
+        """
+        self.host.conn.run(f"samba-tool dns zonecreate {self.server} {self.zone_name} {self.credentials}")
+        return self
+
+    def delete(self) -> None:
+        """
+        Delete zone.
+        """
+        self.host.conn.run(f"samba-tool dns zonedelete {self.server} {self.zone_name} {self.credentials}")
+
+    def add_record(self, shortname: str, ip: str, ipv6: bool | None = False) -> SambaDNSZone:
+        """
+        Add DNS record.
+
+        :param shortname: Short hostname.
+        :type shortname: str
+        :param ip: IP address.
+        :type ip: str
+        :param ipv6: IPv6 switch, optional
+        :type ipv6: bool | None = False
+        :return: SambaDNSZone object.
+        :rtype: SambaDNSZone
+        """
+        record_type = "AAAA" if ipv6 else "A"
+
+        self.host.conn.run(
+            f"samba-tool dns add "
+            f"{self.server} {self.zone_name} "
+            f"{shortname} {record_type} {ip} "
+            f"{self.credentials}"
+        )
+        return self
+
+    def add_ptr_record(self, fqname: str, ip: str) -> SambaDNSZone:
+        """
+        Add DNS ptr record.
+        :param fqname: Fully qualified hostname.
+        :type fqname: str
+        :param ip: IP address.
+        :type ip: str
+        :return: SambaDNSZone object.
+        :rtype: SambaDNSZone
+        """
+        self.host.conn.run(
+            f"samba-tool dns add " f"{self.server} {self.zone_name} " f"{ip} PTR {fqname} " f"{self.credentials}"
+        )
+        return self
+
+    def delete_record(self, name: str) -> None:
+        """
+        Delete DNS record.
+
+        :param name: Name of the record.
+        :type name: str
+        """
+        result = self.get_record(name)
+        if result is not None and len(result) > 0:
+            if isinstance(result[0], dict):
+                # record_type is queried because this arguement is not required by IPA.
+                record_type = result[0].get("type")
+                # data is queried because this arguement is not required by IPA or AD.
+                data = result[0].get("data")
+
+        self.role.host.conn.run(
+            f"samba-tool dns delete "
+            f"{self.server} {self.zone_name} "
+            f"{name} {record_type} {data} "
+            f"{self.credentials}"
+        )
+
+    def record_exists(self, fqname: str, ipv6: bool | None = False) -> bool:
+        """
+        Check if A/AAAA record exists.
+
+        :param fqname: Fully qualified hostname.
+        :type fqname: str
+        :param ipv6: IPv6 switch, optional
+        :type ipv6: bool | None = False
+        :return: True if record exists, false otherwise.
+        :rtype: bool
+        """
+        return True if self.get_record(fqname, ipv6=ipv6)[0] is not None else False
+
+    def ptr_record_exists(self, ip: str) -> bool:
+        """
+        Get DNS ptr record.
+
+        :param ip: IP address.
+        :type ip: str
+        :return: True if record exists, false otherwise.
+        :rtype: bool
+        """
+        return True if self.get_ptr_record(ip)[0] is not None else False
+
+    def get_record(self, fqname: str, ipv6: bool | None = False) -> tuple[dict | None, Any | None]:
+        """
+        Get DNS record
+
+        :param fqname: Fully qualified hostname.
+        :type fqname: str
+        :param ipv6: IPv6 switch, optional
+        :type ipv6: bool | None = False
+        :return: Parsed a/aaaa record, soa record
+        :rtype: tuple[dict | None, Any | None]
+        """
+        record_type = "AAAA" if ipv6 else "A"
+        result = self.host.conn.run(f"dig {fqname} {record_type}").stdout
+        return jc_parse_dig(result)
+
+    def get_ptr_record(self, ip: str) -> tuple[dict | None, Any | None]:
+        """
+        Get DNS ptr or soa record data.
+
+        :param ip: IP address.
+        :type ip: str
+        :return: Parsed ptr record, soa record.
+        :rtype:  tuple[dict | None, Any | None]
+        """
+        result = self.host.conn.run(f"dig -x {ip}").stdout
+        return jc_parse_dig(result)
+
+    def print(self) -> str:
+        """
+        Prints all dns records in a zone as text.
+
+        :return: Print zone data.
+        :rtype: str
+        """
+        result = self.host.conn.run(
+            f"samba-tool dns query " f"{self.server} {self.zone_name} " f"@ ALL {self.credentials}"
+        ).stdout
+
+        return result
 
 
 SambaOrganizationalUnit: TypeAlias = LDAPOrganizationalUnit[SambaHost, Samba]
