@@ -9,7 +9,15 @@ from pytest_mh.cli import CLIBuilderArgs
 from pytest_mh.conn import ProcessError, ProcessResult
 
 from ..hosts.ipa import IPAHost
-from ..misc import attrs_include_value, attrs_parse, to_list, to_list_of_strings, to_list_without_none
+from ..misc import (
+    attrs_include_value,
+    attrs_parse,
+    attrs_parse_ipa,
+    jc_parse_dig,
+    to_list,
+    to_list_of_strings,
+    to_list_without_none,
+)
 from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
 from .base import BaseLinuxRole, BaseObject
@@ -27,6 +35,8 @@ __all__ = [
     "IPAAutomountLocation",
     "IPAAutomountMap",
     "IPAAutomountKey",
+    "IPADNSServer",
+    "IPADNSZone",
 ]
 
 
@@ -362,6 +372,34 @@ class IPA(BaseLinuxRole[IPAHost]):
         """
         return IPAIDView(self, name)
 
+    def dns(self) -> IPADNSServer:
+        """
+        Get DNS server object.
+
+            Get methods use dig and is parsed by jc. The data from jc contains several nested dict,
+            but two are returned as a tuple, ``answer, authority``.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            # Create forward zone, add and get record and assert ip
+            forward_zone = ipa.dns().zone("smb.test").create()
+            forward_zone.add_record("client", "172.16.200.5")
+            result = forward_zone.get_record("client.smb.test")
+            assert result[0].get("data") == "172.16.200.5"
+
+            # Create reverse zone, add and get record and assert ttl
+            reverse_zone = ipa.dns().zone("10.0.10.in-addr.arpa").create()
+            reverse_zone.add_ptr_record("client.ipa.test", 15)
+
+            result = reverse_zone.get_ptr_record("10.0.10.15")
+            assert "3600" == result[0].get("ttl"), "ttl does not equal 3600!"
+
+            # Assert if the record exists
+            assert reverse_zone.ptr_record_exists("10.0.10.15"), "ptr record does not exist!"
+        """
+        return IPADNSServer(self)
+
 
 class IPAObject(BaseObject[IPAHost, IPA]):
     """
@@ -452,8 +490,8 @@ class IPAObject(BaseObject[IPAHost, IPA]):
 
         :param attrs: If set, only requested attributes are returned, defaults to None
         :type attrs: list[str] | None, optional
-        :return: Dictionary with attribute name as a key.
-        :rtype: dict[str, list[str]]
+        :return: Dictionary with attribute name as a key or None if no such attribute is found.
+        :rtype: dict[str, list[str]] | None
         """
         cmd = self._exec("show", ["--all", "--raw"], raise_on_error=False)
 
@@ -2228,3 +2266,218 @@ class IPAIDView(IPAObject):
         Delete existing IPA ID view.
         """
         self._exec("del", ["--continue"])
+
+
+class IPADNSServer(BaseObject[IPAHost, IPA]):
+    """
+    DNS management utilities.
+    """
+
+    def __init__(self, role: IPA):
+        """
+        :param role: IPA host object.
+        :type role: ADHost
+        """
+        super().__init__(role)
+
+        self.domain: str = role.domain
+        """Domain name."""
+
+        self.server: str = role.server
+        """Server name."""
+
+    def zone(self, name: str) -> IPADNSZone:
+        """
+        Get IPADNSZone object.
+
+        :param name: Zone name.
+        :type name: str
+        :return: IPADNSZone object.
+        :rtype: IPADNSZone
+        """
+        return IPADNSZone(self.role, name)
+
+    def get_forwarders(self) -> list[str] | None:
+        """
+        Get DNS global forwarders.
+
+        :return: DNS global forwarders.:
+        :rtype: list[str] | None
+        """
+        result = self.host.conn.run("ipa dnsconfig-show --raw").stdout_lines
+        if result is not None and isinstance(result, list):
+            forwarders = attrs_parse_ipa(result, ["idnsforwarders"])
+            if forwarders is not None and isinstance(forwarders, dict):
+                return forwarders.get("idnsforwarders")
+        return None
+
+    def add_forwarders(self, ip_address: str) -> IPADNSServer:
+        """
+        Add DNS server forwarders.
+
+        :param ip_address: IP address.,
+        :type ip_address: str
+        :return:  Self.
+        :rtype: IPADNSServer
+        """
+        self.host.conn.run(f"ipa dnsconfig-mod --forwarder {ip_address}")
+        return self
+
+    def remove_forwarders(self, ip_address: str) -> None:
+        """
+        Remove DNS server forwarders.
+
+        :param ip_address: IP address.
+        :type ip_address: str
+        """
+        forwarders = self.get_forwarders()
+        if forwarders and ip_address in forwarders:
+            forwarders = [fwd for fwd in forwarders if fwd != ip_address]
+            self.host.conn.run(f"ipa dnsconfig-mod --forwarder \"{' '.join(forwarders)}\"")
+
+    def list_zones(self) -> dict[str, list[str]] | None:
+        """
+        List zones.
+        :return: List of zones.
+        :rtype: dict[str, list[str]] | None"
+        """
+        result = self.host.conn.run("ipa dnszone-find --raw").stdout_lines
+        if result is None:
+            raise ValueError("No zones found.")
+        else:
+            zones = [line.rstrip(".") for line in result]
+            return attrs_parse_ipa(zones, ["idnsname"])
+
+
+class IPADNSZone(IPADNSServer):
+    """
+    DNS zone management.
+    """
+
+    def __init__(self, role: IPA, name: str):
+        """
+        :param role: IPA host object.
+        :type role: IPAHost
+        :param name: DNS zone name.
+        :type name: str
+        """
+        super().__init__(role)
+
+        self.zone_name: str = name
+        """Zone name."""
+
+    def create(self) -> IPADNSZone:
+        """
+        Create new zone.
+
+        :return: IPADNSServer object.
+        :rtype: IPADNSServer
+        """
+        self.host.conn.run(f"ipa dnszone-add {self.zone_name} --dynamic-update=TRUE --skip-overlap-check")
+        return self
+
+    def delete(self) -> None:
+        """
+        Delete zone.
+        """
+        self.host.conn.run(f"dnszone-del {self.zone_name}")
+
+    def add_record(self, shortname: str, ip: str, ipv6: bool | None = False) -> IPADNSZone:
+        """
+        Add DNS record.
+
+        :param shortname: Short hostname.
+        :type shortname: str
+        :param ip: IP address.
+        :type ip: str
+        :param ipv6: IPv6 switch, optional
+        :type ipv6: bool | None = False
+        :return: IPADNSZone object.
+        :rtype: IPADNSZone
+        """
+        record_type = "aaaa-rec" if ipv6 else "a-rec"
+        self.host.conn.run(f"ipa dnsrecord-add {self.zone_name} {shortname} --{record_type}={ip}")
+        return self
+
+    def add_ptr_record(self, fqname: str, ip: str) -> IPADNSZone:
+        """
+        Add DNS ptr record.
+        :param fqname: Fully qualified hostname.
+        :type fqname: str
+        :param ip: IP address.
+        :type ip: str
+        :return: IPADNSZone object.
+        :rtype: IPADNSZone
+        """
+        self.host.conn.run(f"ipa dnsrecord-add {self.zone_name} {ip} --ptr-rec={fqname}.")
+        return self
+
+    def delete_record(self, name: str) -> None:
+        """
+        Delete DNS record.
+
+        :param name: Name of the record.
+        :type name: str
+        """
+        self.host.conn.run(f"ipa dnsrecord-del {self.zone_name} {name}")
+
+    def record_exists(self, fqname: str, ipv6: bool | None = False) -> bool:
+        """
+        Check if A/AAAA record exists.
+
+        :param fqname: Fully qualified hostname.
+        :type fqname: str
+        :param ipv6: IPv6 switch, optional
+        :type ipv6: bool | None = False
+        :return: True if record exists, false otherwise.
+        :rtype: bool
+        """
+        return True if self.get_record(fqname, ipv6=ipv6)[0] is not None else False
+
+    def ptr_record_exists(self, ip: str) -> bool:
+        """
+        Get DNS ptr record.
+
+        :param ip: IP address.
+        :type ip: str
+        :return: True if record exists, false otherwise.
+        :rtype: bool
+        """
+        return True if self.get_ptr_record(ip)[0] is not None else False
+
+    def get_record(self, fqname: str, ipv6: bool | None = False) -> tuple[dict | None, Any | None]:
+        """
+        Get DNS record
+
+        :param fqname: Fully qualified hostname.
+        :type fqname: str
+        :param ipv6: IPv6 switch, optional
+        :type ipv6: bool | None = False
+        :return: Parsed a/aaaa record, soa record
+        :rtype: tuple[dict | None, Any | None]
+        """
+        record_type = "AAAA" if ipv6 else "A"
+        result = self.host.conn.run(f"dig {fqname} {record_type}").stdout
+        return jc_parse_dig(result)
+
+    def get_ptr_record(self, ip: str) -> tuple[dict | None, Any | None]:
+        """
+        Get DNS ptr or soa record data.
+
+        :param ip: IP address.
+        :type ip: str
+        :return: Parsed ptr record, soa record.
+        :rtype:  tuple[dict | None, Any | None]
+        """
+        result = self.host.conn.run(f"dig -x {ip}").stdout
+        return jc_parse_dig(result)
+
+    def print(self) -> str:
+        """
+        Prints all dns records in a zone as text.
+
+        :return: Print zone data.
+        :rtype: str
+        """
+        result = self.host.conn.run(f"ipa dnszone-show {self.zone_name}").stdout
+        return result
