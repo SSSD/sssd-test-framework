@@ -7,6 +7,8 @@ from functools import wraps
 from time import sleep
 from typing import Any, Callable, ParamSpec, TypeVar
 
+import jc
+
 
 def attrs_parse(lines: list[str], attrs: list[str] | None = None) -> dict[str, list[str]]:
     """
@@ -41,6 +43,21 @@ def attrs_parse(lines: list[str], attrs: list[str] | None = None) -> dict[str, l
             out[key].append(value)
         i += 1
     return out
+
+
+def attrs_parse_ipa(lines: list[str], attrs: list[str] | None = None) -> dict[str, list[str]] | None:
+    """
+    Cleans IPA stdout to be parsed by`attrs_parse`.
+
+    :param lines: Output.
+    :type lines: list[str]
+    :param attrs: If set, only requested attributes are returned, defaults to None
+    :type attrs: list[str] | None, optional
+    :return: Dictionary with attribute name as a key.
+    :rtype: dict[str, list[str]]
+    """
+    clean_lines = [line.strip() for line in lines if line.startswith(" ")]
+    return attrs_parse(clean_lines, attrs)
 
 
 def attrs_include_value(attr: Any | list[Any] | None, value: Any) -> list[Any]:
@@ -175,6 +192,38 @@ def seconds_to_timespan(seconds: int) -> str:
     d, h = divmod(h, 24)
 
     return f"{d:02d}:{h:02d}:{m:02d}:{s:02d}:00"
+
+
+def jc_parse_dig(data: str) -> tuple[dict | None, Any | None]:
+    """
+    Parse dig output.
+
+    :param data: Dig stdout.
+    :type data: str
+    :return: Parsed dig data.
+    :rtype: tuple[dict | None, Any | None]
+    """
+    jc_result = jc.parse("dig", data)
+    answer = None
+    authority = None
+
+    if jc_result is not None and isinstance(jc_result, list):
+        for i in jc_result:
+            if isinstance(i, dict):
+                authority_data = i.get("authority")
+                if isinstance(authority_data, list):
+                    for y in authority_data:
+                        if isinstance(y, dict):
+                            soa = y.get("data")
+                            if isinstance(soa, str):
+                                authority = soa.split(" ")
+                answer_data = i.get("answer")
+                if isinstance(answer_data, list):
+                    for y in answer_data:
+                        if isinstance(y, dict):
+                            answer = y
+
+    return answer, authority
 
 
 def retry(

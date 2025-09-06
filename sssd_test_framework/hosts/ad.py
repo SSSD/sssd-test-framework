@@ -111,10 +111,10 @@ class ADHost(BaseDomainHost):
 
     def backup(self) -> Any:
         """
-        Perform limited backup of the domain controller data. Content under
-        ``$default_naming_context``. Site, groupPolicyContainer and computer
-        objects are explicitly exported so GPO setup can be undone. These
-        operations are usually very fast.
+        Perform limited backup of the domain controller data. Users, groups, sites, dns zones,
+        dns records, groupPolicyContainer and computer objects are explicitly exported so the
+        setup can be undone. Most of these operations are done using LDAP, DNS changes are
+        reverted using powershell. These operations are usually very fast.
 
         :return: Backup data.
         :rtype: Any
@@ -128,29 +128,39 @@ class ADHost(BaseDomainHost):
 
             # Create temporary directory to store backups
             $tmpdir = New-TemporaryFile | % {{ Remove-Item $_; New-Item -ItemType Directory -Path $_ }}
-            $backup_dc = Join-Path $tmpdir dc.txt
-            $backup_gpo = Join-Path $tmpdir gpo.txt
-            $backup_computers = Join-Path $tmpdir computers.txt
 
             # Backup DC content and sites
+            $backup_dc = Join-Path $tmpdir dc.txt
             $result_basedn = Get-ADObject -SearchBase "$basedn" -Filter "*"
             $result_sitesdn = Get-ADObject -SearchBase "$sitesdn" -LDAPFilter "objectClass=site"
             $result = $result_basedn + $result_sitesdn
-            foreach ($r in $result) {{
-                $r.DistinguishedName | Add-Content -Path $backup_dc
-            }}
+            foreach ($r in $result) {{ $r.DistinguishedName | Add-Content -Path $backup_dc }}
+
+            # Backup DNS zones
+            $backup_zones = Join-Path $tmpdir zones.txt
+            $zones = Get-DnsServerZone `
+            | Where-Object {{ $_.ZoneType -eq "Primary" -and $_.IsAutoCreated -eq $false }} `
+            | Select-Object -ExpandProperty ZoneName
+            $zones | Out-File -FilePath $backup_zones -Force
+
+            # Backup global DNS forwarders
+            $backup_forwarders = Join-Path $tmpdir forwarders.txt
+            $forwarders = Get-DNSServerForwarder
+            $forwarders.IPAddress.IPAddressToString | Out-File -FilePath $backup_forwarders -Force
+
+            # Backup primary DNS zone records
+            $backup_dns = Join-Path $tmpdir dns.txt
+            Get-DnsServerResourceRecord -ZoneName {self.domain} | Export-Csv -Path $backup_dns -NoTypeInformation
 
             # Backup GPOs
+            $backup_gpo = Join-Path $tmpdir gpo.txt
             $result = Get-ADObject -SearchBase "$basedn" -LDAPFilter "(objectClass=GroupPolicyContainer)"
-            foreach ($r in $result) {{
-                $r.DistinguishedName | Add-Content -Path $backup_gpo
-            }}
+            foreach ($r in $result) {{ $r.DistinguishedName | Add-Content -Path $backup_gpo }}
 
             # Backup computers
+            $backup_computers = Join-Path $tmpdir computers.txt
             $result = Get-ADObject -SearchBase "cn=computers,$basedn" -LDAPFilter "(objectClass=computer)"
-            foreach ($r in $result) {{
-                $r.DistinguishedName | Add-Content -Path $backup_computers
-            }}
+            foreach ($r in $result) {{ $r.DistinguishedName | Add-Content -Path $backup_computers }}
 
             Write-Output $tmpdir.FullName
             """,
@@ -192,14 +202,10 @@ class ADHost(BaseDomainHost):
             rf"""
             $basedn = '{self.naming_context}'
             $sitesdn = "cn=sites,cn=configuration,$basedn"
-
-            # Load backup data
             $tmpdir = '{backup_path}'
-            $backup_dc = Get-Content $(Join-Path $tmpdir dc.txt)
-            $backup_gpo = Get-Content $(Join-Path $tmpdir gpo.txt)
-            $backup_computers = Get-Content $(Join-Path $tmpdir computers.txt)
 
             # Restore computers
+            $backup_computers = Get-Content $(Join-Path $tmpdir computers.txt)
             $result = Get-ADObject -SearchBase $basedn -Filter "*"
             $computersdn = "cn=computers,$basedn"
             foreach ($b in $backup_computers) {{
@@ -214,6 +220,7 @@ class ADHost(BaseDomainHost):
             }}
 
             # Restore GPOs
+            $backup_gpo = Get-Content $(Join-Path $tmpdir gpo.txt)
             $gpo = Get-ADObject -SearchBase $basedn -Properties "*" -LDAPFilter "(objectClass=GroupPolicyContainer)"
             $sites = Get-ADObject -Identity "cn=Default-First-Site-Name,$sitesdn" -Properties "*"
             $link = Get-ADObject -SearchBase $basedn -Properties "*" -LDAPFilter "(gplink=*)"
@@ -238,7 +245,54 @@ class ADHost(BaseDomainHost):
             # An extra gplink clear on the sites target.
             Set-ADObject -Identity "cn=Default-First-Site-Name,$sitesdn" -Clear gPLink
 
+            # Clear and restore forwarders
+            $backup_forwarders = Get-Content $(Join-Path $tmpdir forwarders.txt)
+            $forwarders = Get-DNSServerForwarder
+            $current_forwarders = $forwarders.IPAddress.IPAddressToString
+            foreach ($f in $current_forwarders) {{ Remove-DNSServerForwarder $f -Force }}
+            foreach ($f in $backup_forwarders) {{ Add-DNSServerForwarder $f  }}
+
+            # Remove any added zones
+            $backup_zones = Get-Content -Path $(Join-Path $tmpdir zones.txt) | Where-Object {{ $_ -ne "" }}
+            $current_zones = Get-DnsServerZone `
+            | Where-Object {{ $_.ZoneType -eq "Primary" -and $_.IsAutoCreated -eq $false }} `
+            | Select-Object -ExpandProperty ZoneName
+
+            $zones_diff = Compare-Object -ReferenceObject $backup_zones -DifferenceObject $current_zones `
+            | Where-Object {{ $_.SideIndicator -eq "=>" }} `
+            | Select-Object -ExpandProperty InputObject
+
+            if ($zones_diff) {{
+                foreach ($zone in $zones_diff) {{
+                    Remove-DnsServerZone -Name $zone -Force -Confirm:$false
+                }}
+            }}
+
+            # Restore DNS records in the primary zone
+            $backup_dns = Join-Path $tmpdir dns.txt
+            $dns_backup = Import-Csv -Path $backup_dns | Select-Object -Property HostName, RecordType, RecordData
+            $dns_current = Get-DnsServerResourceRecord -ZoneName {self.domain} | `
+                    Select-Object -Property HostName, RecordType, RecordData
+
+            $dns_diff = $dns_current | Where-Object {{
+                $c = $_
+                -not ($dns_backup | Where-Object {{
+                    $_.HostName -eq $c.HostName -and
+                    $_.RecordType -eq $c.RecordType -and
+                    $_.RecordData -eq $c.RecordData
+                }})
+            }}
+
+            if ($dns_diff) {{
+                foreach ($r in $dns_diff) {{
+                    Remove-DnsServerResourceRecord -ZoneName {self.domain} `
+                        -Name $r.HostName -RRType $r.RecordType -Force
+                          Write-Host "Removing dns record: $($r.HostName) ($($r.RecordType))"
+                }}
+            }}
+
             # Restore DC content and site
+            $backup_dc = Get-Content $(Join-Path $tmpdir dc.txt)
             $result_basedn = Get-ADObject -SearchBase "$basedn" -Filter "*"
             $result_sitesdn = Get-ADObject -SearchBase "$sitesdn" -LDAPFilter ("objectClass=site")
             $result = $result_basedn + $result_sitesdn
