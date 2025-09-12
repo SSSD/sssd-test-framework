@@ -11,6 +11,7 @@ from sssd_test_framework.misc import (
     attrs_include_value,
     attrs_parse,
     attrs_to_hash,
+    get_attr,
     parse_ldif,
     retry,
     seconds_to_timespan,
@@ -353,3 +354,43 @@ def test_retry__delay():
         test()
 
     assert time.time() - now >= 5
+
+
+@pytest.fixture
+def get_attr_sample_data():
+    return {
+        "uid": [1001],
+        "enabled": [True],
+        "groups": ["admins", "devops"],
+        "usercertificate": ["CERTDATA"],
+        "empty": [],
+        "rawstring": ["hello"],
+        "nested": {"level": {"deep": ["value"]}},
+        "description": [None],
+        "owner": None,
+    }
+
+
+@pytest.mark.parametrize(
+    "key, expected, check_membership",
+    [
+        ("uid", 1001, None),
+        ("enabled", True, None),
+        ("groups", ["admins", "devops"], "admins"),
+        ("nested.level.deep", "value", None),
+        ("rawstring", "hello", None),
+        ("description", None, None),
+        ("owner", None, None),
+        ("empty", "", None),
+        ("missing", "some value", None),
+        ("usercertificate", "CERTDATA", "CERTDATA"),
+    ],
+)
+def test_get_attr(get_attr_sample_data, key, expected, check_membership):
+    default_return_value = expected if expected is not None else None
+    value = get_attr(get_attr_sample_data, key, default=default_return_value)
+
+    assert value == expected
+    if check_membership:
+        values = value if isinstance(value, list) else [value]
+        assert check_membership in values

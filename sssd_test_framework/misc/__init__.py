@@ -233,3 +233,59 @@ def retry(
         return wrapper
 
     return decorator
+
+
+def get_attr(data: dict[str, Any], key: str, default: Any | None = None) -> Any | list[Any]:
+    """
+    Retrieve a value from a dictionary with list-aware semantics.
+    This helper makes working with parsed command output or API responses easier:
+    - Single-item lists → returns the first element.
+    - Multi-item lists → returns the full list.
+    - Missing, empty, or None values → returns `default`.
+    - Non-list values → returned as-is.
+
+    .. code-block:: python
+        :caption: Example usage
+
+        result = {
+            "login": ["user-1"],
+            "uidnumber": [1234567],
+            "groups": ["admins", "developers"],
+            "services": [],
+            "nested": {
+                "sshpubkey": ["ssh-rsa AAAAB3Nza..."],
+                "email": ["user1@example.com"],
+            },
+        }
+        assert get_attr(result, "login") == "user-1"
+        assert get_attr(result, "groups") == ["admins", "developers"]
+        assert get_attr(result, "uidnumber") == 1234567
+        assert get_attr(result, "services") is None
+        assert get_attr(result, "missing", default="N/A") == "N/A"
+        # Nested dictionary
+        nested = get_attr(result, "nested")
+        assert isinstance(nested, dict)
+        assert get_attr(nested, "email") == "user1@example.com"
+
+    :param data: Dictionary returned from command parsing.
+    :type data: dict[str, Any]
+    :param key: Attribute name to look up.
+    :type key: str
+    :param default: Value to return if key is missing or empty, defaults to None.
+    :type default: Any | None, optional
+    :return: A single value or list of values.
+    :rtype: Any | list[Any]
+    """
+    value: Any = data
+    for part in key.split("."):
+        if not isinstance(value, dict) or part not in value:
+            return default
+        value = value[part]
+
+    if value is None:
+        return default
+    if isinstance(value, list):
+        if not value:
+            return default
+        return value[0] if len(value) == 1 else value
+    return value
