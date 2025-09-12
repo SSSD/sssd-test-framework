@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from abc import ABC
 from datetime import datetime
 from typing import Any, TypeAlias
 
@@ -27,6 +28,8 @@ __all__ = [
     "ADUser",
     "ADPasswordPolicy",
     "GPO",
+    "ADDNSServer",
+    "ADDNSZone",
 ]
 
 
@@ -359,6 +362,35 @@ class AD(BaseWindowsRole[ADHost]):
         :rtype: ADComputer
         """
         return ADComputer(self, name, basedn)
+
+    def dns(self) -> ADDNSServer:
+        """
+        Get DNS server object.
+
+            Get methods use dig and is parsed by jc. The data from jc contains several nested dict,
+            but two are returned as a tuple, ``answer, authority``.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            # Create forward zone and add forward record
+            zone = ad.dns().zone("example.test").create()
+            zone.add_record("client", "172.16.200.15")
+
+            # Create reverse zone and add reverse record
+            zone = ad.dns().zone("10.0.10.in-addr.arpa").create()
+            zone.add_ptr_record("client.example.test", 15)
+
+            # Add forward record to default domain
+            ad.dns().zone(ad.domain).add_record("client", "1.2.3.4")
+
+            # Add a global forwarder
+            ad.dns().add_forwarders("1.1.1.1")
+
+            # Remove a global forwarder
+            ad.dns().remove_forwarders("1.1.1.1")
+        """
+        return ADDNSServer(self)
 
     def gpo(self, name: str) -> GPO:
         """
@@ -2112,6 +2144,187 @@ class ADPasswordPolicy(GenericPasswordPolicy):
         self.role.host.conn.run(self.cli.command("Set-ADDefaultDomainPasswordPolicy", args))
 
         return self
+
+
+class ADDNSServer(BaseObject[ADHost, AD]):
+    def __init__(self, role: AD):
+        """
+        :param role: AD host object.
+        :type role: ADHost
+        """
+        super().__init__(role)
+
+        self.domain: str = role.domain
+        """Domain name."""
+
+        self.server: str = role.server
+        """Server name."""
+
+    def zone(self, name: str) -> ADDNSZone:
+        """
+        Get ADDNsServerZone object.
+
+        :param name: Zone name.
+        :type name: str
+        :return: ADDNSServerZone object.
+        :rtype: ADDNSZone
+        """
+        return ADDNSZone(self.role, name)
+
+    def get_forwarders(self) -> list[str] | None:
+        """
+        Get DNS global forwarders.
+
+        :return: DNS global forwarders.
+        :rtype: list[str]
+        """
+        forwarders = self.host.conn.run("Get-DnsServerForwarder").stdout_lines
+        if forwarders is not None:
+            parsed_forwarders = attrs_parse(forwarders, ["IPAddress"])
+            if isinstance(parsed_forwarders, dict):
+                ip_addresses = parsed_forwarders.get("IPAddress")
+                if isinstance(ip_addresses, list) and len(ip_addresses) > 0:
+                    ip_addresses = [s.strip() for s in ip_addresses]
+                    ip_addresses = [r.replace("...", "") for r in ip_addresses]
+                    return ip_addresses[0].strip("{}").split(",")
+                else:
+                    return None
+            else:
+                return None
+
+    def add_forwarders(self, ip_address: str) -> ADDNSServer:
+        """
+        Add DNS server forwarder.
+
+        :param ip_address: IP address.,
+        :type ip_address: str
+        :return:  Self.
+        :rtype: ADDNSServer
+        """
+        self.host.conn.run(f"Add-DnsServerForwarder -IPAddress {ip_address}")
+
+        return self
+
+    def remove_forwarders(self, ip_address: str) -> None:
+        """
+        Remove DNS server forwarders.
+
+        :param ip_address: IP address.
+        :type ip_address: str
+        """
+        if ip_address is not None:
+            self.host.conn.run(f"Remove-DnsServerForwarder {ip_address} -Force")
+
+    def list_zones(self) -> list[str]:
+        """
+        List zones.
+        :return: List of zones.
+        :rtype: list[str]
+        """
+        result = self.host.conn.run("Get-DnsServerZone | Format-List -Property ZoneName").stdout_lines
+        result = [x for x in result if x not in ["\r", "", None]]
+        result = [y.replace("\r", "").strip() for y in result]
+        result = [z.split(":")[1].strip() for z in result]
+
+        return result
+
+
+class ADDNSZone(ADDNSServer, ABC):
+    """
+    DNS zone management.
+    """
+
+    def __init__(self, role: AD, name: str):
+        """
+        :param name: DNS zone name.
+        :type name: str
+        :param name: DNS zone name.
+        :type name: str
+        """
+        super().__init__(role)
+
+        self.zone_name: str = name
+        """Zone name."""
+
+    def create(self) -> ADDNSZone:
+        """
+        Create new zone.
+
+        :return: ADDNSServer object.
+        :rtype: ADDNSServer
+        """
+        self.host.conn.run(f"Add-DnsServerPrimaryZone -Name {self.zone_name} -ReplicationScope Forest -Passthru")
+        return self
+
+    def delete(self) -> None:
+        """
+        Delete zone.
+        """
+        self.host.conn.run(f"Delete-DnsServerZone -Name {self.zone_name}")
+
+    def add_record(self, shortname: str, ip: str) -> ADDNSZone:
+        """
+        Add DNS record.
+
+        :param shortname: Short hostname.
+        :type shortname: str
+        :param ip: IP address.
+        :type ip: str
+        :return: ADDNSZone object.
+        :rtype: ADDNSZone
+        """
+        ip_version = "IPV6Address" if ":" in ip else "IPV4Address"
+        record_type = "AAAA" if ":" in ip else "A"
+
+        self.host.conn.run(
+            f"Add-DnsServerResourceRecord -ZoneName {self.zone_name} -{record_type} "
+            f"-Name {shortname} -{ip_version} {ip}"
+        )
+        return self
+
+    def add_ptr_record(self, fqname: str, ip: str) -> ADDNSZone:
+        """
+        Add DNS ptr record.
+        :param fqname: Fully qualified hostname.
+        :type fqname: str
+        :param ip: IP address.
+        :type ip: str
+        :return: ADDNSZone object.
+        :rtype: ADDNSZone
+        """
+        self.host.conn.run(
+            f"Add-DnsServerResourceRecord -ZoneName {self.zone_name} -PTR "
+            f"-Name {ip} -AllowUpdateAny -PtrDomainName {fqname}. "
+        )
+        return self
+
+    def delete_record(self, name: str) -> None:
+        """
+        Delete DNS record.
+
+        data parameter is not used in the AD role but required in the Samba role.
+
+        :param name: Name of the record.
+        :type name: str
+        """
+        if "in-addr" in self.zone:
+            record_type = "PTR"
+        else:
+            data = self.host.conn.run(f"dig +short {name}").stdout.strip()
+            record_type = "AAAA" if ":" in data else "A"
+
+        self.host.conn.run(
+            f"Remove-DnsServerResourceRecord -ZoneName {self.zone_name} -Name {name} -RRType {record_type} -Force"
+        )
+
+    def print(self) -> str:
+        """
+        Prints all dns records in zone as text.
+
+        :return: Print zone data.
+        :rtype: str
+        """
+        return self.host.conn.run(f"Get-DnsServerResourceRecord -ZoneName {self.zone_name}").stdout
 
 
 ADNetgroupMember: TypeAlias = LDAPNetgroupMember[ADUser, ADNetgroup]
