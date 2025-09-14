@@ -77,29 +77,64 @@ class NetworkUtils(MultihostUtility[MultihostHost]):
 
         return self.host.conn.exec(["tshark", *args])
 
-    def dig(self, args: list[Any] | None = None) -> Any:
+    def dig(self, address: str, server: str = "", reverse: bool = False) -> dict[str, Any] | None:
         """
-        Execute and parse dig command with given arguments.
+        Execute and parse dig command.
 
-        Useful keys and values,
-        {"status":  "NOERROR"}, query is a success.
-        {"status":  "NXDOMAIN"}, query did not return any results.
+        This returns a dictionary with the following keys:
+        {name, type, ttl, data, all_data}
 
-        {"answer_num": int}, number of results.
-        {"answer": list[dict{name: str, class: str, type: str, ttl: int, data: str}]
+        If the result contains more than one record, this will return the first result only.
+        Making it easier to access the values. The full result is available by getting the
+        ``all_data`` key.
 
-        When querying a server, the results may have several answers. If you need a simple does it exist assertion,
-        use ``nslookup``.
+        .. code-block:: python
+            :caption: Example usage
 
-        :param args: Arguments to ``dig``, defaults to None
-        :type args: list[Any] | None, optional
-        :return: JC parsed dictionary of results.
-        :rtype: Any
+                # Assert the record exists
+                assert not client.net.dig(f"client.{provider.domain}")
+
+                # Get the TTL
+                result = client.net.dig(f"client.{provider.domain}")
+                ttl = result.get("ttl")
+
+        :param address: Hostname or IP address with reverse set.
+        :type address: str
+        :param server: DNS server, optional, defaults to ""
+        :type server: str = ""
+        :param reverse: Do a reverse lookup, optional, defaults to False
+        :type reverse: bool = False
+        :return: Dict .
+        :rtype: tuple[bool, list[Any]]
         """
-        if args is None:
-            args = []
+        server = f"@{server}" if server and "@" not in server else ""
+        record_type = "AAAA" if ":" in address else "A"
+        args = f"{server} -x {address} PTR" if reverse else f"{server} {address} {record_type}"
 
-        return jc.parse("dig", self.host.conn.exec(["dig", *args]).stdout)
+        answers = jc.parse("dig", self.host.conn.run(f"dig {args}").stdout)
+
+        if not isinstance(answers, list) or not answers:
+            return None
+        result = answers[0].get("answer", [])
+        if not isinstance(result, list):
+            return None
+
+        required_keys = {"name", "type", "ttl", "data"}
+        records = []
+
+        for record in result:
+            if not isinstance(record, dict) or not required_keys.issubset(record.keys()):
+                continue
+            if not isinstance(record["ttl"], int) or record["ttl"] < 0:
+                continue
+            records.append(
+                {"name": record["name"], "type": record["type"], "ttl": record["ttl"], "data": record["data"]}
+            )
+
+        if len(records) <= 1 and len(result) != 0:
+            records[0]["all_data"] = records
+
+        return None if not records else records[0]
 
     def nslookup(self, args: list[str]) -> ProcessResult:
         """
