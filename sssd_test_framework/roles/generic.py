@@ -156,6 +156,9 @@ class GenericProvider(ABC, MultihostRole[BaseHost]):
 
             # Remove a global forwarder
             provider.dns().remove_forwarder("1.1.1.1")
+
+            # Clear all forwarders
+            provider.dns().clear_forwarders()
         """
         pass
 
@@ -1462,9 +1465,9 @@ class GenericDNSServer(ABC, BaseObject):
         pass
 
     @abstractmethod
-    def remove_all_forwarders(self) -> None:
+    def clear_forwarders(self) -> None:
         """
-        Remove all DNS server forwarders.
+        Clear all DNS server forwarders.
         """
         pass
 
