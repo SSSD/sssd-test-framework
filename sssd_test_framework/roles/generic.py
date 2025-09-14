@@ -29,6 +29,8 @@ __all__ = [
     "GenericAutomountMap",
     "GenericAutomountKey",
     "GenericGPO",
+    "GenericDNSServer",
+    "GenericDNSZone",
 ]
 
 
@@ -124,6 +126,36 @@ class GenericProvider(ABC, MultihostRole[BaseHost]):
     def fqn(self, name: str) -> str:
         """
         Return fully qualified name.
+        """
+        pass
+
+    @abstractmethod
+    def dns(self) -> GenericDNSServer:
+        """
+        Get DNS server object.
+
+            Get methods use dig and is parsed by jc. The data from jc contains several nested dict,
+            but two are returned as a tuple, ``answer, authority``.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            # Create forward zone and add forward record
+            zone = provider.dns().zone("example.test").create()
+            zone.add_record("client", "172.16.200.15")
+
+            # Create reverse zone and add reverse record
+            zone = provider.dns().zone("10.0.10.in-addr.arpa").create()
+            zone.add_record("client.example.test", 15)
+
+            # Add forward record to default domain
+            provider.dns().zone(provider.domain).add_record("client", "1.2.3.4")
+
+            # Add a global forwarder
+            provider.dns().add_forwarder("1.1.1.1")
+
+            # Remove a global forwarder
+            provider.dns().remove_forwarder("1.1.1.1")
         """
         pass
 
@@ -335,6 +367,22 @@ class GenericADProvider(GenericProvider):
     def fqn(self, name: str) -> str:
         """
         Return fully qualified name in form name@domain.
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def naming_context(self) -> str:
+        """
+        Return domain naming context in form of dc=domain,dc=com.
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def dn(self) -> str:
+        """
+        Distinguished Name.
         """
         pass
 
@@ -1360,5 +1408,129 @@ class GenericPasswordPolicy(ABC, BaseObject):
         :type attempts: int
         :return: GenericPasswordPolicy object.
         :rtype: GenericPasswordPolicy
+        """
+        pass
+
+
+class GenericDNSServer(ABC, BaseObject):
+    """
+    DNS management utilities.
+    """
+
+    @abstractmethod
+    def zone(self, name: str) -> GenericDNSZone:
+        """
+        Get GenericDNSZone object.
+
+        :param name: Zone name.
+        :type name: str
+        :return: GenericDNSZone object.
+        :rtype: GenericDNSZone
+        """
+        pass
+
+    @abstractmethod
+    def get_forwarders(self) -> list[str]:
+        """
+        Get DNS global forwarders.
+
+        :return:  List of forwarders.
+        :rtype: list[str]
+        """
+        pass
+
+    @abstractmethod
+    def add_forwarder(self, ip_address: str) -> GenericDNSServer:
+        """
+        Add a DNS server forwarder.
+
+        :param ip_address: IP address.
+        :type ip_address: str
+        :return: Self.
+        :rtype: GenericDNSServer
+        """
+        pass
+
+    @abstractmethod
+    def remove_forwarder(self, ip_address: str) -> None:
+        """
+        Remove a DNS server forwarder.
+
+        :param ip_address: IP address.
+        :type ip_address: str
+        """
+        pass
+
+    @abstractmethod
+    def remove_all_forwarders(self) -> None:
+        """
+        Remove all DNS server forwarders.
+        """
+        pass
+
+    @abstractmethod
+    def list_zones(self) -> list[str]:
+        """
+        List all DNS zones.
+        """
+        pass
+
+
+class GenericDNSZone(GenericDNSServer):
+    """
+    Generic DNS zone management.
+    """
+
+    @abstractmethod
+    def create(self) -> GenericDNSZone:
+        """
+        Create DNS zone.
+
+        :return: GenericDNSServer object.
+        :rtype: GenericDNSServer
+        """
+        pass
+
+    @abstractmethod
+    def delete(self) -> None:
+        """
+        Delete DNS zone.
+
+        :return:  None
+        :rtype: None
+        """
+        pass
+
+    @abstractmethod
+    def add_record(self, name: str, data: str | int) -> GenericDNSZone:
+        """
+        Add DNS record.
+
+        :param name: Record name.
+        :type name: str
+        :param data: Record data.
+        :type data: str | int
+        :return: GenericDNSZone object.
+        :rtype: GenericDNSZone
+        """
+        pass
+
+    @abstractmethod
+    def delete_record(self, name: str) -> None:
+        """
+        Delete DNS record.
+
+        :param name: Name of the record.
+        :type name: str
+        """
+        pass
+
+    @abstractmethod
+    def print(self) -> str:
+        """
+        Print zone data as text.
+
+        :return: Printed file as text.
+        :rtype: str
         """
         pass
