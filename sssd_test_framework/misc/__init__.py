@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import itertools
 from functools import wraps
 from time import sleep
@@ -177,20 +178,43 @@ def seconds_to_timespan(seconds: int) -> str:
     return f"{d:02d}:{h:02d}:{m:02d}:{s:02d}:00"
 
 
-def ip_to_zone_name(address: str) -> str:
+def ip_to_ptr(ip_address: str) -> str:
     """
-    Get PTR zone name from given address.
+    Get the reverse pointer from given address.
 
-    :param address: Address.
-    :type address: str
-    :return: PTR zone name.
+    :param ip_address: Address.
+    :type ip_address: str
+    :return: Reverse pointer.
     :rtype: str
     """
-    parts = address.split(".")
-    if len(parts) != 4:
-        raise ValueError("Address must be in the format x.x.x.x")
+    ip = ipaddress.ip_address(ip_address)
+    if ip.version == 4:
+        octets = ip.packed
+        ptr = f"{octets[2]}.{octets[1]}.{octets[0]}.in-addr.arpa."
+    elif ip.version == 6:
+        hex_parts = ip.exploded.replace(":", "").lower()
+        ptr = f"{hex_parts[::-1]}.ip6.arpa."
+    else:
+        raise ValueError("Unsupported IP version")
+    return ptr
 
-    return f"{'.'.join(parts[1:])}.in-addr.arpa"
+
+def ip_version(ip_address: str) -> int | None:
+    """
+    Parse str and return the IP version.
+
+    ::param ip_address: IP address.
+    :type ip_address: str
+    :return:  IP version or None if not found.
+    :rtype: int | None
+    """
+    try:
+        return ipaddress.IPv4Address(ip_address).version
+    except ValueError:
+        try:
+            return ipaddress.IPv6Address(ip_address).version
+        except ValueError:
+            return None
 
 
 def retry(

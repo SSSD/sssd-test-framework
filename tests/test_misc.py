@@ -12,6 +12,8 @@ from sssd_test_framework.misc import (
     attrs_parse,
     attrs_to_hash,
     get_attr,
+    ip_to_ptr,
+    ip_version,
     parse_ldif,
     retry,
     seconds_to_timespan,
@@ -262,6 +264,32 @@ def test_attrs_to_hash(value, expected):
 )
 def test_seconds_to_timespan(seconds: tuple[int, str]):
     assert seconds_to_timespan(seconds[0]) == seconds[1]
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        ("192.168.1.0", "1.168.192.in-addr.arpa."),
+        ("2001:db8::1", "1000000000000000000000008bd01002.ip6.arpa."),
+    ],
+)
+def test_ip_to_ptr(value, expected):
+    assert ip_to_ptr(value) == expected
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("hostname", None),
+        ("hostname.domain.com", None),
+        ("192.168.1.1", 4),
+        ("192.168.1.256", None),
+        ("::1", 6),
+        ("001:db8::", 6),
+    ],
+)
+def test_ip_version(value, expected):
+    assert ip_version(value) == expected
 
 
 def test_retry__all_exceptions():
