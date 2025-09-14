@@ -9,7 +9,7 @@ from pytest_mh.cli import CLIBuilderArgs
 from pytest_mh.conn import ProcessError, ProcessResult
 
 from ..hosts.ipa import IPAHost
-from ..misc import attrs_include_value, attrs_parse, to_list, to_list_of_strings, to_list_without_none
+from ..misc import attrs_include_value, attrs_parse, ip_version, to_list, to_list_of_strings, to_list_without_none
 from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
 from .base import BaseLinuxRole, BaseObject
@@ -27,6 +27,8 @@ __all__ = [
     "IPAAutomountLocation",
     "IPAAutomountMap",
     "IPAAutomountKey",
+    "IPADNSServer",
+    "IPADNSZone",
 ]
 
 
@@ -369,6 +371,38 @@ class IPA(BaseLinuxRole[IPAHost]):
         """
         return IPAIDView(self, name)
 
+    def dns(self) -> IPADNSServer:
+        """
+        Get DNS server object.
+
+            Get methods use dig and is parsed by jc. The data from jc contains several nested dict,
+            but two are returned as a tuple, ``answer, authority``.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            # Create forward zone and add forward record
+            zone = ipa.dns().zone("example.test").create()
+            zone.add_record("client", "172.16.200.15")
+
+            # Create reverse zone and add reverse record
+            zone = ipa.dns().zone("10.0.10.in-addr.arpa").create()
+            zone.add_ptr_record("client.example.test", 15)
+
+            # Add forward record to default domain
+            ipa.dns().zone(ipa.domain).add_record("client", "1.2.3.4")
+
+            # Add a global forwarder
+            ipa.dns().add_forwarder("1.1.1.1")
+
+            # Remove a global forwarder
+            ipa.dns().remove_forwarder("1.1.1.1")
+
+            # Clear all forwarders
+            ipa.dns().clear_forwarders()
+        """
+        return IPADNSServer(self)
+
 
 class IPAObject(BaseObject[IPAHost, IPA]):
     """
@@ -459,8 +493,8 @@ class IPAObject(BaseObject[IPAHost, IPA]):
 
         :param attrs: If set, only requested attributes are returned, defaults to None
         :type attrs: list[str] | None, optional
-        :return: Dictionary with attribute name as a key.
-        :rtype: dict[str, list[str]]
+        :return: Dictionary with attribute name as a key or None if no such attribute is found.
+        :rtype: dict[str, list[str]] | None
         """
         cmd = self._exec("show", ["--all", "--raw"], raise_on_error=False)
 
@@ -2235,3 +2269,183 @@ class IPAIDView(IPAObject):
         Delete existing IPA ID view.
         """
         self._exec("del", ["--continue"])
+
+
+class IPADNSServer(BaseObject[IPAHost, IPA]):
+    """
+    DNS management utilities.
+    """
+
+    def __init__(self, role: IPA):
+        """
+        :param role: IPA host object.
+        :type role: ADHost
+        """
+        super().__init__(role)
+
+        self.domain: str = role.domain
+        """Domain name."""
+
+        self.server: str = role.server
+        """Server name."""
+
+    def zone(self, name: str) -> IPADNSZone:
+        """
+        Get IPADNSZone object.
+
+        :param name: Zone name.
+        :type name: str
+        :return: IPADNSZone object.
+        :rtype: IPADNSZone
+        """
+        return IPADNSZone(self.role, name)
+
+    def get_forwarders(self) -> list[str] | None:
+        """
+        Get DNS global forwarders.
+
+        :return: DNS global forwarders.:
+        :rtype: list[str] | None
+        """
+        result = self.host.conn.run("ipa dnsconfig-show --raw").stdout_lines
+        result = [line.strip() for line in result if line.startswith(" ")]
+        if result is not None and isinstance(result, list):
+            forwarders = attrs_parse(result, ["idnsforwarders"])
+            if forwarders is not None and isinstance(forwarders, dict):
+                return forwarders.get("idnsforwarders")
+        return None
+
+    def add_forwarder(self, ip_address: str) -> IPADNSServer:
+        """
+        Add a DNS server forwarder.
+
+        :param ip_address: IP address.
+        :type ip_address: str
+        :return:  Self.
+        :rtype: IPADNSServer
+        """
+        self.host.conn.run(f"ipa dnsconfig-mod --forwarder {ip_address}")
+        return self
+
+    def remove_forwarder(self, ip_address: str) -> None:
+        """
+        Remove DNS server forwarders.
+
+        :param ip_address: IP address.
+        :type ip_address: str
+        """
+        forwarders = self.get_forwarders()
+        if forwarders and ip_address in forwarders:
+            forwarders = [fwd for fwd in forwarders if fwd != ip_address]
+            self.host.conn.run(f"ipa dnsconfig-mod --forwarder \"{' '.join(forwarders)}\"")
+
+    def clear_forwarders(self) -> None:
+        """
+        Clear all DNS server forwarders.
+
+        IPA has no global forwarders by default.
+        """
+        forwarders = self.get_forwarders()
+
+        if isinstance(forwarders, list) and not None:
+            for forwarder in forwarders:
+                self.remove_forwarder(forwarder)
+
+    def list_zones(self) -> list[str] | None:
+        """
+        List zones.
+        :return: List of zones.
+        :rtype: dict[str, list[str]] | None"
+        """
+        result = self.host.conn.run("ipa dnszone-find --raw").stdout_lines
+        result = [line.strip() for line in result if line.startswith(" ")]
+        if result is None:
+            raise ValueError("No zones found.")
+        else:
+            zones = [line.rstrip(".") for line in result]
+            parsed_result = attrs_parse(zones, ["idnsname"])
+            if isinstance(parsed_result, dict):
+                if isinstance(parsed_result["idnsname"], list):
+                    return parsed_result.get("idnsname")
+            else:
+                return None
+
+
+class IPADNSZone(IPADNSServer):
+    """
+    DNS zone management.
+    """
+
+    def __init__(self, role: IPA, name: str):
+        """
+        :param role: IPA host object.
+        :type role: IPAHost
+        :param name: DNS zone name.
+        :type name: str
+        """
+        super().__init__(role)
+
+        self.zone_name: str = name
+        """Zone name."""
+
+    def create(self) -> IPADNSZone:
+        """
+        Create new zone.
+
+        :return: IPADNSServer object.
+        :rtype: IPADNSServer
+        """
+        self.host.conn.run(f"ipa dnszone-add {self.zone_name} --dynamic-update=TRUE --skip-overlap-check")
+        return self
+
+    def delete(self) -> None:
+        """
+        Delete zone.
+        """
+        self.host.conn.run(f"dnszone-del {self.zone_name}")
+
+    def add_record(self, name: str, data: str | int) -> IPADNSZone:
+        """
+        Add DNS record.
+
+        If ``data`` is a str, a forward record will be added.
+        If an integer a reverse record will be added.
+
+        :param name: Record name.
+        :type name: str
+        :param data: Record data.
+        :type data: str | int
+        :return: IPADNSZone object.
+        :rtype: IPADNSZone
+        """
+        args = ""
+
+        if isinstance(data, int):
+            args = f"{name} --ptr-rec={str(data)}."
+        elif isinstance(data, str) and ip_version(data) == 4:
+            args = f"{data} --a-rec={data}"
+        elif isinstance(data, str) and ip_version(data) == 6:
+            args = f"{data} --aaaa-rec={data}"
+
+        self.host.conn.run(f"ipa dnsrecord-add {self.zone_name} {args}")
+
+        return self
+
+    def delete_record(self, name: str) -> None:
+        """
+        Delete DNS record.
+
+        :param name: Name of the record.
+        :type name: str
+        """
+        self.host.conn.run(f"ipa dnsrecord-del {self.zone_name} {name}")
+
+    def print(self) -> str:
+        """
+        Prints all dns records in a zone as text.
+
+        :return: Print zone data.
+        :rtype: str
+        """
+        result = self.host.conn.run(f"ipa dnszone-show {self.zone_name}").stdout
+        return result
