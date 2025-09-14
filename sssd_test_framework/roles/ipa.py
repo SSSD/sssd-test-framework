@@ -2421,11 +2421,11 @@ class IPADNSZone(IPADNSServer):
         args = ""
 
         if isinstance(data, int):
-            args = f"{name} --ptr-rec={str(data)}."
+            args = f"{str(data)} --ptr-rec={name}."
         elif isinstance(data, str) and ip_version(data) == 4:
-            args = f"{data} --a-rec={data}"
+            args = f"{name} --a-rec={data}"
         elif isinstance(data, str) and ip_version(data) == 6:
-            args = f"{data} --aaaa-rec={data}"
+            args = f"{name} --aaaa-rec={data}"
 
         self.host.conn.run(f"ipa dnsrecord-add {self.zone_name} {args}")
 
