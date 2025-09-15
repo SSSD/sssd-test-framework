@@ -381,36 +381,37 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         self.host.conn.run(cmd)
         self.svc.reload_daemon()
 
-    def set_server(self, provider: GenericProvider, failover: bool = False) -> None:
+    def set_server(self, provider: GenericProvider) -> None:
         """
         Set the correct 'ldap_server | ipa_server | ad_server' parameter and value for the role.
 
-         Optionally sets 'ldap_backup_server | ipa_backup_server | ad_backup_server' for failover testing.
-         When enabled, the working provider server is set to be the backup and a non-existent host is used
-         as the first server.
+        :param provider: Generic provider object.
+        :type provider: GenericProvider
+        """
+        if provider.name == "ldap":
+            self.domain["ldap_uri"] = f"ldap://{provider.server}"
+        elif provider.name in ("ipa", "ad"):
+            self.domain[f"{provider.name}_server"] = provider.server
+        else:
+            raise ValueError("Unexpected 'provider' value")
+
+    def set_invalid_primary_server(self, provider: GenericProvider) -> None:
+        """
+        Sets an non working server  value for 'ldap_server | ipa_server | ad_server' parameter and
+        a working server  value for 'ldap_backup_server | ipa_backup_server | ad_backup_server'
+        for failover testing.
 
         :param provider: Generic provider object.
         :type provider: GenericProvider
-        :param failover: Configure client for failover, defaults to False
-        :type failover: bool, optional
         """
-        if failover:
-            if provider.name == "ldap":
-                self.domain["ldap_uri"] = f"ldap://invalid.{provider.domain}"
-                self.domain["ldap_backup_uri"] = f"ldap://{provider.server}"
-            elif provider.name == "ipa":
-                self.domain["ipa_server"] = f"invalid.{provider.domain}"
-                self.domain["ipa_backup_server"] = provider.server
-            elif provider.name == "ad":
-                self.domain["ad_server"] = f"invalid.{provider.domain}"
-                self.domain["ad_backup_server"] = provider.server
+        if provider.name == "ldap":
+            self.domain["ldap_uri"] = f"ldap://invalid.{provider.domain}"
+            self.domain["ldap_backup_uri"] = f"ldap://{provider.server}"
+        elif provider.name in ("ipa", "ad"):
+            self.domain[f"{provider.name}_server"] = f"invalid.{provider.domain}"
+            self.domain[f"{provider.name}_backup_server"] = provider.server
         else:
-            if provider.name == "ldap":
-                self.domain["ldap_uri"] = f"ldap://{provider.server}"
-            elif provider.name == "ipa":
-                self.domain["ipa_server"] = provider.server
-            elif provider.name == "ad":
-                self.domain["ad_server"] = provider.server
+            raise ValueError("Unexpected 'provider' value")
 
     def enable_responder(self, responder: str) -> None:
         """
