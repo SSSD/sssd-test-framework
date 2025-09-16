@@ -12,6 +12,7 @@ from pytest_mh.conn import Process, ProcessLogLevel, ProcessResult
 
 from ..hosts.base import BaseDomainHost
 from ..hosts.client import ClientHost
+from ..hosts.ipa import IPAHost
 from ..misc import to_list
 from ..roles.generic import GenericProvider
 
@@ -353,6 +354,8 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         if isinstance(self.host, ClientHost):
             if not self.host.features["non-privileged"]:
                 return  # service user configuration isn't supported at all
+        elif isinstance(self.host, IPAHost):
+            return  # not supported
         else:
             raise ValueError("Unexpected host type")
 

@@ -182,6 +182,13 @@ class IPA(BaseLinuxRole[IPAHost]):
         Obtain IPA admin Kerberos TGT.
         """
         super().setup()
+
+        # Restart SSSD so it is opened with new database files.
+        self.sssd.stop()
+        self.sssd.clear(db=True, memcache=True, logs=True, config=False)
+        self.sssd.start()
+
+        # Obtain admin TGT
         self.host.kinit()
 
     def fqn(self, name: str) -> str:
