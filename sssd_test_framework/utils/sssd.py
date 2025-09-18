@@ -1043,3 +1043,28 @@ class SSSDCommonConfiguration(object):
 
         self.sssd.authselect.select("sssd", features)
         self.sssd.enable_responder("pam")
+
+    def socket_responders(self, responders: list[str] | None = None) -> None:
+        """
+        Configure SSSD for socket-activated responders.
+
+        Sets an empty services line in sssd.conf to enable socket activation
+        for specified responders.
+
+        :param responders: List of responders to enable via socket activation.
+                          If None, enables all known socket responders.
+        :type responders: list[str] | None
+        :raises RuntimeError: If starting a socket unit fails.
+        """
+        if responders is None:
+            responders = ["nss", "pam", "sudo", "ssh", "pac", "autofs"]
+
+        # Set empty services to enable socket activation
+        self.sssd.sssd["services"] = ""
+
+        # Ensure socket units are started using SystemdServices for proper management
+        for responder in responders:
+            socket_unit = f"sssd-{responder}.socket"
+
+            # Start the socket unit using SystemdServices
+            self.sssd.svc.start(socket_unit)
