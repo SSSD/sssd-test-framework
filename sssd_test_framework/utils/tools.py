@@ -512,6 +512,167 @@ class NetgroupEntry(object):
         return cls.FromDict({"name": result[0], "members": members})
 
 
+class HostsEntry(object):
+    """
+    Result of ``getent hosts``
+
+    If hosts does not exist or does not have any supplementary hosts then ``self.hosts`` is empty.
+    """
+
+    def __init__(self, ip: list[str | None] | None, hostname: list[str | None] | None) -> None:
+
+        self.ip: list[str | None] | None = ip
+        """Exact host name which ``hosts`` was called."""
+
+        self.hostname: list[str | None] | None = hostname
+        """Hosts  aliases."""
+
+    def __str__(self) -> str:
+        return f"({self.ip} {self.hostname})"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+    @classmethod
+    def FromDict(cls, d: dict[str, Any | None]) -> HostsEntry:
+        if isinstance(d, dict):
+            ip = d.get("ip", None)
+            hostname = d.get("hostname", None)
+
+            if ip is not None and not isinstance(ip, list):
+                raise ValueError("ip is not an instance of  list")
+
+            if hostname is not None and not isinstance(hostname, list):
+                raise ValueError("hostname is not an instance of list")
+
+            return cls(ip=ip, hostname=hostname)
+
+    @classmethod
+    def FromOutput(cls, stdout: str) -> HostsEntry:
+        result = jc.parse("hosts", stdout)
+        results: dict[str, Any | None] = {}
+
+        if not isinstance(result, list):
+            raise TypeError(f"Unexpected type: {type(result)}, expecting list")
+
+        results["ip"] = [ip["ip"] for ip in result]
+        results["hostname"] = result[0].get("hostname", None)
+
+        return cls.FromDict(results)
+
+
+class NetworksEntry(object):
+    """
+    Result of ``getent networks``
+
+    If networks does not exist or does not have any supplementary networks then ``self.networks`` is empty.
+    """
+
+    def __init__(self, name: str | None, ip: list[str | None] | None) -> None:
+
+        self.name: list[str | None] | None = name
+        """Network name. """
+
+        self.ip: list[str | None] | None = ip
+        """Exact network name which ``network`` was called."""
+
+    def __str__(self) -> str:
+        return f"({self.name} {self.ip})"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+    @classmethod
+    def FromDict(cls, d: dict[str, Any | None]) -> NetworksEntry:
+        if isinstance(d, dict):
+            ip = d.get("ip", None)
+            name = d.get("name", None)
+
+            if ip is not None and not isinstance(ip, str):
+                raise ValueError("ip is not an instance of  str")
+
+            if name is not None and not isinstance(name, str):
+                raise ValueError("hostname is not an instance of str")
+
+            return cls(ip=ip, name=name)
+
+    @classmethod
+    def FromOutput(cls, stdout: str) -> NetworksEntry:
+        parts = [part for part in stdout.split() if part]
+        if len(parts) < 2:
+            raise ValueError(f"Two few values {len(parts)}: {parts}")
+        result = {"name": parts[0], "ip": parts[1]}
+
+        if len(result) != 1:
+            raise ValueError("More then one entry was returned")
+
+        if not isinstance(result, list):
+            raise TypeError(f"Unexpected type: {type(result)}, expecting list")
+
+        return cls.FromDict(result)
+    
+class ServicesEntry(object):
+    """
+    Result of ``getent services``
+
+    If services does not exist or does not have any supplementary services then ``self.services`` is empty.
+    """
+
+    def __init__(self, name: str | None, protocol: str | None = None, port: int | None = None) -> None:
+
+        self.name: list[str | None] | None = name
+        """Service name. """
+
+        self.protocol: str | None = protocol
+        """Protocol."""
+
+        self.port: int | None = port
+        """Port."""
+
+    def __str__(self) -> str:
+        return f"({self.name} {self.port}/{self.protocol})"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+    @classmethod
+    def FromDict(cls, d: dict[str, Any | None]) -> ServicesEntry:
+        if isinstance(d, dict):
+            name = d.get("name", None)
+            protocol = d.get("protocol", None)
+            port = d.get("port", None)
+
+            if name is not None and not isinstance(name, str):
+                raise ValueError("name is not an instance of  str")
+
+            if protocol is not None and not isinstance(protocol, str):
+                raise ValueError("protocol is not an instance of str")
+
+            if port is not None and not isinstance(port, int):
+                raise ValueError("port is not an instance of int")
+
+            return cls(name=name, protocol = protocol, port = port)
+
+    @classmethod
+    def FromOutput(cls, stdout: str) -> ServicesEntry:
+        parts = [part for part in stdout.split() if part]
+        if len(parts) < 2:
+            raise ValueError(f"Two few values {len(parts)}: {parts}")
+        if "/" in parts[1]:
+            parts.append(parts[1].split("/"))
+
+        if len(parts) == 2:
+            result = {"name": [0], "port": int(parts[1]), "protocol": parts[2]}
+
+        if len(result) != 1:
+            raise ValueError("More then one entry was returned")
+
+        if not isinstance(result, list):
+            raise TypeError(f"Unexpected type: {type(result)}, expecting list")
+
+        return cls.FromDict(result)
+
+
 class LinuxToolsUtils(MultihostUtility[MultihostHost]):
     """
     Run various standard commands on remote host.
@@ -749,6 +910,42 @@ class GetentUtils(MultihostUtility[MultihostHost]):
         """
         return self.__exec(NetgroupEntry, "netgroup", name, service)
 
+    def hosts(self, name: str, *, service: str | None = None) -> HostsEntry:
+        """
+        Call ``getent hosts $name``
+        :param name: Hostname.
+        :type name: str
+        :param service: Service used, defaults to None
+        :type service: str | None
+        :return: Hosts data, None if not found
+        :rtype: HostsEntry | None
+        """
+        return self.__exec(HostsEntry, "hosts", name, service)
+    
+    def networks(self, name: str, *, service: str | None = None) -> HostsEntry:
+        """
+        Call ``getent networks $name``
+        :param name: Network.
+        :type name: str
+        :param service: Service used, defaults to None
+        :type service: str | None
+        :return: Network data, None if not found
+        :rtype: NetworksEntry | None
+        """
+        return self.__exec(NetworksEntry, "networks", name, service)
+    
+    def services(self, name: str, *, service: str | None = None) -> HostsEntry:
+        """
+        Call ``getent services $name``
+        :param name: Service.
+        :type name: str
+        :param service: Service used, defaults to None
+        :type service: str | None
+        :return: Service data, None if not found
+        :rtype: ServicesEntry | None
+        """
+        return self.__exec(ServicesEntry, "services", name, service)
+
     def __exec(self, cls, cmd: str, name: str | int, service: str | None = None) -> Any:
         args = []
         if service is not None:
@@ -759,6 +956,18 @@ class GetentUtils(MultihostUtility[MultihostHost]):
             return None
 
         return cls.FromOutput(command.stdout)
+
+    def __exec(self, cls, cmd: str, name: str | int, service: str | None = None) -> Any:
+        args = []
+        if service is not None:
+            args = ["-s", service]
+
+        command = self.host.conn.exec(["getent", *args, cmd, name], raise_on_error=False)
+        if command.rc != 0:
+            return None
+
+        return cls.FromOutput(command.stdout)
+
 
 
 class SSHKeyUtils:
