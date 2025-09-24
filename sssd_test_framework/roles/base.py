@@ -13,6 +13,7 @@ from pytest_mh.utils.auditd import Auditd
 from pytest_mh.utils.coredumpd import Coredumpd
 from pytest_mh.utils.firewall import Firewalld, WindowsFirewall
 from pytest_mh.utils.fs import LinuxFileSystem
+from pytest_mh.utils.hostname import HostnameUtils
 from pytest_mh.utils.journald import JournaldUtils
 from pytest_mh.utils.services import SystemdServices
 from pytest_mh.utils.tc import LinuxTrafficControl
@@ -187,6 +188,11 @@ class BaseLinuxRole(BaseRole[HostType]):
         self.auth: AuthenticationUtils = AuthenticationUtils(self.host, self.fs)
         """
         Authentication helpers.
+        """
+
+        self.hostnameutils: HostnameUtils = HostnameUtils(self.host).postpone_setup()
+        """
+        Hostname utilities.
         """
 
         self.journald: JournaldUtils = JournaldUtils(self.host)
