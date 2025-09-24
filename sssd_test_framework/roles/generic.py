@@ -7,6 +7,7 @@ from typing import Any, Protocol
 
 from pytest_mh import MultihostRole
 from pytest_mh.utils.firewall import Firewall
+from pytest_mh.utils.hostname import HostnameUtils
 
 from ..hosts.base import BaseHost
 from .base import BaseObject
@@ -94,6 +95,14 @@ class GenericProvider(ABC, MultihostRole[BaseHost]):
     @property
     @abstractmethod
     def features(self) -> dict[str, Any]:
+        pass
+
+    @property
+    @abstractmethod
+    def hostnameutils(self) -> HostnameUtils:
+        """
+        Hostname management
+        """
         pass
 
     @property
