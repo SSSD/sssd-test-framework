@@ -29,6 +29,9 @@ __all__ = [
     "LDAPUser",
     "LDAPGroup",
     "LDAPSudoRule",
+    "LDAPHosts",
+    "LDAPNetworks",
+    "LDAPServices",
     "LDAPAutomount",
     "LDAPAutomountMap",
     "LDAPAutomountKey",
@@ -396,6 +399,78 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
         :rtype: LDAPSudoRule[LDAPHost, LDAP, LDAPUser, LDAPGroup]
         """
         return LDAPSudoRule[LDAPHost, LDAP, LDAPUser, LDAPGroup](self, LDAPUser, LDAPGroup, name, basedn)
+
+    def hosts(self, name: str, basedn: LDAPObject | str | None = "ou=hosts", rdn_attr: str | None = "cn") -> LDAPHosts:
+        """
+        Get hosts object.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.LDAP)
+            def test_example(client: Client, ldap: LDAP):
+
+                ldap.hosts("host1").add(ip_address="192.168.1.1")
+
+        :param name: Host name.
+        :type name: str
+        :param basedn: Base dn, defaults to ``ou=Hosts``
+        :type basedn: LDAPObject | str | None, optional
+        :param rdn_attr: RDN Attribute (uid, cn, etc)
+        :type rdn_attr: str, defaults to 'cn'
+        :return: New Host object.
+        :rtype: LDAPHosts
+        """
+        return LDAPHosts(self, name, basedn, rdn_attr)
+
+    def networks(
+        self, name: str, basedn: LDAPObject | str | None = "ou=networks", rdn_attr: str | None = "cn"
+    ) -> LDAPNetworks:
+        """
+        Get network object.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.LDAP)
+            def test_example(client: Client, ldap: LDAP):
+
+                ldap.networks("network1").add(ip_address="192.168.1.1")
+
+        :param name: Host name.
+        :type name: str
+        :param basedn: Base dn, defaults to ``ou=Networks``
+        :type basedn: LDAPObject | str | None, optional
+        :param rdn_attr: RDN Attribute (uid, cn, etc)
+        :type rdn_attr: str, defaults to 'cn'
+        :return: New network object.
+        :rtype: LDAPNetworks
+        """
+        return LDAPNetworks(self, name, basedn, rdn_attr)
+
+    def services(
+        self, name: str, basedn: LDAPObject | str | None = "ou=Services", rdn_attr: str | None = "cn"
+    ) -> LDAPServices:
+        """
+        Get services object.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.LDAP)
+            def test_example(client: Client, ldap: LDAP):
+                ldap.services("service1").add(protocol = "udp", port =111)
+
+        :param name: Host name.
+        :type name: str
+        :param basedn: Base dn, defaults to ``ou=Services``
+        :type basedn: LDAPObject | str | None, optional
+        :param rdn_attr: RDN Attribute (uid, cn, etc)
+        :type rdn_attr: str, defaults to 'cn'
+        :return: New services object.
+        :rtype: LDAPServices
+        """
+        return LDAPServices(self, name, basedn, rdn_attr)
 
 
 class LDAPObject(BaseObject[HostType, LDAPRoleType]):
@@ -1843,6 +1918,149 @@ class LDAPAutomountKey(LDAPObject[HostType, LDAPRoleType]):
             return info.name
 
         return info
+
+
+class LDAPHosts(LDAPObject[LDAPHost, LDAP]):
+    """
+    LDAP host management.
+    """
+
+    def __init__(
+        self, role: LDAP, name: str, basedn: LDAPObject | str | None = "ou=Hosts", rdn_attr: str | None = "cn"
+    ) -> None:
+        """
+        :param role: LDAP role object.
+        :type role: LDAP
+        :param name:  Host name.
+        :type name: str
+        :param basedn: Base dn, defaults to ``ou=Hosts``
+        :type basedn: LDAPObject | str | None, optional
+        :param rdn_attr: RDN Attribute (uid, cn, etc)
+        :type rdn_attr: str, defaults to 'cn'
+        """
+        super().__init__(role, name, f"{rdn_attr}={name}", basedn, default_ou="hosts")
+
+        self.object_class = ["device", "ipHost"]
+
+    def add(self, *, ip_address: str | list[str], aliases: list[str] | None = None) -> LDAPHosts:
+        """
+        Create new LDAP Host.
+
+        :param ip_address:  Host number.
+        :type ip_address: str | list[str]
+        :param aliases: Host aliases.
+        :type aliases: list[str] | None
+        :return: Self.
+        :rtype: LDAPHosts
+        """
+        attrs: LDAPRecordAttributes = {
+            "objectClass": self.object_class,
+            "cn": [self.name] if aliases is None else [self.name] + aliases,
+            "ipHostNumber": [ip_address] if isinstance(ip_address, str) else ip_address,
+        }
+
+        self._add(attrs)
+        return self
+
+
+class LDAPNetworks(LDAPObject[LDAPHost, LDAP]):
+    """
+    LDAP network management.
+    """
+
+    def __init__(
+        self, role: LDAP, name: str, basedn: LDAPObject | str | None = "ou=Networks", rdn_attr: str | None = "cn"
+    ) -> None:
+        """
+        :param role: LDAP role object.
+        :type role: LDAP
+        :param name:  Network name.
+        :type name: str
+        :param basedn: Base dn, defaults to ``ou=Networks``
+        :type basedn: LDAPObject | str | None, optional
+        :param rdn_attr: RDN Attribute (uid, cn, etc)
+        :type rdn_attr: str, defaults to 'cn'
+        """
+        super().__init__(role, name, f"{rdn_attr}={name}", basedn, default_ou="networks")
+
+        self.object_class = ["ipNetwork"]
+
+    def add(
+        self,
+        *,
+        ip_address: str | list[str],
+        aliases: list[str] | None = None,
+    ) -> LDAPNetworks:
+        """
+        Create new LDAP Networks.
+
+        :param ip_address:  Network address.
+        :type ip_address: str | list[str]
+        :param aliases: Network aliases.
+        :type aliases: list[str] | None
+        :return: Self.
+        :rtype: LDAPNetworks
+        """
+        attrs: LDAPRecordAttributes = {
+            "objectClass": self.object_class,
+            "cn": [self.name] if aliases is None else [self.name] + aliases,
+            "ipNetworkNumber": [ip_address] if isinstance(ip_address, str) else ip_address,
+        }
+
+        self._add(attrs)
+        return self
+
+
+class LDAPServices(LDAPObject[LDAPHost, LDAP]):
+    """
+    LDAP service management.
+    """
+
+    def __init__(
+        self, role: LDAP, name: str, basedn: LDAPObject | str | None = "ou=Services", rdn_attr: str | None = "cn"
+    ) -> None:
+        """
+        :param role: LDAP role object.
+        :type role: LDAP
+        :param name:  Service name.
+        :type name: str
+        :param basedn: Base dn, defaults to ``ou=Services``
+        :type basedn: LDAPObject | str | None, optional
+        :param rdn_attr: RDN Attribute (uid, cn, etc)
+        :type rdn_attr: str, defaults to 'cn'
+        """
+        super().__init__(role, name, f"{rdn_attr}={name}", basedn, default_ou="services")
+
+        self.object_class = ["ipService"]
+
+    def add(
+        self,
+        *,
+        protocol: str,
+        port: int,
+        aliases: list[str] | None = None,
+    ) -> LDAPServices:
+        """
+        Create new LDAP Networks.
+
+        :param protocol:  Service protocol.
+        :type protocol: str
+        :param port:  Service port.
+        :type port: int
+        :param aliases: Aliases. Service aliases.
+        :type aliases: list[str] | None
+        :return: Self.
+        :rtype: LDAPServices
+        """
+        attrs: LDAPRecordAttributes = {
+            "objectClass": self.object_class,
+            "cn": [self.name] if aliases is None else [self.name] + aliases,
+            "ipServiceProtocol": protocol,
+            "ipServicePort": port,
+        }
+
+        self._add(attrs)
+        return self
 
 
 class LDAPPasswordPolicy(GenericPasswordPolicy):
