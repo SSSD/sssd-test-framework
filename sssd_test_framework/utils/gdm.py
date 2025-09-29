@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import TYPE_CHECKING
 
 from pytest_mh import MultihostHost, MultihostUtility
@@ -148,7 +149,7 @@ class GDM(MultihostUtility[MultihostHost]):
         self.kb_write(username)
         self.click_on("Log")
 
-        log = client.journald.journalctl(grep="adding.*eidp.*code", args=["_COMM=gnome-shell"])
+        log = client.journald.journalctl(grep="auth-mechanisms.*eidp.*code", args=["_COMM=gdm"])
         match = re.search(r"\{.*\}", log.stdout_lines[-1])
         if match:
             json_string = match.group()
@@ -157,8 +158,8 @@ class GDM(MultihostUtility[MultihostHost]):
             return False
 
         data = json.loads(json_string)
-        uri = data["uri"]
-        code = data["code"]
+        uri = data["authSelection"]["mechanisms"]["eidp"]["uri"]
+        code = data["authSelection"]["mechanisms"]["eidp"]["code"]
 
         test_uri = f"{uri}?user_code={code}"
 
@@ -166,6 +167,10 @@ class GDM(MultihostUtility[MultihostHost]):
         client.auth.idp.keycloak(test_uri, username, password)
 
         self.kb_send("enter")
+
+        # Sleeping to wait for login process to prevent race condition with ffmpeg
+        time.sleep(5)
+
         retval = self.check_home_screen()
 
         return retval
