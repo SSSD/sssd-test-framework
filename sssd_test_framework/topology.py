@@ -58,6 +58,19 @@ class KnownTopology(KnownTopologyBase):
         controller=GDMTopologyController(),
         fixtures=dict(client="sssd.client[0]", ipa="sssd.ipa[0]", provider="sssd.ipa[0]", keycloak="sssd.keycloak[0]"),
     )
+    """
+    .. topology-mark:: KnownTopology.GDM
+    """
+
+    GDM_IPA = SSSDTopologyMark(
+        name="gdm_ipa",
+        topology=Topology(TopologyDomain("sssd", client=1, ipa=1)),
+        controller=IPATopologyController(),
+        fixtures=dict(client="sssd.client[0]", ipa="sssd.ipa[0]", provider="sssd.ipa[0]"),
+    )
+    """
+    .. topology-mark:: KnownTopology.GDM_IPA
+    """
 
     LDAP = SSSDTopologyMark(
         name="ldap",

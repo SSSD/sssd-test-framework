@@ -215,6 +215,18 @@ class KeycloakUser(KeycloakObject):
 
         return self
 
+    def password_change_at_logon(self, **kwargs) -> KeycloakUser:
+        """
+        Force user to change password next logon.
+
+        :return: Self.
+        :rtype: KeycloakUser
+        """
+        update_password = f"update users/{self.id} -s 'requiredActions=[\"UPDATE_PASSWORD\"]'"
+        self.role.kcadm(update_password)
+
+        return self
+
     def get(self) -> dict[str, list[str]]:
         """
         Get Keycloak user details.
