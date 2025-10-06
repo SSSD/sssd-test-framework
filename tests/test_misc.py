@@ -8,6 +8,7 @@ import time
 import pytest
 
 from sssd_test_framework.misc import (
+    attrs_ad_parse,
     attrs_include_value,
     attrs_parse,
     attrs_to_hash,
@@ -442,3 +443,29 @@ def test_get_attr(get_attr_sample_data, key, expected, check_membership):
     if check_membership:
         values = value if isinstance(value, list) else [value]
         assert check_membership in values
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            """
+            DistinguishedName : CN=user1,CN=Users,DC=ad,DC=test
+            Enabled           : True
+            GivenName         : John
+            Name              : user1
+            SamAccountName    : user1
+            """,
+            {
+                "DistinguishedName": ["CN=user1,CN=Users,DC=ad,DC=test"],
+                "Enabled": ["True"],
+                "GivenName": ["John"],
+                "Name": ["user1"],
+                "SamAccountName": ["user1"],
+            },
+        ),
+    ],
+)
+def test_attrs_ad_parse(value, expected):
+    value = textwrap.dedent(value).strip()
+    assert attrs_ad_parse(value) == expected
