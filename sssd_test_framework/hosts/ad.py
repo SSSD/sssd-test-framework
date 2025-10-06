@@ -307,6 +307,12 @@ class ADHost(BaseDomainHost):
                 }}
             }}
 
+            # Clean up certificate directories
+            if (Test-Path "C:\pki") {{
+                Write-Host "Cleaning up certificate directories in C:\pki"
+                Remove-Item "C:\pki" -Recurse -Force -ErrorAction SilentlyContinue
+            }}
+
             # If we got here, make sure we exit with 0
             Exit 0
             """,
