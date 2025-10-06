@@ -31,6 +31,7 @@ __all__ = [
     "GenericGPO",
     "GenericDNSServer",
     "GenericDNSZone",
+    "GenericCertificateAuthority",
 ]
 
 
@@ -342,6 +343,36 @@ class GenericProvider(ABC, MultihostRole[BaseHost]):
                         'keys': [str(key3)]
                     },
                 }
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def ca(self) -> GenericCertificateAuthority:
+        """
+        Certificate Authority management.
+
+        Provides certificate operations across different providers.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopologyGroup.AnyProvider)
+            def test_certificate_operations(client: Client, provider: GenericProvider):
+                # Request certificate (parameters vary by provider)
+                cert, key, csr = provider.ca.request(...)
+
+                # Revoke certificate
+                provider.ca.revoke(cert, reason="key_compromise")
+
+                # Place certificate on hold
+                provider.ca.revoke_hold(cert)
+
+                # Remove hold
+                provider.ca.revoke_hold_remove(cert)
+
+                # Get certificate details
+                cert_details = provider.ca.get(cert)
         """
         pass
 
@@ -1535,5 +1566,71 @@ class GenericDNSZone(GenericDNSServer):
 
         :return: Printed file as text.
         :rtype: str
+        """
+        pass
+
+
+class GenericCertificateAuthority(ABC):
+    """
+    Generic Certificate Authority management.
+
+    Provides a unified interface for certificate operations across different providers
+    (IPA, AD, etc.).
+    """
+
+    @abstractmethod
+    def request(self, *args, **kwargs) -> tuple[str, str, str]:
+        """
+        Request a certificate from the CA.
+
+        Returns a tuple of (certificate_path, key_path, csr_path).
+        The specific parameters depend on the provider implementation.
+
+        :returns: A tuple of (certificate_path, key_path, csr_path).
+        :rtype: tuple[str, str, str]
+        """
+        pass
+
+    @abstractmethod
+    def revoke(self, cert_path: str, reason: str = "unspecified") -> None:
+        """
+        Revoke a certificate.
+
+        :param cert_path: Path to the certificate file.
+        :type cert_path: str
+        :param reason: Reason for revocation.
+        :type reason: str
+        """
+        pass
+
+    @abstractmethod
+    def revoke_hold(self, cert_path: str) -> None:
+        """
+        Place a certificate on hold.
+
+        :param cert_path: Path to the certificate file.
+        :type cert_path: str
+        """
+        pass
+
+    @abstractmethod
+    def revoke_hold_remove(self, cert_path: str) -> None:
+        """
+        Remove hold from a certificate.
+
+        :param cert_path: Path to the certificate file.
+        :type cert_path: str
+        """
+        pass
+
+    @abstractmethod
+    def get(self, cert_path: str) -> dict[str, list[str]]:
+        """
+        Retrieve certificate details.
+
+        :param cert_path: Path to the certificate file.
+        :type cert_path: str
+        :returns: A dictionary of certificate attributes.
+        :rtype: dict[str, list[str]]
         """
         pass
