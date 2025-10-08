@@ -40,21 +40,39 @@ class RealmUtils(MultihostUtility[MultihostHost]):
 
         return self.host.conn.exec(["realm", "discover", domain, *args])
 
-    def leave(self, domain, args: list[str] | None = None) -> ProcessResult:
+    def leave(
+        self,
+        domain: str = "",
+        *,
+        args: list[str] | None = None,
+        password: str,
+        user: str,
+        krb: bool = False,
+    ) -> ProcessResult:
         """
         Deconfigure and remove a client from realm.
 
-        :param domain: domain, defaults to None
-        :type domain: str, optional
-        :param args: Additional arguments, defaults to None
+        :param domain: domain to leave.
+        :type domain: str,
+        :param args: Additional arguments, defaults to None.
         :type args: list[str] | None, optional
+        :param password: Password to run the operation.
+        :type password: str
+        :param user: Authenticating user.
+        :type user: str
+        :param krb: Enable kerberos authentication, defaults to False.
+        :type krb: bool
         """
         if args is None:
             args = []
-        if domain is None:
-            domain = ""
 
-        return self.host.conn.exec(["realm", "leave", "--verbose", domain, *args])
+        if krb:
+            self.host.conn.exec(["kinit", user], input=password)
+            result = self.host.conn.exec(["realm", "leave", "--verbose", *args, domain])
+        else:
+            result = self.host.conn.exec(["realm", "leave", "--verbose", *args, "-U", user, domain], input=password)
+
+        return result
 
     def join(
         self,
