@@ -7,6 +7,8 @@ from pytest_mh.cli import CLIBuilder, CLIBuilderArgs
 from pytest_mh.conn import ProcessResult
 from pytest_mh.utils.fs import LinuxFileSystem
 
+from ..misc.globals import test_venv_bin
+
 __all__ = [
     "SSSCTLUtils",
 ]
@@ -103,7 +105,73 @@ class SSSCTLUtils(MultihostUtility[MultihostHost]):
 
         self.host.conn.exec(["sssctl", "cache-expire"] + self.cli.args(args))
 
-    def passkey_register(
+    def passkey_register(self, *args, **kwargs) -> str:
+        """wrapper for passkey_register methods"""
+        if "virt_type" in kwargs and kwargs["virt_type"] == "vfido":
+            del kwargs["virt_type"]
+            return self.vfido_passkey_register(*args, **kwargs)
+        else:
+            return self.umockdev_passkey_register(*args, **kwargs)
+
+    def vfido_passkey_register(
+        self,
+        username: str,
+        domain: str,
+        *,
+        pin: str | int | None = None,
+    ) -> str:
+        """
+        Register user passkey when using virtual-fido
+        """
+
+        if pin is None:
+            pin = "empty"
+
+        result = self.host.conn.expect(
+            f"""
+            set pin "{pin}"
+            set timeout 60
+
+            spawn sssctl passkey-register --username {username} --domain {domain}
+            set ID_reg $spawn_id
+
+            if {{ ($pin ne "empty") }} {{
+                expect {{
+                    -i $ID_reg -re "Enter PIN:*" {{}}
+                    -i $ID_reg timeout {{puts "expect result: Unexpected output"; exit 201}}
+                    -i $ID_reg eof {{puts "expect result: Unexpected end of file"; exit 202}}
+                }}
+
+                puts "Entering PIN\n"
+                send -i $ID_reg "{pin}\r"
+            }}
+
+            expect {{
+                -i $ID_reg -re "Please touch the device.*" {{}}
+                -i $ID_reg timeout {{puts "expect result: Unexpected output"; exit 203}}
+                -i $ID_reg eof {{puts "expect result: Unexpected end of file"; exit 204}}
+            }}
+
+            puts "Touching device"
+            sleep 1
+            spawn {test_venv_bin}/vfido_touch
+            set ID_touch $spawn_id
+
+            expect {{
+                -i $ID_reg -re "passkey:.*,.*" {{}}
+                -i $ID_reg timeout {{puts "expect result: Unexpected output"; exit 205}}
+                -i $ID_reg eof {{puts "expect result: Unexpected end of file"; exit 206}}
+            }}
+
+            expect -i $ID_reg eof
+            expect -i $ID_touch eof
+            """,
+            raise_on_error=True,
+        )
+
+        return result.stdout_lines[-2].strip()
+
+    def umockdev_passkey_register(
         self,
         username: str,
         domain: str,
