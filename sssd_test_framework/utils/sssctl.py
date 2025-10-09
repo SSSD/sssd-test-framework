@@ -285,3 +285,128 @@ class SSSCTLUtils(MultihostUtility[MultihostHost]):
         return self.host.conn.exec(
             ["sssctl", "analyze"] + self.cli.args(args) + ["request"] + command.split(), raise_on_error=False
         )
+
+    def logs_remove(self) -> ProcessResult:
+        """
+        Call ``sssctl logs-remove``
+
+        :return: Result of called command
+        :rtype: ProcessResult
+        """
+        return self.host.conn.exec(["sssctl", "logs-remove"], raise_on_error=False)
+
+    def logs_fetch(self, output_file: str) -> ProcessResult:
+        """
+        Call ``sssctl logs-fetch``
+
+        :param output_file: Path where to save the log archive
+        :type output_file: str
+        :return: Result of called command
+        :rtype: ProcessResult
+        """
+        return self.host.conn.exec(["sssctl", "logs-fetch", output_file], raise_on_error=False)
+
+    def debug_level(
+        self,
+        level: str | None = None,
+        *,
+        set: bool = False,
+        domain: str | None = None,
+        nss: bool = False,
+        pam: bool = False,
+        sudo: bool = False,
+        autofs: bool = False,
+        ssh: bool = False,
+        pac: bool = False,
+        ifp: bool = False,
+        secrets: bool = False,
+        kcm: bool = False,
+        all: bool = False,
+    ) -> ProcessResult:
+        """
+        Call ``sssctl debug-level`` with specific targets
+
+        :param level: Debug level to set (e.g., "9", "0x3ff0")
+        :type level: str | None
+        :param set: Set debug level (use with level parameter), defaults to False
+        :type set: bool, optional
+        :param domain: Apply to specific domain, defaults to None
+        :type domain: str | None, optional
+        :param nss: Apply to NSS responder, defaults to False
+        :type nss: bool, optional
+        :param pam: Apply to PAM responder, defaults to False
+        :type pam: bool, optional
+        :param sudo: Apply to SUDO responder, defaults to False
+        :type sudo: bool, optional
+        :param autofs: Apply to AUTOFS responder, defaults to False
+        :type autofs: bool, optional
+        :param ssh: Apply to SSH responder, defaults to False
+        :type ssh: bool, optional
+        :param pac: Apply to PAC responder, defaults to False
+        :type pac: bool, optional
+        :param ifp: Apply to InfoPipe responder, defaults to False
+        :type ifp: bool, optional
+        :param secrets: Apply to SECRETS service, defaults to False
+        :type secrets: bool, optional
+        :param kcm: Apply to KCM service, defaults to False
+        :type kcm: bool, optional
+        :param all: Apply to all services, defaults to False
+        :type all: bool, optional
+        :return: Result of called command
+        :rtype: ProcessResult
+        """
+        args: CLIBuilderArgs = {
+            "set": (self.cli.option.SWITCH, set),
+            "domain": (self.cli.option.VALUE, domain),
+            "nss": (self.cli.option.SWITCH, nss),
+            "pam": (self.cli.option.SWITCH, pam),
+            "sudo": (self.cli.option.SWITCH, sudo),
+            "autofs": (self.cli.option.SWITCH, autofs),
+            "ssh": (self.cli.option.SWITCH, ssh),
+            "pac": (self.cli.option.SWITCH, pac),
+            "ifp": (self.cli.option.SWITCH, ifp),
+            "secrets": (self.cli.option.SWITCH, secrets),
+            "kcm": (self.cli.option.SWITCH, kcm),
+            "all": (self.cli.option.SWITCH, all),
+            "level": (self.cli.option.POSITIONAL, level),
+        }
+
+        return self.host.conn.exec(["sssctl", "debug-level"] + self.cli.args(args), raise_on_error=False)
+
+    def group_show(self, group: str | None = None, gid: int | None = None, sid: str | None = None) -> ProcessResult:
+        """
+        Information about cached group
+
+        :param group: Group that will be showed, defaults to None
+        :type group: str | None, optional
+        :param gid: Search by group ID, defaults to None
+        :type gid: int | None, optional
+        :param sid: Search by SID, defaults to None
+        :type sid: str | None
+        :return: Result of called command
+        :rtype: ProcessResult
+        """
+        param_count = sum(1 for x in [group, gid, sid] if x is not None)
+
+        if param_count == 0:
+            raise ValueError("At least one of group, gid, or sid must be provided")
+        elif param_count > 1:
+            raise ValueError("Only one of group, gid, or sid should be provided")
+
+        if group is not None:
+            return self.host.conn.exec(["sssctl", "group-show", group], raise_on_error=False)
+        elif gid is not None:
+            return self.host.conn.exec(["sssctl", "group-show", "-g", str(gid)], raise_on_error=False)
+        else:
+            return self.host.conn.exec(["sssctl", "group-show", "-s", sid], raise_on_error=False)
+
+    def netgroup_show(self, netgroup: str) -> ProcessResult:
+        """
+        Information about cached netgroup
+
+        :param netgroup: Netgroup that will be showed
+        :type netgroup: str
+        :return: Result of called command
+        :rtype: ProcessResult
+        """
+        return self.host.conn.exec(["sssctl", "netgroup-show", netgroup], raise_on_error=False)
