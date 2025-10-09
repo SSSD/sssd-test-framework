@@ -17,6 +17,7 @@ from ..utils.smartcard import SmartCardUtils
 from ..utils.sss_override import SSSOverrideUtils
 from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
+from ..utils.vfido import Vfido
 from .base import BaseLinuxRole
 
 __all__ = [
@@ -102,6 +103,11 @@ class Client(BaseLinuxRole[ClientHost]):
         self.gdm: GDM = GDM(self.host)
         """
         Managing GDM interface from SCAutolib
+        """
+
+        self.vfido: Vfido = Vfido(self.host)
+        """
+        Managing virtual passkey device and service
         """
 
     def setup(self) -> None:

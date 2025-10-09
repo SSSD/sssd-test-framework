@@ -11,6 +11,7 @@ from pytest_mh.conn import Connection, ProcessResult
 from pytest_mh.utils.fs import LinuxFileSystem
 
 from ..misc.errors import ExpectScriptError
+from ..misc.globals import test_venv_bin
 from .idp import IdpAuthenticationUtils
 
 __all__ = [
@@ -412,8 +413,28 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
 
     def passkey_with_output(
         self,
-        username: str,
+        **kwargs,
+    ) -> tuple[int, int, str, str]:
+        """wrapper for passkey_with_output methods"""
+        if "virt_type" in kwargs and kwargs["virt_type"] == "vfido":
+            return self.vfido_passkey_with_output(**kwargs)
+        else:
+            return self.umockdev_passkey_with_output(**kwargs)
+
+    def passkey(
+        self,
+        **kwargs,
+    ) -> bool:
+        """wrapper for passkey methods"""
+        if "virt_type" in kwargs and kwargs["virt_type"] == "vfido":
+            return self.vfido_passkey(**kwargs)
+        else:
+            return self.umockdev_passkey(**kwargs)
+
+    def umockdev_passkey_with_output(
+        self,
         *,
+        username: str,
         device: str,
         ioctl: str,
         script: str,
@@ -604,10 +625,10 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
 
         return result.rc, cmdrc, stdout, result.stderr
 
-    def passkey(
+    def umockdev_passkey(
         self,
-        username: str,
         *,
+        username: str,
         device: str,
         ioctl: str,
         script: str,
@@ -634,9 +655,193 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
         :return: True if authentication was successful, False otherwise.
         :rtype: bool
         """
-        rc, _, _, _ = self.passkey_with_output(
+        rc, _, _, _ = self.umockdev_passkey_with_output(
             username=username, pin=pin, device=device, ioctl=ioctl, script=script, command=command
         )
+        return rc == 0
+
+    def vfido_passkey_with_output(
+        self,
+        *,
+        username: str,
+        pin: str | int | None,
+        interactive_prompt: str = "Insert your passkey device, then press ENTER.",
+        touch_prompt: str = "Please touch the device.",
+        command: str = "exit 0",
+        auth_method: PasskeyAuthenticationUseCases = PasskeyAuthenticationUseCases.PASSKEY_PIN,
+    ) -> tuple[int, int, str, str]:
+        """
+        Call ``su - $username`` and authenticate the user with vfido passkey
+
+        :param username: Username
+        :type username: str
+        :param pin: Passkey PIN, defaults to None
+        :type pin: str | int | None
+        :param interactive_prompt: Interactive prompt, defaults to "Insert your passkey device, then press ENTER."
+        :type interactive_prompt: str
+        :param touch_prompt: Touch prompt, defaults to "Please touch the device."
+        :type touch_prompt: str
+        :param command: Command executed after user is authenticated, defaults to "exit 0"
+        :type command: str
+        :param auth_method: Authentication method, defaults to PasskeyAuthenticationUseCases.PASSKEY_PIN
+        :type auth_method: PasskeyAuthenticationUseCases
+        :return: Tuple containing [return code, command code, stdout, stderr].
+        :rtype: Tuple[int, int, str, str]
+        """
+
+        match auth_method:
+            case PasskeyAuthenticationUseCases.PASSKEY_PIN | PasskeyAuthenticationUseCases.PASSKEY_PIN_AND_PROMPTS:
+                if pin is None:
+                    raise ValueError(f"PIN is required for {str(auth_method)}")
+            case (
+                PasskeyAuthenticationUseCases.PASSKEY_PROMPTS_NO_PIN
+                | PasskeyAuthenticationUseCases.PASSKEY_FALLBACK_TO_PASSWORD
+                | PasskeyAuthenticationUseCases.PASSKEY_NO_PIN_NO_PROMPTS
+            ):
+                if pin is not None:
+                    raise ValueError(f"PIN is not required for {str(auth_method)}")
+
+        run_su = self.fs.mktmp(
+            rf"""
+                #!/bin/bash
+                set -ex
+                su --shell /bin/sh nobody -c "su - '{username}' -c '{command}'"
+                """,
+            mode="a=rx",
+        )
+
+        result = self.host.conn.expect(
+            rf"""
+            # Disable debug output
+            # exp_internal 0
+
+            proc exitmsg {{ msg code }} {{
+                # Close spawned program, if we are in the prompt
+                catch close
+
+                # Wait for the exit code
+                lassign [wait] pid spawnid os_error_flag rc
+
+                puts ""
+                puts "expect result: $msg"
+                puts "expect exit code: $code"
+                puts "expect spawn exit code: $rc"
+                exit $code
+            }}
+
+            # It takes some time to get authentication failure
+            set timeout {DEFAULT_AUTHENTICATION_TIMEOUT}
+            set prompt "\n.*\[#\$>\] $"
+            set command "{command}"
+            set auth_method "{auth_method}"
+
+            spawn "{run_su}"
+            set ID_su $spawn_id
+
+            # If the authentication method set without entering the PIN, it will directly ask
+            # prompt, if we set prompting options in sssd.conf it will ask interactive and touch prompt.
+
+            if {{ ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_NO_PIN_NO_PROMPTS}")
+                || ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_PROMPTS_NO_PIN}") }}  {{
+                expect {{
+                    -i $ID_su -re "{interactive_prompt}*" {{ send -i $ID_su "\n" }}
+                    -i $ID_su timeout {{exitmsg "Unexpected output" 201 }}
+                    -i $ID_su eof {{exitmsg "Unexpected end of file" 202 }}
+                }}
+                # If prompt options are set
+                if {{ ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_PROMPTS_NO_PIN}") }} {{
+                    expect {{
+                        -i $ID_su -re "{touch_prompt}*" {{ }}
+                        -i $ID_su timeout {{exitmsg "Unexpected output" 203 }}
+                        -i $ID_su eof {{exitmsg "Unexpected end of file" 204 }}
+                    }}
+                }}
+            }}
+
+            # If authentication method set with PIN, after interactive prompt always ask to Enter the PIN.
+            # If PIN is correct with prompt options in sssd.conf it will ask interactive and touch prompt.
+            # If we press Enter key for PIN, sssd will fallback to next auth method, here it will ask
+            # for Password.
+
+            if {{ ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_PIN}")
+                || ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_PIN_AND_PROMPTS}")
+                || ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_FALLBACK_TO_PASSWORD}")}} {{
+                expect {{
+                    -i $ID_su -re "{interactive_prompt}*" {{ send -i $ID_su "\n" }}
+                    -i $ID_su timeout {{exitmsg "Unexpected output" 205 }}
+                    -i $ID_su eof {{exitmsg "Unexpected end of file" 206 }}
+                }}
+                expect {{
+                    -i $ID_su -re "Enter PIN:*" {{send -i $ID_su "{pin}\r"}}
+                    -i $ID_su timeout {{exitmsg "Unexpected output" 207}}
+                    -i $ID_su eof {{exitmsg "Unexpected end of file" 208}}
+                }}
+                if {{ ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_FALLBACK_TO_PASSWORD}") }} {{
+                    expect {{
+                        -i $ID_su -re "Password:*" {{send -i $ID_su "Secret123\r"}}
+                        -i $ID_su timeout {{exitmsg "Unexpected output" 209}}
+                        -i $ID_su eof {{exitmsg "Unexpected end of file" 210}}
+                    }}
+                }}
+                if {{ ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_PIN_AND_PROMPTS}") }} {{
+                    expect {{
+                        -i $ID_su -re "{touch_prompt}*" {{ }}
+                        -i $ID_su timeout {{exitmsg "Unexpected output" 211 }}
+                        -i $ID_su eof {{exitmsg "Unexpected end of file" 212 }}
+                    }}
+                }}
+            }}
+
+            # Now simulate touch on vfido device
+            spawn {test_venv_bin}/vfido_touch
+            set ID_touch $spawn_id
+
+            expect {{
+                -i $ID_su -re "Authentication failure" {{exitmsg "Authentication failure" 1}}
+                -i $ID_su eof {{exitmsg "Passkey authentication successful" 0}}
+                -i $ID_su timeout {{exitmsg "Unexpected output" 213}}
+            }}
+
+            expect -i $ID_touch eof
+
+            exitmsg "Unexpected code path" 220
+            """,
+            verbose=False,
+        )
+
+        if result.rc > 200:
+            raise ExpectScriptError(result.rc)
+
+        expect_data = result.stdout_lines[-3:]
+
+        # Get command exit code.
+        cmdrc = int(expect_data[2].split(":")[1].strip())
+
+        # Alter stdout, first line is spawned command, the last three are our expect output.
+        stdout = "\n".join(result.stdout_lines[1:-3])
+
+        return result.rc, cmdrc, stdout, result.stderr
+
+    def vfido_passkey(
+        self,
+        *,
+        username: str,
+        pin: str | int | None = None,
+        command: str = "exit 0",
+    ) -> bool:
+        """
+        Call ``su - $username`` and authenticate the user with passkey.
+
+        :param username: Username
+        :type username: str
+        :param pin: Passkey PIN.
+        :type pin: str | int | None
+        :param command: Command executed after user is authenticated, defaults to "exit 0"
+        :type command: str
+        :return: True if authentication was successful, False otherwise.
+        :rtype: bool
+        """
+        rc, _, _, _ = self.vfido_passkey_with_output(username=username, pin=pin, command=command)
         return rc == 0
 
 
