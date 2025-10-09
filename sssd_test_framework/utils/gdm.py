@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 
 from pytest_mh import MultihostHost, MultihostUtility
 
+from ..utils.authentication import PasskeyAuthenticationUseCases
+
 if TYPE_CHECKING:
     from ..roles.client import Client
 
