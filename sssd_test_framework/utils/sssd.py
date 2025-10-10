@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
     from ..roles.base import BaseRole
     from ..roles.kdc import KDC
+    from ..roles.ldap import LDAP
     from .authselect import AuthselectUtils
 
 
@@ -952,6 +953,16 @@ class SSSDCommonConfiguration(object):
         """
         self.sssd.authselect.select("sssd", ["with-mkhomedir"])
         self.sssd.svc.start("oddjobd.service")
+
+    def resolver(self, ldap: LDAP) -> None:
+        """
+        Configure SSSD with resolver provider
+        """
+        self.sssd.domain["resolver_provider"] = "ldap"
+        self.sssd.domain["ldap_iphost_search_base"] = f"ou=hosts,{ldap.naming_context}"
+        self.sssd.domain["ldap_ipnetwork_search_base"] = f"ou=networks,{ldap.naming_context}"
+        self.sssd.nss["memcache_timeout"] = "0"
+        self.sssd.nss["entry_negative_timeout"] = "1"
 
     def proxy(
         self,
