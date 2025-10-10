@@ -30,6 +30,40 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
        kerberos based authentication.
     """
 
+    def _exec_adcli(
+        self,
+        subcommand: str,
+        positional_args: list[str],
+        *,
+        domain: str,
+        password: str,  # Required
+        login_user: str,  # Required
+        krb: bool,
+        args: list[str] | None = None,
+    ) -> ProcessResult:
+        """Helper to execute adcli commands with common authentication logic."""
+        if args is None:
+            args = []
+        base_cmd = ["adcli", subcommand]
+        if krb:
+            # Bug: Missing newline for kinit input
+            self.host.conn.exec(["kinit", f"{login_user}@{domain.upper()}"], input=password)
+            command_args = [*base_cmd, f"--domain={domain}", "-C", *args, *positional_args]
+            # Hardcoded raise_on_error=False
+            return self.host.conn.exec(command_args, raise_on_error=False)
+        else:
+            command_args = [
+                *base_cmd,
+                "--stdin-password",
+                f"--domain={domain}",
+                *args,
+                "-U",
+                login_user,
+                *positional_args,
+            ]
+            # Hardcoded raise_on_error=False
+            return self.host.conn.exec(command_args, input=password, raise_on_error=False)
+
     def info(self, *, domain: str, args: list[str] | None = None) -> ProcessResult:
         """
         Discover AD domain.
@@ -97,15 +131,15 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
         if args is None:
             args = []
 
-        if krb:
-            self.host.conn.exec(["kinit", f"{login_user}@{domain.upper()}"], input=password)
-            command = self.host.conn.exec(["adcli", "join", "-C", *args, domain], raise_on_error=False)
-        else:
-            command = self.host.conn.exec(
-                ["adcli", "join", "--stdin-password", f"--login-user={login_user}", *args, domain],
-                input=password,
-                raise_on_error=False,
-            )
+        command = self._exec_adcli(
+            subcommand="join",
+            positional_args=[],
+            domain=domain,
+            password=password,
+            login_user=login_user,
+            krb=krb,
+            args=args,
+        )
 
         return command
 
@@ -137,31 +171,15 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
         if args is None:
             args = []
 
-        if krb:
-            self.host.conn.exec(["kinit", f"{login_user}@{domain.upper()}"], input=password)
-            command = self.host.conn.exec(
-                [
-                    "adcli",
-                    "delete-computer",
-                    "-C",
-                    f"--domain={domain}",
-                    *args,
-                ],
-                raise_on_error=False,
-            )
-        else:
-            command = self.host.conn.exec(
-                [
-                    "adcli",
-                    "delete-computer",
-                    "--stdin-password",
-                    f"--domain={domain}",
-                    *args,
-                ],
-                input=password,
-                raise_on_error=False,
-            )
-
+        command = self._exec_adcli(
+            subcommand="delete-computer",
+            positional_args=[],
+            domain=domain,
+            password=password,
+            login_user=login_user,
+            krb=krb,
+            args=args,
+        )
         return command
 
     def show_computer(
@@ -192,25 +210,16 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
         if args is None:
             args = []
 
-        if krb:
-            self.host.conn.exec(["kinit", f"{login_user}@{domain.upper()}"], input=password)
-            command = self.host.conn.exec(
-                ["adcli", "show-computer", f"--domain={domain}", "-C", *args], raise_on_error=False
-            )
-        else:
-            command = self.host.conn.exec(
-                [
-                    "adcli",
-                    "show-computer",
-                    "--stdin-password",
-                    "-U",
-                    login_user,
-                    f"--domain={domain}",
-                    *args,
-                ],
-                input=password,
-                raise_on_error=False,
-            )
+        command = self._exec_adcli(
+            subcommand="show-computer",
+            positional_args=[],
+            domain=domain,
+            password=password,
+            login_user=login_user,
+            krb=krb,
+            args=args,
+        )
+
         return command
 
     def preset_computer(
@@ -241,25 +250,15 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
         if args is None:
             args = []
 
-        if krb:
-            self.host.conn.exec(["kinit", f"{login_user}@{domain.upper()}"], input=password)
-            command = self.host.conn.exec(
-                ["adcli", "preset-computer", f"--domain={domain}", "-C", *args], raise_on_error=False
-            )
-        else:
-            command = self.host.conn.exec(
-                [
-                    "adcli",
-                    "preset-computer",
-                    "--stdin-password",
-                    "-U",
-                    login_user,
-                    f"--domain={domain}",
-                    *args,
-                ],
-                input=password,
-                raise_on_error=False,
-            )
+        command = self._exec_adcli(
+            subcommand="preset-computer",
+            positional_args=[],
+            domain=domain,
+            password=password,
+            login_user=login_user,
+            krb=krb,
+            args=args,
+        )
         return command
 
     def reset_computer(
@@ -290,23 +289,363 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
         if args is None:
             args = []
 
-        if krb:
-            self.host.conn.exec(["kinit", f"{login_user}@{domain.upper()}"], input=password)
-            command = self.host.conn.exec(
-                ["adcli", "reset-computer", f"--domain={domain}", "-C", *args], raise_on_error=False
-            )
-        else:
-            command = self.host.conn.exec(
-                [
-                    "adcli",
-                    "reset-computer",
-                    "--stdin-password",
-                    "-U",
-                    login_user,
-                    f"--domain={domain}",
-                    *args,
-                ],
-                input=password,
-                raise_on_error=False,
-            )
+        command = self._exec_adcli(
+            subcommand="reset-computer",
+            positional_args=[],
+            domain=domain,
+            password=password,
+            login_user=login_user,
+            krb=krb,
+            args=args,
+        )
         return command
+
+    def create_user(
+        self,
+        user,
+        *,
+        domain: str,
+        password: str,
+        args: list[str] | None = None,
+        login_user: str,
+        krb: bool = False,
+    ) -> ProcessResult:
+        """
+        Create user.
+
+        :param domain: Domain.
+        :type domain: str
+        :param user: User.
+        :type user: str
+        :param args: additional arguments, defaults to None
+        :type args: list[str] | None, optional
+        :param password: Password.
+        :type password: str
+        :param login_user: Authenticating User.
+        :type login_user: str
+        :param krb: Use Kerberos credentials, defaults to False
+        :type krb: bool, optional
+        :return: Result of called command.
+        :rtype: ProcessResult
+        """
+        if args is None:
+            args = []
+
+        command = self._exec_adcli(
+            subcommand="create-user",
+            positional_args=[user],
+            domain=domain,
+            password=password,
+            login_user=login_user,
+            krb=krb,
+            args=args,
+        )
+        return command
+
+    def delete_user(
+        self,
+        user,
+        *,
+        domain: str,
+        password: str,
+        args: list[str] | None = None,
+        login_user: str,
+        krb: bool = False,
+    ) -> ProcessResult:
+        """
+        Delete user.
+
+        :param domain: Domain.
+        :type domain: str
+        :param user: User.
+        :type user: str
+        :param args: additional arguments, defaults to None
+        :type args: list[str] | None, optional
+        :param password: Password.
+        :type password: str
+        :param login_user: Authenticating User.
+        :type login_user: str
+        :param krb: Use Kerberos credentials, defaults to False
+        :type krb: bool, optional
+        :return: Result of called command.
+        :rtype: ProcessResult
+        """
+        if args is None:
+            args = []
+
+        command = self._exec_adcli(
+            subcommand="delete-user",
+            positional_args=[user],
+            domain=domain,
+            password=password,
+            login_user=login_user,
+            krb=krb,
+            args=args,
+        )
+        return command
+
+    def delete_group(
+        self,
+        group,
+        *,
+        domain: str,
+        password: str,
+        args: list[str] | None = None,
+        login_user: str,
+        krb: bool = False,
+    ) -> ProcessResult:
+        """
+        Delete group.
+
+        :param domain: Domain.
+        :type domain: str
+        :param group: Group.
+        :type group: str
+        :param args: additional arguments, defaults to None
+        :type args: list[str] | None, optional
+        :param password: Password.
+        :type password: str
+        :param login_user: Authenticating User.
+        :type login_user: str
+        :param krb: Use Kerberos credentials, defaults to False
+        :type krb: bool, optional
+        :return: Result of called command.
+        :rtype: ProcessResult
+        """
+        if args is None:
+            args = []
+
+        command = self._exec_adcli(
+            subcommand="delete-group",
+            positional_args=[group],
+            domain=domain,
+            password=password,
+            login_user=login_user,
+            krb=krb,
+            args=args,
+        )
+        return command
+
+    def create_group(
+        self,
+        group,
+        *,
+        domain: str,
+        password: str,
+        args: list[str] | None = None,
+        login_user: str,
+        krb: bool = False,
+    ) -> ProcessResult:
+        """
+        Create group.
+
+        :param domain: Domain.
+        :type domain: str
+        :param group: Group.
+        :type group: str
+        :param args: additional arguments, defaults to None
+        :type args: list[str] | None, optional
+        :param password: Password.
+        :type password: str
+        :param login_user: Authenticating User.
+        :type login_user: str
+        :param krb: Use Kerberos credentials, defaults to False
+        :type krb: bool, optional
+        :return: Result of called command.
+        :rtype: ProcessResult
+        """
+        if args is None:
+            args = []
+
+        command = self._exec_adcli(
+            subcommand="create-group",
+            positional_args=[group],
+            domain=domain,
+            password=password,
+            login_user=login_user,
+            krb=krb,
+            args=args,
+        )
+
+        return command
+
+    def add_member(
+        self,
+        group,
+        member,
+        *,
+        domain: str,
+        password: str,
+        args: list[str] | None = None,
+        login_user: str,
+        krb: bool = False,
+    ) -> ProcessResult:
+        """
+        Add member.
+
+        :param domain: Domain.
+        :type domain: str
+        :param group: Group.
+        :type group: str
+        :param member: member, user or computer.
+        :type member: str
+        :param args: additional arguments, defaults to None
+        :type args: list[str] | None, optional
+        :param password: Password.
+        :type password: str
+        :param login_user: Authenticating User.
+        :type login_user: str
+        :param krb: Use Kerberos credentials, defaults to False
+        :type krb: bool, optional
+        :return: Result of called command.
+        :rtype: ProcessResult
+        """
+        if args is None:
+            args = []
+
+        command = self._exec_adcli(
+            subcommand="add-member",
+            positional_args=[group, member],
+            domain=domain,
+            password=password,
+            login_user=login_user,
+            krb=krb,
+            args=args,
+        )
+
+        return command
+
+    def remove_member(
+        self,
+        group,
+        member,
+        *,
+        domain: str,
+        password: str,
+        args: list[str] | None = None,
+        login_user: str,
+        krb: bool = False,
+    ) -> ProcessResult:
+        """
+        Remove member.
+
+        :param domain: Domain.
+        :type domain: str
+        :param group: Group.
+        :type group: str
+        :param member: member, user or computer.
+        :type member: str
+        :param args: additional arguments, defaults to None
+        :type args: list[str] | None, optional
+        :param password: Password.
+        :type password: str
+        :param login_user: Authenticating User.
+        :type login_user: str
+        :param krb: Use Kerberos credentials, defaults to False
+        :type krb: bool, optional
+        :return: Result of called command.
+        :rtype: ProcessResult
+        """
+        if args is None:
+            args = []
+
+        command = self._exec_adcli(
+            subcommand="remove-member",
+            positional_args=[group, member],
+            domain=domain,
+            password=password,
+            login_user=login_user,
+            krb=krb,
+            args=args,
+        )
+
+        return command
+
+    def create_msa(
+        self,
+        *,
+        domain: str,
+        password: str,
+        args: list[str] | None = None,
+        login_user: str,
+        krb: bool = False,
+    ) -> ProcessResult:
+        """
+        Create Managed Service Account.
+
+        :param domain: Domain.
+        :type domain: str
+        :param args: Additional arguments, defaults to None
+        :type args: list[str] | None, optional
+        :param password: Password.
+        :type password: str
+        :param login_user: Authenticating User.
+        :type login_user: str
+        :param krb: Kerberos credentials, defaults to False
+        :type krb: bool, optional
+        :return: Result of called command.
+        :rtype: ProcessResult
+        """
+        if args is None:
+            args = []
+
+        command = self._exec_adcli(
+            subcommand="create-msa",
+            positional_args=[],
+            domain=domain,
+            password=password,
+            login_user=login_user,
+            krb=krb,
+            args=args,
+        )
+
+        return command
+
+    def passwd_user(
+        self,
+        *,
+        user: str,
+        new_password: str,
+        domain: str,
+        login_user: str,
+        password: str,
+        args: list[str] | None = None,
+    ) -> bool:
+        """
+        (Re)Set Password.
+
+        :param user: User.
+        :type user: str
+        :param new_password: New password.
+        :type new_password: str
+        :param domain: Domain.
+        :type domain: str
+        :param login_user: Authenticating User.
+        :type login_user: str
+        :param password: Password of Authenticating user.
+        :type password: str
+        :param args: Additional arguments, defaults to None.
+        :type args: list[str] | None, optional
+        :return: True on success, False otherwise
+        :rtype: bool
+        """
+
+        if args is None:
+            args = []
+
+        # The command needs to be interactive, so we use an expect script
+        command_str = f"adcli passwd-user {user} --domain={domain} {' '.join(args)}"
+
+        # Use password authentication for the admin user
+        command_str += f" -U {login_user}"
+        expect_script = f"""
+            spawn {command_str}
+            expect "Password for {login_user}@{domain.upper()}:"
+            send -- "{password}\\r"
+            expect "Password for {user}:"
+            send -- "{new_password}\\r"
+            expect eof
+        """
+
+        result = self.host.conn.expect(expect_script, raise_on_error=True)
+        return result.rc == 0
