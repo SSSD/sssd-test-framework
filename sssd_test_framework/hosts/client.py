@@ -53,6 +53,7 @@ class ClientHost(BaseHost, BaseLinuxHost):
             [ -f "/usr/libexec/sssd/passkey_child" ] && echo "passkey" || :
             [ -f "/usr/bin/sss_ssh_knownhosts" ] && echo "knownhosts" || :
             [ -f "/usr/lib64/sssd/libsss_idp.so" ] && echo "idp-provider" || :
+            [ -f /opt/test_venv/bin/scauto ] && /opt/test_venv/bin/scauto gui done 2> /dev/null && echo "gdm" || :
             systemctl cat sssd.service | grep -q "If service configured to be run under" && echo "non-privileged" || :
             strings /usr/lib64/sssd/libsss_ldap_common.so | grep ldap_use_ppolicy && echo "ldap_use_ppolicy" || :
             # enumerate (bool) Feature is only supported for domains with id_provider = ldap or id_provider = proxy.
@@ -71,6 +72,7 @@ class ClientHost(BaseHost, BaseLinuxHost):
             "knownhosts": False,
             "limited_enumeration": False,
             "idp-provider": False,
+            "gdm": False,
         }
 
         self._features.update({k: True for k in result.stdout_lines})
