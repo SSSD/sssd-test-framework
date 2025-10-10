@@ -310,3 +310,409 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
                 raise_on_error=False,
             )
         return command
+
+    def create_user(
+        self,
+        user,
+        *,
+        domain: str,
+        password: str,
+        args: list[str] | None = None,
+        login_user: str,
+        krb: bool = False,
+    ) -> ProcessResult:
+        """
+        Create user.
+
+        :param domain: Domain.
+        :type domain: str
+        :param user: Username to create.
+        :type user: str
+        :param args: additional arguments, defaults to None
+        :type args: list[str] | None, optional
+        :param password: Password
+        :type password: str
+        :param login_user: Authenticating User
+        :type login_user: str
+        :param krb: Use Kerberos credentials, defaults to False
+        :type krb: bool, optional
+        :return: Result of called command.
+        :rtype: ProcessResult
+        """
+        if args is None:
+            args = []
+        if krb:
+            self.host.conn.exec(["kinit", f"{login_user}@{domain.upper()}"], input=password)
+            command = self.host.conn.exec(
+                ["adcli", "create-user", f"--domain={domain}", "-C", *args], raise_on_error=False
+            )
+        else:
+            command = self.host.conn.exec(
+                [
+                    "adcli",
+                    "create-user",
+                    user,
+                    "--stdin-password",
+                    f"--domain={domain}",
+                    *args,
+                    "-U",
+                    login_user,
+                ],
+                input=password,
+                raise_on_error=False,
+            )
+        return command
+
+    def delete_user(
+        self,
+        user,
+        *,
+        domain: str,
+        password: str,
+        args: list[str] | None = None,
+        login_user: str,
+        krb: bool = False,
+    ) -> ProcessResult:
+        """
+        Delete user.
+
+        :param domain: Domain.
+        :type domain: str
+        :param user: Username.
+        :type user: str
+        :param args: additional arguments, defaults to None
+        :type args: list[str] | None, optional
+        :param password: Password
+        :type password: str
+        :param login_user: Authenticating User
+        :type login_user: str
+        :param krb: Use Kerberos credentials, defaults to False
+        :type krb: bool, optional
+        :return: Result of called command.
+        :rtype: ProcessResult
+        """
+        if args is None:
+            args = []
+        if krb:
+            self.host.conn.exec(["kinit", f"{login_user}@{domain.upper()}"], input=password)
+            command = self.host.conn.exec(
+                ["adcli", "delete-user", f"--domain={domain}", "-C", *args], raise_on_error=False
+            )
+        else:
+            command = self.host.conn.exec(
+                [
+                    "adcli",
+                    "delete-user",
+                    user,
+                    "--stdin-password",
+                    f"--domain={domain}",
+                    *args,
+                    "-U",
+                    login_user,
+                ],
+                input=password,
+                raise_on_error=False,
+            )
+        return command
+
+    def create_group(
+        self,
+        group,
+        *,
+        domain: str,
+        password: str,
+        args: list[str] | None = None,
+        login_user: str,
+        krb: bool = False,
+    ) -> ProcessResult:
+        """
+        Create group.
+
+        :param domain: Domain.
+        :type domain: str
+        :param group: Group.
+        :type group: str
+        :param args: additional arguments, defaults to None
+        :type args: list[str] | None, optional
+        :param password: Password
+        :type password: str
+        :param login_user: Authenticating User
+        :type login_user: str
+        :param krb: Use Kerberos credentials, defaults to False
+        :type krb: bool, optional
+        :return: Result of called command.
+        :rtype: ProcessResult
+        """
+        if args is None:
+            args = []
+        if krb:
+            self.host.conn.exec(["kinit", f"{login_user}@{domain.upper()}"], input=password)
+            command = self.host.conn.exec(
+                ["adcli", "create-group", f"--domain={domain}", "-C", *args], raise_on_error=False
+            )
+        else:
+            command = self.host.conn.exec(
+                [
+                    "adcli",
+                    "create-group",
+                    group,
+                    "--stdin-password",
+                    f"--domain={domain}",
+                    *args,
+                    "-U",
+                    login_user,
+                ],
+                input=password,
+                raise_on_error=False,
+            )
+        return command
+
+    def delete_group(
+        self,
+        group,
+        *,
+        domain: str,
+        password: str,
+        args: list[str] | None = None,
+        login_user: str,
+        krb: bool = False,
+    ) -> ProcessResult:
+        """
+        Delete group.
+
+        :param domain: Domain.
+        :type domain: str
+        :param group: Group.
+        :type group: str
+        :param args: additional arguments, defaults to None
+        :type args: list[str] | None, optional
+        :param password: Password
+        :type password: str
+        :param login_user: Authenticating User
+        :type login_user: str
+        :param krb: Use Kerberos credentials, defaults to False
+        :type krb: bool, optional
+        :return: Result of called command.
+        :rtype: ProcessResult
+        """
+        if args is None:
+            args = []
+        if krb:
+            self.host.conn.exec(["kinit", f"{login_user}@{domain.upper()}"], input=password)
+            command = self.host.conn.exec(
+                ["adcli", "delete-group", f"--domain={domain}", "-C", *args], raise_on_error=False
+            )
+        else:
+            command = self.host.conn.exec(
+                [
+                    "adcli",
+                    "delete-group",
+                    group,
+                    "--stdin-password",
+                    f"--domain={domain}",
+                    *args,
+                    "-U",
+                    login_user,
+                ],
+                input=password,
+                raise_on_error=False,
+            )
+        return command
+
+    def add_member(
+        self,
+        group,
+        member,
+        *,
+        domain: str,
+        password: str,
+        args: list[str] | None = None,
+        login_user: str,
+        krb: bool = False,
+    ) -> ProcessResult:
+        """
+        Add member.
+
+        :param domain: Domain.
+        :type domain: str
+        :param group: Group.
+        :type group: str
+        :param group: Member, user or computer.
+        :type group: str
+        :param args: additional arguments, defaults to None
+        :type args: list[str] | None, optional
+        :param password: Password
+        :type password: str
+        :param login_user: Authenticating User
+        :type login_user: str
+        :param krb: Use Kerberos credentials, defaults to False
+        :type krb: bool, optional
+        :return: Result of called command.
+        :rtype: ProcessResult
+        """
+        if args is None:
+            args = []
+        if krb:
+            self.host.conn.exec(["kinit", f"{login_user}@{domain.upper()}"], input=password)
+            command = self.host.conn.exec(
+                ["adcli", "add-member", f"--domain={domain}", "-C", group, member, *args], raise_on_error=False
+            )
+        else:
+            command = self.host.conn.exec(
+                [
+                    "adcli",
+                    "add-member",
+                    "--stdin-password",
+                    f"--domain={domain}",
+                    "-U",
+                    login_user,
+                    *args,
+                    group,
+                    member,
+                ],
+                input=password,
+                raise_on_error=False,
+            )
+        return command
+
+    def remove_member(
+        self,
+        group,
+        member,
+        *,
+        domain: str,
+        password: str,
+        args: list[str] | None = None,
+        login_user: str,
+        krb: bool = False,
+    ) -> ProcessResult:
+        """
+        Remove member.
+
+        :param domain: Domain.
+        :type domain: str
+        :param group: Group.
+        :type group: str
+        :param group: Member, user or computer.
+        :type group: str
+        :param args: additional arguments, defaults to None
+        :type args: list[str] | None, optional
+        :param password: Password
+        :type password: str
+        :param login_user: Authenticating User
+        :type login_user: str
+        :param krb: Use Kerberos credentials, defaults to False
+        :type krb: bool, optional
+        :return: Result of called command.
+        :rtype: ProcessResult
+        """
+        if args is None:
+            args = []
+        if krb:
+            self.host.conn.exec(["kinit", f"{login_user}@{domain.upper()}"], input=password)
+            command = self.host.conn.exec(
+                ["adcli", "remove-member", f"--domain={domain}", "-C", group, member, *args], raise_on_error=False
+            )
+        else:
+            command = self.host.conn.exec(
+                [
+                    "adcli",
+                    "remove-member",
+                    "--stdin-password",
+                    f"--domain={domain}",
+                    "-U",
+                    login_user,
+                    *args,
+                    group,
+                    member,
+                ],
+                input=password,
+                raise_on_error=False,
+            )
+        return command
+
+    def create_msa(
+        self,
+        *,
+        domain: str,
+        password: str,
+        args: list[str] | None = None,
+        login_user: str,
+        krb: bool = False,
+    ) -> ProcessResult:
+        """
+        Create MSA.
+
+        :param domain: Domain.
+        :type domain: str
+        :param args: additional arguments, defaults to None
+        :type args: list[str] | None, optional
+        :param password: Password
+        :type password: str
+        :param login_user: Authenticating User
+        :type login_user: str
+        :param krb: Use Kerberos credentials, defaults to False
+        :type krb: bool, optional
+        :return: Result of called command.
+        :rtype: ProcessResult
+        """
+        if args is None:
+            args = []
+        if krb:
+            self.host.conn.exec(["kinit", f"{login_user}@{domain.upper()}"], input=password)
+            command = self.host.conn.exec(
+                ["adcli", "create-msa", f"--domain={domain}", "-C", *args], raise_on_error=False
+            )
+        else:
+            command = self.host.conn.exec(
+                [
+                    "adcli",
+                    "create-msa",
+                    "--stdin-password",
+                    f"--domain={domain}",
+                    "-U",
+                    login_user,
+                    *args,
+                ],
+                input=password,
+                raise_on_error=False,
+            )
+        return command
+
+    def update(
+        self,
+        *,
+        domain: str,
+        login_user: str,
+        password: str,
+        args: list[str] | None = None,
+        krb: bool = False,
+    ) -> ProcessResult:
+        """
+        Update a computer account in a domain.
+
+        :param domain: Domain.
+        :type domain: str
+        :param login_user: Login user for authentication.
+        :type login_user: str
+        :param password: Password for authentication.
+        :type password: str
+        :param args: Additional arguments, defaults to None
+        :type args: list[str] | None, optional
+        :param krb: Enable Kerberos authentication, defaults to False
+        :type krb: bool, optional
+        :return: Result of called command.
+        :rtype: ProcessResult
+        """
+        if args is None:
+            args = []
+        if krb:
+            self.host.conn.exec(["kinit", login_user], input=f"{password}\n")
+            command = self.host.conn.exec(["adcli", "update", domain, *args], raise_on_error=False)
+        else:
+            command = self.host.conn.exec(
+                ["adcli", "update", domain, "--login-user", login_user, *args],
+                input=f"{password}\n",
+                raise_on_error=False,
+            )
+        return command
