@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Sequence
 
 import jc
 from pytest_mh import MultihostHost, MultihostUtility
@@ -512,6 +512,236 @@ class NetgroupEntry(object):
         return cls.FromDict({"name": result[0], "members": members})
 
 
+class HostsEntry(object):
+    """
+    Result of ``getent hosts``
+
+    .. code-block:: python
+        :caption: Example usage
+
+            ldap.hosts("host0").add(ip_address="192.168.1.1", aliases=[])
+            client.sssd.common.resolver(ldap)
+            client.sssd.start()
+
+            result = client.tools.getent.hosts("host0", service="sss")
+            if result is not None:
+                assert "host0" == result.name, f"Host 'host0' was not found!"
+                assert "192.168.1.1"  in result.ip, f"IP addresses '192.168.1.1' was not found!"
+    """
+
+    def __init__(self, name: str | None, ip: list[str] | None, aliases: list[str] | None) -> None:
+
+        self.name: str | None = name
+        """Hostname."""
+
+        self.ip: list[str] | None = ip
+        """IP address."""
+
+        self.aliases: list[str] | None = aliases
+        """Host aliases."""
+
+    def __str__(self) -> str:
+        return f"({self.ip}: {self.name}, {self.aliases})"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+    @classmethod
+    def FromDict(cls, d: dict[str, Any]) -> HostsEntry:
+        if isinstance(d, dict):
+            ip = d.get("ip", None)
+            name = d.get("name", None)
+            aliases = d.get("aliases", None)
+
+            if name is not None and not isinstance(name, str):
+                raise ValueError("name is not an instance of str")
+
+            if ip is not None and not isinstance(ip, list):
+                raise ValueError("ip is not an instance of  list")
+
+            if aliases is not None and not isinstance(aliases, list):
+                raise ValueError("aliases is not an instance of  list")
+
+        return cls(name=name, ip=ip, aliases=aliases)
+
+    @classmethod
+    def FromList(cls, d: list[dict[str, Any]]) -> HostsEntry:
+        name: str | None = None
+        ip: list[str] = []
+        aliases: list[str] = []
+
+        for i in d:
+            if isinstance(i, dict):
+                ip_value = i.get("ip")
+                if isinstance(ip_value, str) and ip_value:
+                    ip.append(ip_value)
+                elif isinstance(ip_value, list):
+                    ip.extend([v for v in ip_value if isinstance(v, str)])
+
+                hostname = i.get("hostname")
+                if isinstance(hostname, list) and hostname:
+                    if name is None and isinstance(hostname[0], str):
+                        name = hostname[0]
+                    if len(hostname) > 1:
+                        for host in hostname[1:]:
+                            if isinstance(host, str) and host not in aliases:
+                                aliases.append(host)
+
+        return cls.FromDict({"name": name, "ip": ip if ip else None, "aliases": aliases if aliases else None})
+
+    @classmethod
+    def FromOutput(cls, stdout: str) -> HostsEntry:
+        result = jc.parse("hosts", stdout)
+
+        if not isinstance(result, list):
+            raise TypeError(f"Unexpected type: {type(result)}, expecting list")
+
+        if not result:
+            raise ValueError("No hosts data found in output")
+
+        return cls.FromList(result)
+
+
+class NetworksEntry(object):
+    """
+    Result of ``getent networks``
+
+    If networks does not exist or does not have any supplementary networks then ``self.networks`` is empty.
+
+    .. code-block:: python
+        :caption: Example usage
+
+            ldap.networks("net0").add(ip_address ="192.168.1.1", aliases = [])
+            client.sssd.common.resolver(ldap)
+            client.sssd.start()
+
+            result = client.tools.getent.networks("net0", service="sss")
+            if result is not None:
+                assert "net0"  in  result.name, f"Network 'net0' was not found!"
+    """
+
+    def __init__(self, name: str | None | None, ip: str | None, aliases: Sequence[str] | None) -> None:
+
+        self.name: str | None = name
+        """Network name. """
+
+        self.ip: str | None = ip
+        """Exact network name which ``network`` was called."""
+
+        self.aliases: Sequence[str] | None = aliases
+        """Network aliases."""
+
+    def __str__(self) -> str:
+        return f"({self.ip}: {self.name} {self.aliases})"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+    @classmethod
+    def FromDict(cls, d: dict[str, Sequence[str]]) -> NetworksEntry:
+        if isinstance(d, dict):
+            ip = d.get("ip", None)
+            name = d.get("name", None)
+            aliases = d.get("aliases", None)
+
+            if ip is not None and not isinstance(ip, str):
+                raise ValueError("ip is not an instance of  str")
+
+            if name is not None and not isinstance(name, str):
+                raise ValueError("hostname is not an instance of str")
+
+        return cls(ip=ip, name=name, aliases=aliases)
+
+    @classmethod
+    def FromOutput(cls, stdout: str) -> NetworksEntry:
+        parts = [part for part in stdout.split() if part]
+        if len(parts) < 2:
+            raise ValueError(f"Two few values {len(parts)}: {parts}")
+
+        aliases = []
+        if len(parts) > 2:
+            for host in parts[2:]:
+                if isinstance(host, str) and host not in aliases:
+                    aliases.append(host)
+        result = {"name": parts[0].strip(), "ip": parts[1].strip(), "aliases": aliases}
+
+        return cls.FromDict(result)
+
+
+class ServicesEntry(object):
+    """
+    Result of ``getent services``
+
+    If services does not exist or does not have any supplementary services then ``self.services`` is empty.
+
+    .. code-block:: python
+        :caption: Example usage
+
+            ldap.services("service0").add(port=12345, protocol="tcp", aliases = [])
+            client.sssd.common.resolver(ldap)
+            client.sssd.start()
+
+            result = client.tools.getent.services("service0", service="sss")
+            if result is not None:
+                assert "service0" == result.name, f"Service 'service0' was not found!"
+    """
+
+    def __init__(self, name: str | None, protocol: str | None = None, port: int | None = None) -> None:
+
+        self.name: str | None = name
+        """Service name. """
+
+        self.protocol: str | None = protocol
+        """Protocol."""
+
+        self.port: int | None = port
+        """Port."""
+
+    def __str__(self) -> str:
+        return f"({self.name} {self.port}/{self.protocol})"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+    @classmethod
+    def FromDict(cls, d: dict[str, Any | None]) -> ServicesEntry:
+        if isinstance(d, dict):
+            name = d.get("name", None)
+            protocol = d.get("protocol", None)
+            port = d.get("port", None)
+
+            if name is not None and not isinstance(name, str):
+                raise ValueError("name is not an instance of  str")
+
+            if protocol is not None and not isinstance(protocol, str):
+                raise ValueError("protocol is not an instance of str")
+
+            if port is not None and not isinstance(port, int):
+                raise ValueError("port is not an instance of int")
+
+            return cls(name=name, protocol=protocol, port=port)
+
+    @classmethod
+    def FromOutput(cls, stdout: str) -> ServicesEntry:
+        name: str = ""
+        port: int = 0
+        protocol: str = ""
+
+        parts: list[str] = [part for part in stdout.split() if part]
+        if len(parts) < 2:
+            raise ValueError(f"Two few values {len(parts)}: {parts}")
+
+        name = parts[0].strip()
+
+        if "/" in parts[1]:
+            port = int(parts[1].split("/")[0].strip())
+            protocol = parts[1].split("/")[1].strip()
+
+        result = {"name": name, "port": port, "protocol": protocol}
+
+        return cls.FromDict(result)
+
+
 class LinuxToolsUtils(MultihostUtility[MultihostHost]):
     """
     Run various standard commands on remote host.
@@ -748,6 +978,45 @@ class GetentUtils(MultihostUtility[MultihostHost]):
         :rtype: NetgroupEntry | None
         """
         return self.__exec(NetgroupEntry, "netgroup", name, service)
+
+    def hosts(self, name: str, *, service: str | None = None) -> HostsEntry:
+        """
+        Call ``getent hosts $name``
+
+        :param name: Hostname.
+        :type name: str
+        :param service: Service used, defaults to None
+        :type service: str | None
+        :return: Hosts data, None if not found
+        :rtype: HostsEntry | None
+        """
+        return self.__exec(HostsEntry, "hosts", name, service)
+
+    def networks(self, name: str, *, service: str | None = None) -> NetworksEntry:
+        """
+        Call ``getent networks $name``
+
+        :param name: Network.
+        :type name: str
+        :param service: Service used, defaults to None
+        :type service: str | None
+        :return: Network data, None if not found
+        :rtype: NetworksEntry | None
+        """
+        return self.__exec(NetworksEntry, "networks", name, service)
+
+    def services(self, name: str, *, service: str | None = None) -> ServicesEntry:
+        """
+        Call ``getent services $name``
+
+        :param name: Service.
+        :type name: str
+        :param service: Service used, defaults to None
+        :type service: str | None
+        :return: Service data, None if not found
+        :rtype: ServicesEntry | None
+        """
+        return self.__exec(ServicesEntry, "services", name, service)
 
     def __exec(self, cls, cmd: str, name: str | int, service: str | None = None) -> Any:
         args = []
