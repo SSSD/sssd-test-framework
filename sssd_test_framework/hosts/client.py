@@ -59,6 +59,8 @@ class ClientHost(BaseHost, BaseLinuxHost):
             # enumerate (bool) Feature is only supported for domains with id_provider = ldap or id_provider = proxy.
             MANWIDTH=10000 man sssd.conf | grep -q "id_provider = ldap or id_provider = proxy" && \
             echo "limited_enumeration" || :
+            [ -f "/usr/bin/vicc" ] && echo "virtualsmartcard" || :
+            [ -f "/usr/bin/umockdev-run" ] && echo "umockdev" || :
             """,
             log_level=ProcessLogLevel.Error,
         )
@@ -73,6 +75,8 @@ class ClientHost(BaseHost, BaseLinuxHost):
             "limited_enumeration": False,
             "idp-provider": False,
             "gdm": False,
+            "virtualsmartcard": False,
+            "umockdev": False,
         }
 
         self._features.update({k: True for k in result.stdout_lines})
