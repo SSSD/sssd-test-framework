@@ -211,6 +211,29 @@ class SSSCTLUtils(MultihostUtility[MultihostHost]):
 
         return self.host.conn.exec(["sssctl", "user-show", *options])
 
+    def group_show(self, group: str | None = None, sid: str | None = None, gid: int | None = None) -> ProcessResult:
+        """
+        Information about cached group
+
+        :param group: Group that will be showed, defaults to None
+        :type group: str | None
+        :param sid: Search by SID, defaults to None
+        :type sid: str | None
+        :param gid: Search by group ID, defaults to None
+        :type gid: int | None
+        :return: Result of called command
+        :rtype: ProcessResult
+        """
+        options = []
+        if group is not None:
+            options += [group]
+        if sid is not None:
+            options += ["-s", sid]
+        if gid is not None:
+            options += ["-g", str(gid)]
+
+        return self.host.conn.exec(["sssctl", "group-show", *options])
+
     def config_check(self, config: str | None = None, snippet: str | None = None) -> ProcessResult:
         """
         Call ``sssctl config-check`` with additional arguments
