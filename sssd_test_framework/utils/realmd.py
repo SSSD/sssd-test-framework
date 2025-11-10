@@ -119,3 +119,30 @@ class RealmUtils(MultihostUtility[MultihostHost]):
             args = []
 
         return self.host.conn.exec(["realm", "list", "--verbose", *args])
+
+    def renew(
+        self,
+        domain: str,
+        *,
+        args: list[str] | None = None,
+    ) -> ProcessResult:
+        """
+        Renew host keytab
+
+        :param domain: Domain to join.
+        :type domain: str
+        :param args: Additional arguments, defaults to None
+        :type args: list[str] | None, optional
+        :param password: Password to run the operation.
+        :type password: str
+        :param user: Authenticating user.
+        :type user: str
+        :param krb: Enable kerberos authentication, defaults to False
+        :type krb: bool
+        """
+        if args is None:
+            args = []
+
+        result = self.host.conn.exec(["realm", "renew", domain, "--verbose", *args])
+
+        return result
