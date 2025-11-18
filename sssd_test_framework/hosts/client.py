@@ -57,7 +57,7 @@ class ClientHost(BaseHost, BaseLinuxHost):
             systemctl cat sssd.service | grep -q "If service configured to be run under" && echo "non-privileged" || :
             strings /usr/lib64/sssd/libsss_ldap_common.so | grep ldap_use_ppolicy && echo "ldap_use_ppolicy" || :
             # enumerate (bool) Feature is only supported for domains with id_provider = ldap or id_provider = proxy.
-            MANWIDTH=10000 man sssd.conf | grep -q "id_provider = ldap or id_provider = proxy" && \
+            MANWIDTH=10000 man sssd.conf | grep -qE "id_provider = (ldap|proxy)" && \
             echo "limited_enumeration" || :
             """,
             log_level=ProcessLogLevel.Error,
