@@ -19,6 +19,7 @@ from ..hosts.ipa import IPAHost
 from ..misc import (
     attrs_include_value,
     attrs_parse,
+    delimiter_parse,
     get_attr,
     ip_version,
     to_list,
@@ -1192,6 +1193,20 @@ class IPAUser(IPAObject):
         """
         return IDUserOverride(self)
 
+    def subid(self) -> IPASubID:
+        """
+        IPA subid management.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.IPA)
+            def test_ipa__subids_configured(ipa: IPA):
+                user = ipa.user("user1").add()
+                user.subid().generate()
+        """
+        return IPASubID(self)
+
 
 class IDUserOverride(IPAUser):
     """
@@ -1398,6 +1413,50 @@ class IDUserOverride(IPAUser):
         lines = [line.strip() for line in cmd.stdout_lines if ":" in line]
 
         return attrs_parse(lines)
+
+
+class IPASubID(IPAUser):
+    """
+    IPA sub id management.
+    """
+
+    def __init__(self, user: IPAUser) -> None:
+        """
+        :param user: IPA user object.
+        :type user: IPAUser
+        """
+        super().__init__(user.role, user.name)
+
+        self.name = user.name
+        """ Owner name."""
+
+        self.uid_start: int | None = None
+        """ SubUID range start"""
+
+        self.uid_size: int | None = None
+        """ SubUID range size."""
+
+        self.gid_start: int | None = None
+        """ SubGID range start."""
+
+        self.gid_size: int | None = None
+        """ SubGID range size."""
+
+    def generate(self) -> IPASubID:
+        """
+        Generate subordinate id.
+        """
+        self.host.conn.run(f"ipa subid-generate --owner {self.name}")
+        result = self.host.conn.run(f"ipa subid-find --owner {self.name}").stdout_lines
+        result = [item for item in result if ":" in item]
+        subids = {k.strip(): v.strip() for k, v in delimiter_parse(result).items()}
+
+        self.uid_start = int(subids["SubUID range start"]) if subids.get("SubUID range start") else None
+        self.uid_size = int(subids["SubUID range size"]) if subids.get("SubUID range size") else None
+        self.gid_start = int(subids["SubGID range start"]) if subids.get("SubGID range start") else None
+        self.gid_size = int(subids["SubGID range size"]) if subids.get("SubGID range size") else None
+
+        return self
 
 
 class IPAGroup(IPAObject):
