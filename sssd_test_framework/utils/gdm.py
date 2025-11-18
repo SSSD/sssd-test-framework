@@ -8,7 +8,6 @@ import time
 from typing import TYPE_CHECKING
 
 from pytest_mh import MultihostHost, MultihostUtility
-from pytest_mh.utils.journald import JournaldUtils
 
 if TYPE_CHECKING:
     from ..roles.client import Client
@@ -112,7 +111,7 @@ class GDM(MultihostUtility[MultihostHost]):
         retry = 0
         max_retries = 60
         while not client.journald.is_match("Opening and taking control of.*card"):
-            if retry == max_retries -1:
+            if retry == max_retries - 1:
                 raise AssertionError("Unable to see gnome-shell take control of video card")
             retry += 1
             time.sleep(1)
