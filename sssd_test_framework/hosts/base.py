@@ -314,3 +314,34 @@ class BaseLinuxHost(MultihostHost[SSSDMultihostDomain]):
         vers["update"] = int(v_match.group(5)) if v_match.group(5) else 0
         vers["release"] = v_match.group(6) if v_match.group(6) else ""
         return vers
+
+    def compare_package_version(self, other_version: dict, package: str = "sssd") -> int:
+        """
+        Compare installed package version with other version.
+
+        :param other_version: Version dictionary to compare
+          keys: major, minor, patch, prerelease, update, release
+        :param package: Package name (default: sssd)
+        :return: -1 if installed < other, 0 if equal, 1 if installed > other
+        """
+
+        def version_tuple(ver):
+            # Compose a tuple for comparable versioning, keeping prerelease (str) sortable
+            return (
+                ver.get("major", 0),
+                ver.get("minor", 0),
+                ver.get("patch", 0),
+                ver.get("prerelease", ""),
+                ver.get("update", 0),
+                ver.get("release", ""),
+            )
+
+        installed_ver = self.get_package_version(package)
+        t_installed = version_tuple(installed_ver)
+        t_other = version_tuple(other_version)
+        if t_installed < t_other:
+            return -1
+        elif t_installed > t_other:
+            return 1
+        else:
+            return 0
