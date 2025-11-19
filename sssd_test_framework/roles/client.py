@@ -10,7 +10,7 @@ from ..utils.adcli import AdcliUtils
 from ..utils.automount import AutomountUtils
 from ..utils.gdm import GDM
 from ..utils.ldb import LDBUtils
-from ..utils.local_users import LocalUsersUtils
+from ..utils.local_users import LocalGroup, LocalSudoRule, LocalUser, LocalUsersUtils
 from ..utils.realmd import RealmUtils
 from ..utils.sbus import DBUSDestination, DBUSKnownBus
 from ..utils.smartcard import SmartCardUtils
@@ -156,3 +156,37 @@ class Client(BaseLinuxRole[ClientHost]):
         :rtype: ProcessResult
         """
         return self.host.conn.exec(["sss_ssh_authorizedkeys", *args], raise_on_error=False)
+
+    def user(self, name: str) -> LocalUser:
+        """
+        Get user object.
+
+        :param name: User name.
+        :type name: str
+        :return: New user object.
+        :rtype: LocalUser
+        """
+
+        return LocalUser(self.local, name)
+
+    def group(self, name: str) -> LocalGroup:
+        """
+        Get group object.
+        :param name: Group name.
+        :type name: str
+        :return: New group object.
+        :rtype: LocalGroup
+        """
+
+        return LocalGroup(self.local, name)
+
+    def sudorule(self, name: str) -> LocalSudoRule:
+        """
+        Get sudo rule object.
+        :param name: Sudo rule name.
+        :type name: str
+        :return: New sudo rule object.
+        :rtype: LocalSudoRule
+        """
+
+        return LocalSudoRule(self.local, name)

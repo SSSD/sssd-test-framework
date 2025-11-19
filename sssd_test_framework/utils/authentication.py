@@ -1100,6 +1100,38 @@ class SudoAuthenticationUtils(MultihostUtility[MultihostHost]):
 
         return result.rc == 0
 
+    def run_advanced(
+        self, username: str, password: str | None = None, *, parameters: list[str] | None = None, command: str
+    ) -> ProcessResult:
+        """
+        Execute sudo command with parameters.
+
+        :param username: Username that calls sudo.
+        :type username: str
+        :param password: User password, defaults to None
+        :type password: str | None, optional
+        :param parameters: List of parameters to sudo.
+        :type parameters: list[str] | None
+        :param command: Command to execute (make sure to properly escape any quotes).
+        :type command: str
+        :return: Command result.
+        :rtype: ProcessResult
+        """
+        if parameters is None:
+            parameters = []
+        if password is not None:
+            parameters.append("--stdin")
+        if password is not None:
+            result = self.host.conn.run(
+                f'su - "{username}" -c "sudo {" ".join(parameters)} {command}"', input=password, raise_on_error=False
+            )
+        else:
+            result = self.host.conn.run(
+                f'su - "{username}" -c "sudo {" ".join(parameters)} {command}"', raise_on_error=False
+            )
+
+        return result
+
     def list(self, username: str, password: str | None = None, *, expected: list[str] | None = None) -> bool:
         """
         List commands that the user can run under sudo.
