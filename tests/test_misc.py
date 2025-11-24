@@ -11,6 +11,7 @@ from sssd_test_framework.misc import (
     attrs_include_value,
     attrs_parse,
     attrs_to_hash,
+    delimiter_parse,
     get_attr,
     ip_to_ptr,
     ip_version,
@@ -84,6 +85,25 @@ def test_attrs_parse__filter():
 )
 def test_attrs_parse__long_line(input, expected):
     assert attrs_parse(input) == expected
+
+
+@pytest.mark.parametrize(
+    "input,expected, delimiter",
+    [
+        (
+            ["Unique ID: 5fe04e66-da53-4ac0-94f3-fd0cd5cefd6d", "Owner: user1"],
+            {"Unique ID": "5fe04e66-da53-4ac0-94f3-fd0cd5cefd6d", "Owner": "user1"},
+            ":",
+        ),
+        (
+            ["Unique ID, 5fe04e66-da53-4ac0-94f3-fd0cd5cefd6d", "Owner, user1"],
+            {"Unique ID": "5fe04e66-da53-4ac0-94f3-fd0cd5cefd6d", "Owner": "user1"},
+            ",",
+        ),
+    ],
+)
+def test_delimiter_parse(input, expected, delimiter):
+    assert delimiter_parse(input, delimiter=delimiter) == expected
 
 
 @pytest.mark.parametrize(
