@@ -1081,3 +1081,9 @@ class SSSDCommonConfiguration(object):
         for responder in responders:
             socket_unit = f"sssd-{responder}.socket"
             self.sssd.svc.start(socket_unit)
+
+    def subid(self) -> None:
+        """
+        Configure SSSD for subid.
+        """
+        self.sssd.authselect.select("sssd", ["with-subid"])
