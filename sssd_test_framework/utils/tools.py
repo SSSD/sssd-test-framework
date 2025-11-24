@@ -742,6 +742,52 @@ class ServicesEntry(object):
         return cls.FromDict(result)
 
 
+class SubIDEntry(object):
+    """
+    Result of 'getsubids'.
+    """
+
+    def __init__(self, name: str, range_start: int, range_size: int) -> None:
+
+        self.name: str = name
+        """ User name"""
+
+        self.range_start: int = range_start
+        """ SubID range start """
+
+        self.range_size: int = range_size
+        """  SubID range size """
+
+    def __str__(self) -> str:
+        return f"owner:{self.name}, start:{self.range_start}, size:{self.range_size})"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+    @classmethod
+    def FromDict(cls, d: dict[str, Any]) -> SubIDEntry:
+        return cls(
+            name=d.get("name", ""),
+            range_start=d.get("range_start", 0),
+            range_size=d.get("range_size", 0),
+        )
+
+    @classmethod
+    def FromOutput(cls, stdout: str) -> SubIDEntry:
+        line = stdout.strip()
+        if ":" in line:
+            parts = line.split(":", 1)
+            if len(parts) == 2:
+                rest = parts[1].strip().split()
+                if len(rest) == 3:
+                    return cls(
+                        name=rest[0],
+                        range_start=int(rest[1]),
+                        range_size=int(rest[2]),
+                    )
+        return cls(name="", range_start=0, range_size=0)
+
+
 class LinuxToolsUtils(MultihostUtility[MultihostHost]):
     """
     Run various standard commands on remote host.
@@ -761,6 +807,27 @@ class LinuxToolsUtils(MultihostUtility[MultihostHost]):
 
         self.__fs: LinuxFileSystem = fs
         self.__rollback: list[str] = []
+
+    def getsubid(self, name: str, group: bool = False) -> SubIDEntry | None:
+        """
+        Call ``getsubids $name``
+
+        :param name: User name.
+        :type name: str
+        :param group: Get group range switch, optional
+        :type group: bool, defaults to False
+        :return: SubIDEntry data, None if not found
+        :type: SubIDEntry | None
+        """
+        args = ""
+        if group:
+            args = "-g"
+
+        command = self.host.conn.run(f"getsubids {args} {name}", raise_on_error=False)
+        if command.rc != 0:
+            return None
+
+        return SubIDEntry.FromOutput(command.stdout)
 
     def id(self, name: str | int) -> IdEntry | None:
         """
