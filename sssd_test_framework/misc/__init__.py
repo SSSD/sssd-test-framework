@@ -44,6 +44,26 @@ def attrs_parse(lines: list[str], attrs: list[str] | None = None) -> dict[str, l
     return out
 
 
+def delimiter_parse(lines: list[str], delimiter: str = ":") -> dict[str, str]:
+    """
+    Parse delimited lines from output.
+
+    :param lines: Output.
+    :type lines: list[str]
+    :param delimiter: Delimiter, optional
+    :type delimiter: str, defaults to :
+    :return: Dictionary with first element as the name as a key.
+    :rtype: dict[str, str]
+    """
+    out: dict[str, str] = {}
+
+    for item in lines:
+        key, value = item.split(delimiter, 1)
+        out[key.strip()] = value.strip()
+
+    return out
+
+
 def attrs_include_value(attr: Any | list[Any] | None, value: Any) -> list[Any]:
     """
     Include ``value`` to attribute list if it is not yet present.
