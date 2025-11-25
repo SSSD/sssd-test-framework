@@ -36,6 +36,13 @@ class ProvisionedBackupTopologyController(BackupTopologyController[SSSDMultihost
         super().init(*args, **kwargs)
         self.provisioned = self.name in self.multihost.provisioned_topologies
 
+    def topology_setup(self, *args, **kwargs) -> None:
+        if self.provisioned:
+            self.logger.info(f"Topology '{self.name}' is already provisioned")
+            return
+
+        super().topology_setup(*args, **kwargs)
+
     def topology_teardown(self, *args, **kwargs) -> None:
         if self.provisioned:
             return
