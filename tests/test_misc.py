@@ -15,6 +15,8 @@ from sssd_test_framework.misc import (
     get_attr,
     ip_to_ptr,
     ip_version,
+    parse_ad_object_info,
+    parse_cert_info,
     parse_ldif,
     retry,
     seconds_to_timespan,
@@ -442,3 +444,53 @@ def test_get_attr(get_attr_sample_data, key, expected, check_membership):
     if check_membership:
         values = value if isinstance(value, list) else [value]
         assert check_membership in values
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            """
+            Serial Number: 1a2b3c4d5e6f
+            Issuer: CN=Test CA, O=Test Org, C=US
+            Subject: CN=user1, O=Test Org, C=US
+            Thumbprint: a1b2c3d4e5f6
+            """,
+            {
+                "Serial Number": ["1a2b3c4d5e6f"],
+                "Issuer": ["CN=Test CA, O=Test Org, C=US"],
+                "Subject": ["CN=user1, O=Test Org, C=US"],
+                "Thumbprint": ["a1b2c3d4e5f6"],
+            },
+        ),
+    ],
+)
+def test_parse_cert_info(value, expected):
+    value = textwrap.dedent(value).strip()
+    assert parse_cert_info(value) == expected
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            """
+            DistinguishedName : CN=user1,CN=Users,DC=ad,DC=test
+            Enabled           : True
+            GivenName         : John
+            Name              : user1
+            SamAccountName    : user1
+            """,
+            {
+                "DistinguishedName": ["CN=user1,CN=Users,DC=ad,DC=test"],
+                "Enabled": ["True"],
+                "GivenName": ["John"],
+                "Name": ["user1"],
+                "SamAccountName": ["user1"],
+            },
+        ),
+    ],
+)
+def test_parse_ad_object_info(value, expected):
+    value = textwrap.dedent(value).strip()
+    assert parse_ad_object_info(value) == expected
