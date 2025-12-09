@@ -333,3 +333,29 @@ def get_attr(data: dict[str, Any], key: str, default: Any | None = None) -> Any 
             return default
         return value[0] if len(value) == 1 else value
     return value
+
+
+def parse_cert_info(output: str) -> dict[str, list[str]]:
+    """
+    Parse certutil output into dictionary.
+
+    :param output: certutil output.
+    :type output: str
+    :returns: Dictionary of certificate attributes.
+    :rtype: dict[str, list[str]]
+    """
+    lines = [line.strip() for line in (output or "").splitlines() if line.strip()]
+    return attrs_parse(lines)
+
+
+def parse_ad_object_info(output: str) -> dict[str, list[str]]:
+    """
+    Parse AD object output into dictionary.
+
+    :param output: PowerShell AD object output.
+    :type output: str
+    :returns: Dictionary of AD object attributes.
+    :rtype: dict[str, list[str]]
+    """
+    lines = [line.strip() for line in (output or "").splitlines() if line.strip()]
+    return attrs_parse(lines)
