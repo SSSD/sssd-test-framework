@@ -9,6 +9,9 @@ from typing import TYPE_CHECKING
 
 from pytest_mh import MultihostHost, MultihostUtility
 
+from ..misc import retry
+from ..misc.globals import scauto_path
+
 if TYPE_CHECKING:
     from ..roles.client import Client
 
@@ -27,7 +30,7 @@ class GDM(MultihostUtility[MultihostHost]):
         super().__init__(host)
         self.init_completed = False
 
-        self.cmd = ["/opt/test_venv/bin/scauto", "gui", "--wait-time", "1", "--no-screenshot"]
+        self.cmd = [scauto_path, "gui", "--wait-time", "1", "--no-screenshot"]
 
     def teardown(self):
         if self.init_completed:
@@ -84,6 +87,7 @@ class GDM(MultihostUtility[MultihostHost]):
             self.init()
 
         result = self.host.conn.exec([*self.cmd, "kb-write", word])
+        time.sleep(0.3)
         return result.rc == 0
 
     def kb_send(self, word: str) -> bool:
@@ -101,6 +105,7 @@ class GDM(MultihostUtility[MultihostHost]):
         result = self.host.conn.exec([*self.cmd, "kb-send", word])
         return result.rc == 0
 
+    @retry(max_retries=60, delay=1, on=AssertionError)
     def wait_for_login(self, client: Client) -> None:
         """
         Watch journald log for login message.
@@ -108,13 +113,11 @@ class GDM(MultihostUtility[MultihostHost]):
         :param client: Client role object to read log
         :type client: Client role
         """
-        retry = 0
-        max_retries = 60
-        while not client.journald.is_match("Opening and taking control of.*card"):
-            if retry == max_retries - 1:
-                raise AssertionError("Unable to see gnome-shell take control of video card")
-            retry += 1
-            time.sleep(1)
+        result = client.journald.journalctl(
+            grep="Opening and taking control of.*card", unit=None, since="5 seconds ago"
+        )
+        if result.rc != 0:
+            raise AssertionError("Unable to see gnome-shell take control of video card")
 
     def check_home_screen(self) -> bool:
         """
@@ -126,7 +129,7 @@ class GDM(MultihostUtility[MultihostHost]):
         if not self.init_completed:
             self.init()
 
-        cmd = ["/opt/test_venv/bin/scauto", "-v", "debug", "gui", "--wait-time", "5", "--no-screenshot"]
+        cmd = [scauto_path, "-v", "debug", "gui", "--wait-time", "2", "--no-screenshot"]
         result = self.host.conn.exec([*cmd, "check-home-screen"], raise_on_error=False)
         return result.rc == 0
 
@@ -163,8 +166,6 @@ class GDM(MultihostUtility[MultihostHost]):
         client.journald.clear()
 
         self.click_on("listed?")
-        self.kb_send("tab")
-        self.click_on("Username")
         self.kb_write(username)
         self.click_on("Log")
 
