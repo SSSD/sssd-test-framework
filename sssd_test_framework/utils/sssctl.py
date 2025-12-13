@@ -169,7 +169,11 @@ class SSSCTLUtils(MultihostUtility[MultihostHost]):
             raise_on_error=True,
         )
 
-        return result.stdout_lines[-2].strip()
+        self.logger.info(f"EXPECT STDOUT: {result.stdout}")
+        for line in result.stdout_lines:
+            if line.startswith("passkey:"):
+                return line.strip()
+        raise ValueError("passkey mapping entry not returned by registration")
 
     def umockdev_passkey_register(
         self,
