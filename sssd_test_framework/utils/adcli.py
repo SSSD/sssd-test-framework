@@ -36,33 +36,47 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
         positional_args: list[str],
         *,
         domain: str,
-        password: str,  # Required
-        login_user: str,  # Required
+        password: str | None = None,
+        login_user: str | None = None,
         krb: bool,
         args: list[str] | None = None,
     ) -> ProcessResult:
-        """Helper to execute adcli commands with common authentication logic."""
+        """
+        Helper to execute adcli commands with flexible authentication logic.
+
+        If login_user and password are not provided, it assumes machine-based authentication
+        (using the system keytab) regardless of the krb flag.
+        """
         if args is None:
             args = []
         base_cmd = ["adcli", subcommand]
+
+        # Machine Authentication (Host Keytab)
+        if login_user is None and password is None:
+            command_args = [*base_cmd, f"--domain={domain}", *args, *positional_args]
+            return self.host.conn.exec(command_args, raise_on_error=False)
+
+        # Validation: Enforce credentials for explicit authentication
+        if not login_user or not password:
+            raise ValueError("Both 'login_user' and 'password' are required for explicit user authentication.")
+
+        # Kerberos User Authentication
         if krb:
-            # Bug: Missing newline for kinit input
             self.host.conn.exec(["kinit", f"{login_user}@{domain.upper()}"], input=password)
             command_args = [*base_cmd, f"--domain={domain}", "-C", *args, *positional_args]
-            # Hardcoded raise_on_error=False
             return self.host.conn.exec(command_args, raise_on_error=False)
-        else:
-            command_args = [
-                *base_cmd,
-                "--stdin-password",
-                f"--domain={domain}",
-                *args,
-                "-U",
-                login_user,
-                *positional_args,
-            ]
-            # Hardcoded raise_on_error=False
-            return self.host.conn.exec(command_args, input=password, raise_on_error=False)
+
+        # Explicit User/Password Authentication (Standard Admin Task)
+        command_args = [
+            *base_cmd,
+            "--stdin-password",
+            f"--domain={domain}",
+            *args,
+            "-U",
+            login_user,
+            *positional_args,
+        ]
+        return self.host.conn.exec(command_args, input=password, raise_on_error=False)
 
     def info(self, *, domain: str, args: list[str] | None = None) -> ProcessResult:
         """
@@ -102,6 +116,49 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
             args = []
 
         return self.host.conn.exec(["adcli", "testjoin", domain, *args], raise_on_error=False)
+
+    def update(
+        self,
+        *,
+        domain: str,
+        password: str | None = None,
+        login_user: str | None = None,
+        args: list[str] | None = None,
+    ) -> ProcessResult:
+        """
+        Update a computer account's password, and other attributes.
+
+        Can be run in two modes:
+
+        1. **Machine Auth:** (Default) Call without `password` or `login_user`.
+           Uses the machine's local keytab (self-update).
+        2. **User Auth:** Call with `password` and `login_user`.
+           Uses admin credentials via Kerberos to force an update.
+
+        :param domain: Domain.
+        :type domain: str
+        :param password: Password (optional, for Admin auth).
+        :type password: str | None
+        :param login_user: Authenticating User (optional, for Admin auth).
+        :type login_user: str | None
+        :param args: Additional arguments, defaults to None
+        :type args: list[str] | None, optional
+        :return: Result of called command.
+        :rtype: ProcessResult
+        """
+        if args is None:
+            args = []
+
+        command = self._exec_adcli(
+            subcommand="update",
+            positional_args=[],
+            domain=domain,
+            password=password,
+            login_user=login_user,
+            krb=True,
+            args=args,
+        )
+        return command
 
     def join(
         self,
