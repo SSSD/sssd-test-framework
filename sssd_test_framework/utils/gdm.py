@@ -8,6 +8,7 @@ import time
 from typing import TYPE_CHECKING
 
 from pytest_mh import MultihostHost, MultihostUtility
+from ..misc.globals import scauto_path
 
 if TYPE_CHECKING:
     from ..roles.client import Client
@@ -27,7 +28,7 @@ class GDM(MultihostUtility[MultihostHost]):
         super().__init__(host)
         self.init_completed = False
 
-        self.cmd = ["/opt/test_venv/bin/scauto", "gui", "--wait-time", "1", "--no-screenshot"]
+        self.cmd = [scauto_path, "gui", "--wait-time", "1", "--no-screenshot"]
 
     def teardown(self):
         if self.init_completed:
@@ -126,7 +127,7 @@ class GDM(MultihostUtility[MultihostHost]):
         if not self.init_completed:
             self.init()
 
-        cmd = ["/opt/test_venv/bin/scauto", "-v", "debug", "gui", "--wait-time", "5", "--no-screenshot"]
+        cmd = [scauto_path, "-v", "debug", "gui", "--wait-time", "2", "--no-screenshot"]
         result = self.host.conn.exec([*cmd, "check-home-screen"], raise_on_error=False)
         return result.rc == 0
 
@@ -163,8 +164,6 @@ class GDM(MultihostUtility[MultihostHost]):
         client.journald.clear()
 
         self.click_on("listed?")
-        self.kb_send("tab")
-        self.click_on("Username")
         self.kb_write(username)
         self.click_on("Log")
 
