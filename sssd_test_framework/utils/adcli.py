@@ -103,6 +103,43 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
 
         return self.host.conn.exec(["adcli", "testjoin", domain, *args], raise_on_error=False)
 
+    def update(
+        self,
+        *,
+        domain: str,
+        args: list[str] | None = None,
+        password: str,
+        login_user: str,
+    ) -> ProcessResult:
+        """
+        Update a computer account's password, and other attributes.
+
+        :param domain: Domain.
+        :type domain: str
+        :param args: Additional arguments, defaults to None
+        :type args: list[str] | None, optional
+        :param password: Password
+        :type password: str
+        :param login_user: Authenticating User
+        :type login_user: str
+        :return: Result of called command.
+        :rtype: ProcessResult
+        """
+        if args is None:
+            args = []
+
+        command = self._exec_adcli(
+            subcommand="join",
+            positional_args=[],
+            domain=domain,
+            password=password,
+            login_user=login_user,
+            krb=True,
+            args=args,
+        )
+
+        return command
+
     def join(
         self,
         *,
