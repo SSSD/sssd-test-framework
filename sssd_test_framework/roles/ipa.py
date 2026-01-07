@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import shlex
+import time
 import uuid
 from itertools import groupby
 from textwrap import dedent
@@ -1129,46 +1130,54 @@ class IPAUser(IPAObject):
 
         client.host.conn.exec(["kinit", f"{self.host.adminuser}@{self.host.realm}"], input=self.host.adminpw)
 
-        result = client.host.conn.expect(
-            f"""
-            set pin "{pin}"
-            set timeout 60
+        def run_expect():
+            return client.host.conn.expect(
+                f"""
+                set pin "{pin}"
+                set timeout 60
+                spawn ipa user-add-passkey {self.name} --register
+                set ID_reg $spawn_id
 
-            spawn ipa user-add-passkey {self.name} --register
-            set ID_reg $spawn_id
+                if {{ ($pin ne "empty") }} {{
+                    expect {{
+                        -i $ID_reg -re "Enter PIN:*" {{}}
+                        -i $ID_reg timeout {{puts "expect result: Unexpected output"; exit 201}}
+                        -i $ID_reg eof {{puts "expect result: Unexpected end of file"; exit 202}}
+                    }}
 
-            if {{ ($pin ne "empty") }} {{
-                expect {{
-                    -i $ID_reg -re "Enter PIN:*" {{}}
-                    -i $ID_reg timeout {{puts "expect result: Unexpected output"; exit 201}}
-                    -i $ID_reg eof {{puts "expect result: Unexpected end of file"; exit 202}}
+                    puts "Entering PIN\n"
+                    send -i $ID_reg "{pin}\r"
                 }}
 
-                puts "Entering PIN\n"
-                send -i $ID_reg "{pin}\r"
-            }}
+                expect {{
+                    -i $ID_reg -re "Please touch the device.*" {{}}
+                    -i $ID_reg timeout {{puts "expect result: Unexpected output"; exit 203}}
+                    -i $ID_reg eof {{puts "expect result: Unexpected end of file"; exit 204}}
+                }}
 
-            expect {{
-                -i $ID_reg -re "Please touch the device.*" {{}}
-                -i $ID_reg timeout {{puts "expect result: Unexpected output"; exit 203}}
-                -i $ID_reg eof {{puts "expect result: Unexpected end of file"; exit 204}}
-            }}
+                puts "Touching device"
+                spawn {test_venv_bin}/vfido_touch
+                set ID_touch $spawn_id
+                expect {{
+                    -i $ID_reg -re "Added passkey mappings.*" {{}}
+                    -i $ID_reg timeout {{puts "expect result: Unexpected output"; exit 205}}
+                    -i $ID_reg eof {{puts "expect result: Unexpected end of file"; exit 206}}
+                }}
+                expect -i $ID_reg eof
+                expect -i $ID_touch eof
+                """,
+                raise_on_error=False,
+            )
 
-            puts "Touching device"
-            spawn {test_venv_bin}/vfido_touch
-            set ID_touch $spawn_id
-
-            expect {{
-                -i $ID_reg -re "Added passkey mappings.*" {{}}
-                -i $ID_reg timeout {{puts "expect result: Unexpected output"; exit 205}}
-                -i $ID_reg eof {{puts "expect result: Unexpected end of file"; exit 206}}
-            }}
-
-            expect -i $ID_reg eof
-            expect -i $ID_touch eof
-            """,
-            raise_on_error=True,
-        )
+        retry = 0
+        max_retries = 5
+        result = run_expect()
+        while result.rc != 0:
+            if retry == max_retries:
+                raise AssertionError("Unable to register passkey for IPA user")
+            result = run_expect()
+            retry += 1
+            time.sleep(1)
 
         return result.stdout_lines[-1].strip()
 
