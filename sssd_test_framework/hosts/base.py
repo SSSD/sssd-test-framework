@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import re
-from typing import Any
+from typing import Any, Generator
 
 import ldap
 from ldap.ldapobject import ReconnectLDAPObject
@@ -345,3 +346,20 @@ class BaseLinuxHost(MultihostHost[SSSDMultihostDomain]):
             return 1
         else:
             return 0
+
+    @contextlib.contextmanager
+    def selinux_permissive_for_test(self) -> Generator[None, None, None]:
+        """Temporarily set SELinux to permissive for tests."""
+        result = self.conn.run("getenforce")
+        if result.stdout.strip() != "Enforcing":
+            yield
+            return
+
+        self.conn.run("setenforce 0")
+
+        try:
+            yield
+        finally:
+            result = self.conn.run("setenforce 1", raise_on_error=False)
+            if result.rc != 0:
+                self.logger.warning("Failed to restore SELinux to enforcing mode.")
