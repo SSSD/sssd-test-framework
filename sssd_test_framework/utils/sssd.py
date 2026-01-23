@@ -107,12 +107,10 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
             return
 
         # Set default configuration
-        self.config.read_string(
-            """
+        self.config.read_string("""
             [sssd]
             services = nss, pam
-            """
-        )
+            """)
 
     def async_start(
         self,

@@ -61,13 +61,11 @@ class SSHKillableProcess(object):
         )
 
         # Get pid
-        result = self.client.run(
-            f"""
+        result = self.client.run(f"""
             until [ -f "{pidfile}" ]; do sleep 0.005; done
             cat "{pidfile}"
             rm -f "{pidfile}"
-        """
-        )
+        """)
 
         self.pid = result.stdout.strip()
         """Process id."""

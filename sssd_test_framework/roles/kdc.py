@@ -117,8 +117,7 @@ class KDC(BaseLinuxRole[KDCHost]):
         :return: Kerberos configuration.
         :rtype: str
         """
-        return textwrap.dedent(
-            f"""
+        return textwrap.dedent(f"""
             [logging]
             default = FILE:/var/log/krb5libs.log
             kdc = FILE:/var/log/krb5kdc.log
@@ -144,8 +143,7 @@ class KDC(BaseLinuxRole[KDCHost]):
             [domain_realm]
             .{self.host.domain} = {self.host.realm}
             {self.host.domain} = {self.host.realm}
-        """
-        ).lstrip()
+        """).lstrip()
 
 
 class KDCPrincipal(BaseObject[KDCHost, KDC]):
@@ -193,7 +191,7 @@ class KDCPrincipal(BaseObject[KDCHost, KDC]):
         result = self.role.kadmin(f'getprinc "{self.name}"')
         out = {}
         for line in result.stdout_lines:
-            (key, value) = line.split(":", maxsplit=1)
+            key, value = line.split(":", maxsplit=1)
             out[key] = value.strip()
 
         return out
@@ -228,7 +226,7 @@ class KDCPrincipal(BaseObject[KDCHost, KDC]):
         result = self.role.kadmin(f'getstrs "{self.name}"')
         out = {}
         for line in result.stdout_lines:
-            (key, value) = line.split(":", maxsplit=1)
+            key, value = line.split(":", maxsplit=1)
             out[key] = value.strip()
 
         return out

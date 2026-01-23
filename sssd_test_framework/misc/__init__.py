@@ -28,7 +28,7 @@ def attrs_parse(lines: list[str], attrs: list[str] | None = None) -> dict[str, l
             i += 1
             continue
 
-        (key, value) = map(lambda x: x.lstrip(), line.split(":", 1))
+        key, value = map(lambda x: x.lstrip(), line.split(":", 1))
         key = key.strip()
         while i < len(lines) - 1:
             if lines[i + 1].startswith(" "):

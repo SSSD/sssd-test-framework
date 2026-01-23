@@ -1141,12 +1141,10 @@ class ADGroup(ADObject):
         :return: Self.
         :rtype: ADGroup
         """
-        self.role.host.conn.run(
-            f"""
+        self.role.host.conn.run(f"""
             Import-Module ActiveDirectory
             Add-ADGroupMember -Identity '{self.dn}' -Members {self.__get_members(members)}
-        """
-        )
+        """)
         return self
 
     def remove_member(self, member: ADUser | ADGroup) -> ADGroup:
@@ -1169,12 +1167,10 @@ class ADGroup(ADObject):
         :return: Self.
         :rtype: ADGroup
         """
-        self.role.host.conn.run(
-            f"""
+        self.role.host.conn.run(f"""
             Import-Module ActiveDirectory
             Remove-ADGroupMember -Confirm:$False -Identity '{self.dn}' -Members {self.__get_members(members)}
-        """
-        )
+        """)
         return self
 
     def __get_members(self, members: list[ADUser | ADGroup]) -> str:
@@ -1835,12 +1831,10 @@ class GPO(BaseObject[ADHost, AD]):
         :return: Key value.
         :rtype: str
         """
-        result = self.role.host.conn.run(
-            rf"""
+        result = self.role.host.conn.run(rf"""
             $query = "(&(ObjectClass=groupPolicyContainer)(DisplayName={self.name}))"
             Get-ADObject -SearchBase "{self.search_base}" -Properties "*" -LDAPFilter $query
-            """
-        ).stdout_lines
+            """).stdout_lines
 
         i = 0
         while i < len(result):
@@ -1881,8 +1875,7 @@ class GPO(BaseObject[ADHost, AD]):
         self.cn = self.get("CN")
         self.dn = self.get("DistinguishedName")
 
-        self.role.host.conn.run(
-            rf"""
+        self.role.host.conn.run(rf"""
             Import-Module GroupPolicy, PSIni
             $path = "C:\\Windows\\SYSVOL\\domain\\Policies\\{self.cn}\\Machine\\Microsoft\\Windows NT\\SecEdit"
             $file = Join-Path $path GptTmpl.inf
@@ -1892,8 +1885,7 @@ class GPO(BaseObject[ADHost, AD]):
             Out-IniFile -InputObject $content -FilePath $file
             Test-Path -Path "$path"
             Exit 0
-            """
-        )
+            """)
         return self
 
     def link(
@@ -1970,8 +1962,7 @@ class GPO(BaseObject[ADHost, AD]):
         :rtype: GPO
         """
         if permission_level == "None" and target == "Authenticated Users":
-            self.role.host.conn.run(
-                rf"""
+            self.role.host.conn.run(rf"""
                 # Some test scenarios require making the GPO unreadable. Changing the 'Authenticated Users',
                 # 'S-1-5-11' SID permissions to 'None' accomplishes that. The confirm prompt cannot be skipped
                 # using Set-GPPermissions, for more information. https://support.microsoft.com/kb/3163622
@@ -1990,8 +1981,7 @@ class GPO(BaseObject[ADHost, AD]):
                     $authenticated_users, "ReadProperty", "Deny")
                 $gpo_adsi.psbase.get_objectSecurity().AddAccessRule($ace)
                 $gpo_adsi.psbase.CommitChanges()
-                """
-            )
+                """)
         else:
             self.role.host.conn.run(
                 f'Set-GPPermission -Guid "{self.cn}" '
@@ -2056,37 +2046,31 @@ class GPO(BaseObject[ADHost, AD]):
 
         ps_logon_rights = attrs_to_hash(_logon_rights)
 
-        self.host.conn.run(
-            rf"""
+        self.host.conn.run(rf"""
             Import-Module PSIni
             $path = "C:\\Windows\\SYSVOL\\domain\\Policies\\{self.cn}\\Machine\\Microsoft\\Windows NT\\SecEdit"
             $file = Join-Path $path GptTmpl.inf
             $policy = @{{"Privilege Rights"={ps_logon_rights}}}
             Out-IniFile -InputObject $policy -FilePath "$file"
             Exit 0
-            """
-        )
+            """)
 
         if cfg is not None:
             ps_cfg = attrs_to_hash(cfg)
-            self.host.conn.run(
-                rf"""
+            self.host.conn.run(rf"""
                 Import-Module PSIni
                 $path = "C:\\Windows\\SYSVOL\\domain\\Policies\\{self.cn}\\Machine\\Microsoft\\Windows NT\\SecEdit"
                 $file = Join-Path $path GptTmpl.inf
                 $policy = {ps_cfg}
                 Out-IniFile -InputObject $policy -FilePath "$file"
                 Exit 0
-                """
-            )
+                """)
 
-        self.host.conn.run(
-            rf"""
+        self.host.conn.run(rf"""
             $gpc = "[{{827D319E-6EAC-11D2-A4EA-00C04F79F83A}}{{803E14A0-B4FB-11D0-A0D0-00A0C90F574B}}]"
             Set-ADObject -Identity "{self.dn}" -Replace @{{gPCMachineExtensionNames=$gpc}}
             Exit 0
-            """
-        )
+            """)
 
         return self
 
