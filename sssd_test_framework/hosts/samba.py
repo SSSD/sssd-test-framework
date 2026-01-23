@@ -73,12 +73,10 @@ class SambaHost(BaseLDAPDomainHost, BaseLinuxHost):
         self.svc.start("samba.service")
 
         # systemctl finishes before Samba is really listening, we need to wait
-        self.conn.run(
-            """
+        self.conn.run("""
             timeout 60s bash -c 'until netstat -ltp 2> /dev/null | grep :ldap &> /dev/null; do :; done'
             timeout 60s bash -c 'until netstat -ltp 2> /dev/null | grep :kerberos &> /dev/null; do :; done'
-            """
-        )
+            """)
 
     def stop(self) -> None:
         self.svc.stop("samba.service")

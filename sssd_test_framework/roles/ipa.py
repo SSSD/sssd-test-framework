@@ -2035,12 +2035,12 @@ class IPASudoRule(IPAObject):
         )
 
         # Prepare data
-        (allow_commands, deny_commands, cmdcat) = self.__get_commands(command)
-        (hosts, hostcat) = self.__get_hosts(host)
-        (users, groups, usercat) = self.__get_users_and_groups(user)
+        allow_commands, deny_commands, cmdcat = self.__get_commands(command)
+        hosts, hostcat = self.__get_hosts(host)
+        users, groups, usercat = self.__get_users_and_groups(user)
         options = to_list_of_strings(option)
-        (runasuser_users, runasuser_groups, runasusercat) = self.__get_run_as_user(runasuser)
-        (runasgroup_groups, runasgroupcat) = self.__get_run_as_group(runasgroup)
+        runasuser_users, runasuser_groups, runasusercat = self.__get_run_as_user(runasuser)
+        runasgroup_groups, runasgroupcat = self.__get_run_as_group(runasgroup)
 
         if nopasswd is True:
             options = attrs_include_value(options, "!authenticate")
@@ -2216,7 +2216,7 @@ class IPASudoRule(IPAObject):
     def __get_run_as_user(
         self, value: str | IPAUser | IPAGroup | list[str | IPAUser | IPAGroup] | None
     ) -> tuple[list[str], list[str], str]:
-        (users, groups, category) = self.__get_users_and_groups(value)
+        users, groups, category = self.__get_users_and_groups(value)
         if category:
             category = "--runasusercat=all"
 

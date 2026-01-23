@@ -1463,7 +1463,7 @@ class KerberosAuthenticationUtils(MultihostUtility[MultihostHost]):
 
             ccaches: dict[str, str] = dict()
             for line in result.stdout_lines[2:]:
-                (principal, ccache) = line.split(maxsplit=2)
+                principal, ccache = line.split(maxsplit=2)
                 ccaches[principal] = ccache
 
             return ccaches
@@ -1487,7 +1487,7 @@ class KerberosAuthenticationUtils(MultihostUtility[MultihostHost]):
         result = self.klist()
         for line in result.stdout_lines:
             if tgt in line:
-                (sdate, stime, edate, etime, principal) = line.split(maxsplit=5)
+                sdate, stime, edate, etime, principal = line.split(maxsplit=5)
 
                 start = None
                 end = None
@@ -1556,8 +1556,7 @@ class PasswdUtils(MultihostUtility[MultihostHost]):
         if retyped is None:
             retyped = new_password
 
-        result = self.host.conn.expect(
-            rf"""
+        result = self.host.conn.expect(rf"""
             set timeout {DEFAULT_AUTHENTICATION_TIMEOUT}
             set prompt "\n.*\[#\$>\] $"
 
@@ -1592,8 +1591,7 @@ class PasswdUtils(MultihostUtility[MultihostHost]):
 
             puts "expect result: Unexpected code path"
             exit 203
-            """
-        )
+            """)
 
         if result.rc > 200:
             raise ExpectScriptError(result.rc)

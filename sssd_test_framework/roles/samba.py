@@ -583,7 +583,7 @@ class SambaObject(BaseObject):
                 attrlist=attrs,
             )
 
-            (_, result_attrs) = result[0]
+            _, result_attrs = result[0]
             out: list[str] = []
             for key, values in result_attrs.items():
                 for value in values:

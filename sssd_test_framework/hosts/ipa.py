@@ -106,15 +106,13 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
         """
         Truncate existing IPA logs before each test to avoid need for restart.
         """
-        self.conn.run(
-            """
+        self.conn.run("""
             set -ex
             truncate --size 0 /var/log/dirsrv/*/*
             truncate --size 0 /var/log/httpd/*
             truncate --size 0 /var/log/ipa/*
             truncate --size 0 /var/log/krb5kdc.log
-            """
-        )
+            """)
 
     def kinit(self) -> None:
         """

@@ -675,7 +675,7 @@ class LDAPObject(BaseObject[HostType, LDAPRoleType]):
         if len(result) != 1:
             raise ValueError(f"Multiple objects returned on base search for {self.dn}")
 
-        (_, result_attrs) = result[0]
+        _, result_attrs = result[0]
         out: dict[str, list[str]] = {}
         for key, values in result_attrs.items():
             out[key] = []
