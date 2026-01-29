@@ -47,6 +47,11 @@ class KDCHost(BaseDomainHost, BaseLinuxHost):
 
         self.client["auth_provider"] = "krb5"
 
+        # Set default krb5 options if not provided in config
+        self.client.setdefault("krb5_realm", self.realm)
+        self.client.setdefault("krb5_server", self.hostname)
+        self.client.setdefault("krb5_kpasswd", self.hostname)
+
     def start(self) -> None:
         self.svc.start("krb5kdc.service")
 
