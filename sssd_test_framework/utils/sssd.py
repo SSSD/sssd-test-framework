@@ -868,6 +868,26 @@ class SSSDCommonConfiguration(object):
         )
         self.sssd.default_domain = "local"
 
+    def krb_provider(self, backend: KDC | GenericProvider) -> None:
+        """
+        Set auth_provider to krb5 and populate krb5 options.
+
+        This method sets ``auth_provider=krb5`` and configures
+        ``krb5_realm``, ``krb5_server``, and ``krb5_kpasswd`` based on
+        the provided backend (KDC, IPA, or AD).
+
+        :param backend: Backend role object (KDC, IPA, or AD).
+        :type backend: KDC | GenericProvider
+        """
+        host = backend.host
+        if not isinstance(host, BaseDomainHost):
+            raise TypeError(f"Expected BaseDomainHost, got {type(host)}")
+
+        host.client.setdefault("auth_provider", "krb5")
+        host.client.setdefault("krb5_realm", host.realm)
+        host.client.setdefault("krb5_server", host.hostname)
+        host.client.setdefault("krb5_kpasswd", host.hostname)
+
     def krb5_auth(self, kdc: KDC, domain: str | None = None) -> None:
         """
         Configure auth_provider to krb5, using the KDC from the multihost
@@ -888,6 +908,7 @@ class SSSDCommonConfiguration(object):
         if domain is None:
             raise ValueError("No domain specified!")
 
+        self.krb_provider(kdc)
         self.sssd.merge_domain(domain, kdc)
         self.sssd.fs.write("/etc/krb5.conf", kdc.config(), user="root", group="root", mode="0644")
 
