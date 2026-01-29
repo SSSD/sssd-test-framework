@@ -951,6 +951,23 @@ class SSSDCommonConfiguration(object):
         self.sssd.authselect.select("sssd", ["with-mkhomedir"])
         self.sssd.svc.start("oddjobd.service")
 
+    def dyndns(self, provider: GenericProvider, hostname: str) -> None:
+        """
+        Configure SSSD for dynamic DNS.
+
+        #. Configures necessary values for testing dynamic dns
+
+        :param provider: GenericProvider object.
+        :type provider: GenericProvider
+        :param hostname: Hostname.
+        :type hostname: str
+        """
+        self.sssd.domain[f"{provider.name}_hostname"] = hostname
+        self.sssd.domain["dyndns_update"] = "True"
+        self.sssd.domain["dyndns_refresh_interval_offset"] = "1"
+        self.sssd.domain["dyndns_refresh_interval"] = "1"
+        self.sssd.domain["dyndns_server"] = provider.server
+
     def proxy(
         self,
         proxy: Literal["files", "ldap"] = "files",
