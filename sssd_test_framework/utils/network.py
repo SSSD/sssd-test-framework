@@ -136,17 +136,17 @@ class NetworkUtils(MultihostUtility[MultihostHost]):
 
         return None if not records else records[0]
 
-    def nslookup(self, args: list[str]) -> ProcessResult:
+    def nslookup(self, args: list[str]) -> int:
         """
         Execute nslookup command with given arguments.
 
         :param args: Arguments to ``nslookup``, defaults to None
         :type args: list[str]
-        :return: SSH Process result
-        :rtype: ProcessResult
+        :return: Return code
+        :rtype: int
         """
 
-        return self.host.conn.exec(["nslookup", *args], raise_on_error=False)
+        return self.host.conn.exec(["nslookup", *args], raise_on_error=False).rc
 
     def teardown(self):
         """
