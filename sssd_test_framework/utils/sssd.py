@@ -972,6 +972,78 @@ class SSSDCommonConfiguration(object):
         self.sssd.authselect.select("sssd", ["with-mkhomedir"])
         self.sssd.svc.start("oddjobd.service")
 
+    def ldap_provider(
+        self,
+        server: str,
+        naming_context: str,
+        bind_user_dn: str,
+        bind_password: str,
+        subids: bool = False,
+        cacert: str = "/etc/ipa/ca.crt",
+        tls_reqcert: str = "demand",
+        ssl: bool = False,
+        config: dict[str, str] | None = None,
+    ) -> None:
+        """
+        Configure SSSD to use the ldap_provider to connect to IPA or AD.
+        This is an alternate configuration and should rarely be used. LDAP
+        provider test cases should cover these scenarios.
+
+        :param server: LDAP server.
+        :type server: str
+        :param naming_context: Naming context
+        :type naming_context: str
+        :param bind_user_dn: Bind user distinguished name.
+        :type bind_user_dn: str
+        :param bind_password: Bind password.
+        :type bind_password: str
+        :param subids: Enable subids, optional
+        :type subids: bool
+        :param cacert: CA certificate, defaults to'/etc/ipa/ca.crt'
+        :type cacert: str
+        :param tls_reqcert: Force TLS, defaults to 'demand'
+        :type tls_reqcert: str
+        :param ssl: Enable SSL, defaults to 'False'
+        :type ssl: bool
+        :param config: Additional configuration, optional
+        :type config: dict[str, str] | None
+        """
+        self.sssd.domain.clear()
+        self.sssd.domain.update(
+            id_provider="ldap",
+            auth_provider="ldap",
+            ldap_uri=f"ldap://{server}",
+            ldap_search_base=f"cn=accounts,{naming_context.strip()}",
+            ldap_tls_reqcert=tls_reqcert,
+            ldap_tls_cacert=cacert,
+            ldap_default_bind_dn=bind_user_dn,
+            ldap_default_authtok_type="password",
+            ldap_default_authtok=bind_password,
+        )
+
+        if ssl:
+            self.sssd.domain.update(
+                ldap_uri=f"ldaps://{server}",
+                ldap_id_use_start_tls="False",
+            )
+
+        if subids:
+            self.sssd.domain.update(
+                ldap_subid_ranges_search_base=f"cn=subids,cn=accounts,{naming_context.strip()}",
+                ldap_subuid_object_class="ipasubordinateidentry",
+                ldap_subuid_count="ipaSubUidCount",
+                ldap_subgid_count="ipaSubGidCount",
+                ldap_subuid_number="ipaSubUidNumber",
+                ldap_subgid_number="ipaSubGidNumber",
+                ldap_subid_range_owner="ipaOwner",
+            )
+
+        if config is not None and isinstance(config, dict):
+            for key, value in config.items():
+                self.sssd.domain[key] = value
+
+        self.sssd.config_apply()
+
     def proxy(
         self,
         proxy: Literal["files", "ldap"] = "files",
