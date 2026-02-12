@@ -9,6 +9,7 @@ from pytest_mh import MultihostHost, MultihostUtility
 from pytest_mh.conn import ProcessResult
 from pytest_mh.utils.fs import LinuxFileSystem
 
+from ..misc import ip_is_valid
 from ..misc.ssh import SSHKillableProcess
 
 __all__ = ["NetworkUtils", "IPUtils"]
@@ -39,6 +40,25 @@ class NetworkUtils(MultihostUtility[MultihostHost]):
         self.__ips.append(inst)
 
         return inst
+
+    def hostname(self, name: str | None = None, short: bool = False) -> str | None:
+        """
+        Run hostname command.
+
+        :param name: Hostname.
+        :type name: str | None = None
+        :param short: Get short hostname, defaults to False
+        :type short: bool = False
+        """
+        if isinstance(name, str):
+            self.__rollback.append(f"hostname {self.host.conn.run('hostname').stdout.strip()}")
+            self.host.conn.run(f"hostname {name}")
+            return None
+        else:
+            if short:
+                return self.host.conn.run("hostname -s").stdout.strip()
+            else:
+                return self.host.conn.run("hostname").stdout.strip()
 
     def tcpdump(self, pcap_path: str, args: list[Any] | None = None) -> SSHKillableProcess:
         """
@@ -77,76 +97,72 @@ class NetworkUtils(MultihostUtility[MultihostHost]):
 
         return self.host.conn.exec(["tshark", *args])
 
-    def dig(self, address: str, server: str = "", reverse: bool = False) -> dict[str, Any] | None:
+    def dig(self, address: str, server: str | None = None) -> list[dict] | None:
         """
         Execute and parse dig command.
 
-        This returns a dictionary with the following keys:
+        This returns a list of dicts with the following keys:
         {name, type, ttl, data, all_data}
-
-        If the result contains more than one record, this will return the first result only.
-        Making it easier to access the values. The full result is available by getting the
-        ``all_data`` key.
 
         .. code-block:: python
             :caption: Example usage
 
                 # Assert the record exists
-                assert not client.net.dig(f"client.{provider.domain}")
+                assert client.net.dig(hostname, provider.server)
+                assert any(r["data"] == ip for r in client.net.dig(hostname, provider.server))
 
-                # Get the TTL
-                result = client.net.dig(f"client.{provider.domain}")
-                ttl = result.get("ttl")
+                # Assert the reverse record exists
+                assert client.net.dig(ip, provider.server)
+                assert any(r["data"] == hostname for r in client.net.dig(ip, provider.server))
 
-        :param address: Hostname or IP address with reverse set.
+        :param address: Hostname or ip.
         :type address: str
         :param server: DNS server, optional, defaults to ""
         :type server: str = ""
-        :param reverse: Do a reverse lookup, optional, defaults to False
-        :type reverse: bool = False
-        :return: Dict .
-        :rtype: tuple[bool, list[Any]]
+        :return: List of dig results.
+        :rtype: list[dict]
         """
-        server = f"@{server}" if server and "@" not in server else ""
-        record_type = "AAAA" if ":" in address else "A"
-        args = f"{server} -x {address} PTR" if reverse else f"{server} {address} {record_type}"
+        server = f"@{server}" if server else ""
+        args = f"+norecurse {'-x ' if ip_is_valid(address) else ''}{address} {server}"
 
-        answers = jc.parse("dig", self.host.conn.run(f"dig {args}").stdout)
-
-        if not isinstance(answers, list) or not answers:
+        try:
+            output = self.host.conn.run(f"dig {args}").stdout
+            parsed_output = jc.parse("dig", output)
+        except Exception:
             return None
-        result = answers[0].get("answer", [])
-        if not isinstance(result, list):
+
+        if not isinstance(parsed_output, list) or not parsed_output:
+            return None
+
+        result = parsed_output[0].get("answer", [])
+        if not isinstance(result, list) or not result:
             return None
 
         required_keys = {"name", "type", "ttl", "data"}
         records = []
 
         for record in result:
-            if not isinstance(record, dict) or not required_keys.issubset(record.keys()):
+            if not isinstance(record, dict):
+                continue
+            if not required_keys.issubset(record.keys()):
                 continue
             if not isinstance(record["ttl"], int) or record["ttl"] < 0:
                 continue
+
+            # Strip trailing dots for easier matching
+            _name = record["name"].rstrip(".") if isinstance(record["name"], str) else record["name"]
+            _data = record["data"].rstrip(".") if isinstance(record["data"], str) else record["data"]
+
             records.append(
-                {"name": record["name"], "type": record["type"], "ttl": record["ttl"], "data": record["data"]}
+                {
+                    "name": _name,
+                    "data": _data,
+                    "type": record["type"],
+                    "ttl": record["ttl"],
+                }
             )
 
-        if len(records) <= 1 and len(result) != 0:
-            records[0]["all_data"] = records
-
-        return None if not records else records[0]
-
-    def nslookup(self, args: list[str]) -> ProcessResult:
-        """
-        Execute nslookup command with given arguments.
-
-        :param args: Arguments to ``nslookup``, defaults to None
-        :type args: list[str]
-        :return: SSH Process result
-        :rtype: ProcessResult
-        """
-
-        return self.host.conn.exec(["nslookup", *args], raise_on_error=False)
+        return records if records else None
 
     def teardown(self):
         """
@@ -259,6 +275,9 @@ class IPUtils(MultihostUtility[MultihostHost]):
         :return: Default gateway  device name and ip.
         :rtype: tuple[Any | None, Any | None]
         """
+        device_name = None
+        device_ip = None
+
         result = jc.parse("ip-route", self.host.conn.exec(["ip", "route"]).stdout)
         if isinstance(result, list):
             if isinstance(result[0], dict) and result[0]["ip"] == "default":
