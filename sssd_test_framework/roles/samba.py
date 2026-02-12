@@ -1371,19 +1371,26 @@ class SambaDNSZone(SambaDNSServer):
         self.host.conn.run(f"samba-tool dns add {self.server} {self.zone_name} {args}")
         return self
 
-    def delete_record(self, name: str) -> None:
+    def delete_record(self, name: str, data: str) -> None:
         """
         Delete DNS record.
 
         :param name: Name of the record.
         :type name: str
+        :param data: Record data.
+        :type data: str
         """
+        record_type = ""
+
         if "in-addr" in self.zone_name:
             record_type = "PTR"
-            data = self.host.conn.run(f"dig -x +short {name}").stdout.strip()
+        elif "ip6.arpa" in self.zone_name:
+            record_type = "PTR6"
         else:
-            data = self.host.conn.run(f"dig +short {name}").stdout.strip()
-            record_type = "AAAA" if ":" in data else "A"
+            if ip_version(data) == 4:
+                record_type = "A"
+            elif ip_version(data) == 6:
+                record_type = "AAAA"
 
         self.role.host.conn.run(
             f"samba-tool dns delete "

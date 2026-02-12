@@ -2850,7 +2850,8 @@ class IPADNSZone(IPADNSServer):
         :return: IPADNSServer object.
         :rtype: IPADNSServer
         """
-        self.host.conn.run(f"ipa dnszone-add {self.zone_name} --dynamic-update=TRUE --skip-overlap-check")
+        self.host.conn.run(f"ipa dnszone-add {self.zone_name} --skip-overlap-check")
+        self.host.conn.run(f"ipa dnszone-mod {self.zone_name} --dynamic-update=TRUE --allow-sync-ptr=TRUE")
         return self
 
     def delete(self) -> None:
@@ -2886,14 +2887,29 @@ class IPADNSZone(IPADNSServer):
 
         return self
 
-    def delete_record(self, name: str) -> None:
+    def delete_record(self, name: str, data: str) -> None:
         """
         Delete DNS record.
 
-        :param name: Name of the record.
+        :param name: Name.
         :type name: str
+        :param data: Record data.
+        :type data: str
         """
-        self.host.conn.run(f"ipa dnsrecord-del {self.zone_name} {name}")
+        args = ""
+
+        if "in-addr" in self.zone_name or "ip6.arpa" in self.zone_name:
+            args = f"{name} --ptr-rec={data}."
+        else:
+            if ip_version(data) == 4:
+                args = f"{name} --a-rec={data}"
+            elif ip_version(data) == 6:
+                args = f"{name} --aaaa-rec={data}"
+            else:
+                raise ValueError(f"Invalid IP address: {data}!")
+
+        self.host.conn.run(f"ipa dnsrecord-del {self.zone_name} {args}")
+        time.sleep(5)  # Wait for the record to be deleted
 
     def print(self) -> str:
         """
