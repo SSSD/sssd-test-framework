@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pytest_mh import MultihostHost, MultihostUtility
-from pytest_mh.cli import CLIBuilder, CLIBuilderArgs
+from pytest_mh.cli import CLIBuilder
 from pytest_mh.conn import ProcessResult
 
 __all__ = [
@@ -191,37 +191,33 @@ class RealmUtils(MultihostUtility[MultihostHost]):
         command = ["realm", "renew", domain, "--verbose", *args]
         return self.host.conn.exec(command)
 
-    def permit(self, user: str, *, withdraw: bool = False, args: list[str] | None = None) -> ProcessResult:
+    def permit(self, *, args: list[str] | None = None) -> ProcessResult:
         """
-        Permit users log in.
+        Permit and deny users, groups local log in.
 
-        :param user: User to permit.
-        :type user: str
-        :param withdraw: Withdraw permission, defaults to False
-        :type withdraw: bool, optional
         :param args: Additional arguments, defaults to None
         :type args: list[str] | None, optional
         :return: Result of called command.
         :rtype: ProcessResult
         """
-        cli_args: CLIBuilderArgs = {"withdraw": (self.cli.option.SWITCH, withdraw)}
         if args is None:
             args = []
 
-        return self.host.conn.exec(["realm", "permit", *self.cli.args(cli_args), *args, user])
+        return self.host.conn.exec(["realm", "permit", *args])
 
-    def deny(self, user: str, *, args: list[str] | None = None) -> ProcessResult:
+    def deny(self, *, args: list[str] | None = None) -> ProcessResult:
         """
-        Deny users log in.
+        Deny local log in.
 
-        :param user: User.
-        :type user: str
         :param args: Additional arguments, defaults to None
         :type args: list[str] | None, optional
         :return: Result of called command.
         :rtype: ProcessResult
         """
-        return self.permit(user, withdraw=True, args=args)
+        if args is None:
+            args = []
+
+        return self.host.conn.exec(["realm", "deny", *args])
 
     def list(self, *, args: list[str] | None = None) -> ProcessResult:
         """
