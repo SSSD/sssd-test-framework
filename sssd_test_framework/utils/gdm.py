@@ -30,7 +30,7 @@ class GDM(MultihostUtility[MultihostHost]):
         super().__init__(host)
         self.init_completed = False
 
-        self.cmd = [scauto_path, "gui", "--wait-time", "1", "--no-screenshot"]
+        self.cmd = [scauto_path, "--verbose", "debug", "gui", "--wait-time", "1", "--no-screenshot"]
 
     def teardown(self):
         if self.init_completed:
@@ -56,10 +56,13 @@ class GDM(MultihostUtility[MultihostHost]):
         if not self.init_completed:
             self.init()
 
-        result = self.host.conn.exec([*self.cmd, "assert-text", word])
+        result = self.host.conn.exec([*self.cmd, "assert-text", word], raise_on_error=False)
+        if result.rc != 0:
+            self.logger.warn(f"Unable to find text ({word}) on screen")
         return result.rc == 0
 
-    def click_on(self, word: str) -> bool:
+    @retry(max_retries=3, delay=1, on=AssertionError)
+    def click_on(self, word: str) -> None:
         """
         Run scauto gui click-on
 
@@ -71,8 +74,9 @@ class GDM(MultihostUtility[MultihostHost]):
         if not self.init_completed:
             self.init()
 
-        result = self.host.conn.exec([*self.cmd, "click-on", word])
-        return result.rc == 0
+        result = self.host.conn.exec([*self.cmd, "click-on", word], raise_on_error=False)
+        if result.rc != 0:
+            raise AssertionError(f"Unable to click-on target {word}")
 
     def kb_write(self, word: str) -> bool:
         """
