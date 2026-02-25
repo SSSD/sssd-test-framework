@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import re
+import textwrap
+import uuid
 from abc import ABC
 from datetime import datetime
 from typing import Any, TypeAlias
@@ -10,9 +14,17 @@ from pytest_mh.cli import CLIBuilderArgs
 from pytest_mh.conn import ProcessResult
 
 from ..hosts.ad import ADHost
-from ..misc import attrs_include_value, attrs_parse, attrs_to_hash, ip_version, seconds_to_timespan
+from ..misc import (
+    attrs_include_value,
+    attrs_parse,
+    attrs_to_hash,
+    ip_version,
+    parse_ad_object_info,
+    parse_cert_info,
+    seconds_to_timespan,
+)
 from .base import BaseObject, BaseWindowsRole, DeleteAttribute
-from .generic import GenericPasswordPolicy
+from .generic import GenericCertificateAuthority, GenericPasswordPolicy
 from .ldap import LDAPNetgroupMember
 from .nfs import NFSExport
 
@@ -30,6 +42,7 @@ __all__ = [
     "GPO",
     "ADDNSServer",
     "ADDNSZone",
+    "ADCertificateAuthority",
 ]
 
 
@@ -141,6 +154,19 @@ class AD(BaseWindowsRole[ADHost]):
                 }
         """
 
+        self._ca = ADCertificateAuthority(self.host)
+        """
+        AD Certificate Authority server management.
+
+        Provides certificate operations:
+        - Request certificates using templates
+        - Request smartcard certificates with Enrollment Agent
+        - Revoke certificates with configurable reasons
+        - Manage certificate holds
+        - Export certificates as PFX
+        - Retrieve certificate and template details
+        """
+
     @property
     def password_policy(self) -> ADPasswordPolicy:
         """
@@ -158,6 +184,45 @@ class AD(BaseWindowsRole[ADHost]):
                 ad.password_policy.lockout(attempts=2, duration=30)
         """
         return self._password_policy
+
+    @property
+    def ca(self) -> ADCertificateAuthority:
+        """
+        AD Certificate Authority management.
+
+        Provides certificate operations:
+
+        - Request certificates using templates
+        - Request smartcard certificates with Enrollment Agent
+        - Revoke certificates with configurable reasons
+        - Manage certificate holds
+        - Export certificates as PFX
+        - Retrieve certificate and template details
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.AD)
+            def test_example(client: Client, ad: AD):
+                # Request smartcard certificate
+                cert, key, csr = ad.ca.request(
+                    template="SmartcardLogon",
+                    subject="CN=testuser"
+                )
+
+                # Get certificate details
+                cert_details = ad.ca.get(cert)
+
+                # Place certificate on hold (temporary revocation)
+                ad.ca.revoke_hold(cert)
+
+                # Remove hold (restore certificate)
+                ad.ca.revoke_hold_remove(cert)
+
+                # Permanently revoke certificate
+                ad.ca.revoke(cert, reason="key_compromise")
+        """
+        return self._ca
 
     @property
     def naming_context(self) -> str:
@@ -2315,3 +2380,520 @@ class ADDNSZone(ADDNSServer, ABC):
 
 
 ADNetgroupMember: TypeAlias = LDAPNetgroupMember[ADUser, ADNetgroup]
+
+
+class ADCertificateAuthority(GenericCertificateAuthority):
+    """
+    AD Certificate Authority server management.
+
+    This class provides certificate operations for Active Directory Certificate
+    Authority, including requesting, revoking, placing/removing certificate holds,
+    and retrieving certificate information via certreq and certutil commands.
+    """
+
+    def __init__(self, host: ADHost) -> None:
+        """
+        Initialize the AD Certificate Authority helper.
+
+        :param host: Remote AD host.
+        :type host: ADHost
+        """
+        self.host = host
+        self.cli = host.cli
+        self.temp_dir = f"C:\\pki\\ad_test_certs_{os.getpid()}_{uuid.uuid4().hex}"
+        self._enrollment_agent_hash: str | None = None
+        self._ca_available: bool = False
+        self._check_ca_available()
+        if self._ca_available:
+            self._create_temp_dir()
+            if self._enrollment_agent_hash is None:
+                self._setup_enrollment_agent()
+
+    def _check_ca_available(self) -> None:
+        """
+        Check if AD Certificate Services is available.
+        """
+        result = self.host.conn.run(
+            "Get-Service -Name 'CertSvc' -ErrorAction SilentlyContinue",
+            raise_on_error=False,
+        )
+        self._ca_available = result.rc == 0 and "Running" in result.stdout
+
+    @property
+    def is_available(self) -> bool:
+        """
+        Check if AD Certificate Authority is available.
+
+        :return: True if AD CS is installed and running.
+        :rtype: bool
+        """
+        return self._ca_available
+
+    def _create_temp_dir(self) -> None:
+        """
+        Create temporary directory for certificate files.
+        """
+        self.host.conn.run(f'New-Item -ItemType Directory -Path "{self.temp_dir}" -Force')
+
+    def _setup_enrollment_agent(self) -> None:
+        """
+        Setup enrollment agent certificate for Administrator.
+
+        If the EnrollmentAgent template is not available or any step fails,
+        this method silently returns and :meth:`request` will fall back to
+        :meth:`request_basic`.
+        """
+        admin_dn = f"CN=Administrator,CN=Users,{self.host.naming_context}"
+
+        base = "enrollment_agent_admin"
+        inf_path = os.path.join(self.temp_dir, f"{base}.inf")
+        req_path = os.path.join(self.temp_dir, f"{base}.req")
+        cert_path = os.path.join(self.temp_dir, f"{base}.cer")
+
+        inf_content = textwrap.dedent(f"""\
+            $infContent = @"
+            [NewRequest]
+            Subject = "{admin_dn}"
+            MachineKeySet = FALSE
+            Exportable = TRUE
+            RequestType = CMC
+            FriendlyName = "Enrollment Agent"
+
+            [RequestAttributes]
+            CertificateTemplate = "EnrollmentAgent2"
+            "@
+            Set-Content -Path "{inf_path}" -Value $infContent
+        """)
+        self.host.conn.run(inf_content)
+
+        result = self.host.conn.run(f'certreq -q -new "{inf_path}" "{req_path}"', raise_on_error=False)
+        if result.rc != 0:
+            return
+
+        templates_result = self.host.conn.run("certutil -catemplates", raise_on_error=False)
+        if templates_result.rc != 0 or "EnrollmentAgent" not in templates_result.stdout:
+            return
+
+        try:
+            result = self.host.conn.run(
+                f'certreq -submit -config "{self._get_ca_config()}" "{req_path}" "{cert_path}"',
+                raise_on_error=False,
+                timeout=30,
+            )
+        except Exception:
+            return
+
+        if result.rc != 0 or "not issued" in result.stdout or "Denied" in result.stdout:
+            return
+
+        accept_result = self.host.conn.run(f'certreq -accept "{cert_path}"', raise_on_error=False)
+        if accept_result.rc != 0:
+            return
+
+        thumbprint = None
+        for line in accept_result.stdout.split("\n"):
+            if "Thumbprint:" in line:
+                thumbprint = line.split(":", 1)[1].strip()
+                break
+
+        if thumbprint:
+            self._enrollment_agent_hash = thumbprint
+
+    def _get_enrollment_agent_hash(self) -> str | None:
+        """
+        Get the enrollment agent certificate hash.
+
+        :return: Hash (thumbprint) of the enrollment agent certificate, or None if not available.
+        :rtype: str | None
+        """
+        return self._enrollment_agent_hash
+
+    def request_basic(
+        self,
+        template: str,
+        subject: str,
+        password: str = "Secret123",
+        key_size: int = 2048,
+    ) -> tuple[str, str, str]:
+        """
+        Request a basic certificate from the AD CA without enrollment agent.
+
+        For smartcard testing, use :meth:`request` instead which uses
+        enrollment on behalf of functionality.
+
+        :param template: Certificate template name (e.g., "User").
+        :type template: str
+        :param subject: Used for file naming only, not for certificate subject.
+        :type subject: str
+        :param password: Password for PFX export, defaults to "Secret123"
+        :type password: str, optional
+        :param key_size: RSA key size in bits, defaults to 2048
+        :type key_size: int, optional
+        :return: A tuple of (certificate_path, pfx_path, csr_path).
+        :rtype: tuple[str, str, str]
+        """
+        base = re.sub(r"[^a-zA-Z0-9._-]", "_", subject)
+        inf_path = os.path.join(self.temp_dir, f"{base}.inf")
+        req_path = os.path.join(self.temp_dir, f"{base}.req")
+        cert_path = os.path.join(self.temp_dir, f"{base}.cer")
+        pfx_path = os.path.join(self.temp_dir, f"{base}.pfx")
+
+        inf_content = textwrap.dedent(f"""\
+            $infContent = @"
+            [NewRequest]
+            KeyLength = {key_size}
+            MachineKeySet = no
+            Exportable = yes
+            RequestType = PKCS10
+            KeyUsage = 0xA0
+
+            [RequestAttributes]
+            CertificateTemplate = "{template}"
+            "@
+            Set-Content -Path "{inf_path}" -Value $infContent
+        """)
+        self.host.conn.run(inf_content)
+
+        self.host.conn.run(f'certreq -q -new "{inf_path}" "{req_path}"')
+
+        self.host.conn.run(f'certreq -submit -config "{self._get_ca_config()}" "{req_path}" "{cert_path}"')
+
+        self.export_pfx(cert_path, pfx_path, password=password)
+
+        return cert_path, pfx_path, req_path
+
+    def request(
+        self,
+        template: str,
+        subject: str,
+    ) -> tuple[str, str, str]:
+        """
+        Request a smartcard certificate using Enrollment Agent.
+
+        Uses "Enroll On Behalf Of" functionality to issue certificates
+        with the correct subject for the target user.
+
+        :param template: Smartcard certificate template name (e.g., "SmartcardLogon").
+        :type template: str
+        :param subject: Certificate subject (e.g., "CN=testuser").
+        :type subject: str
+        :return: A tuple of (certificate_path, key_path, csr_path).
+        :rtype: tuple[str, str, str]
+        """
+        base_dn = ",".join(f"dc={part}" for part in self.host.domain.split(".") if part)
+        user_dn = subject
+        if base_dn.lower() not in subject.lower():
+            user_dn = f"{subject},CN=Users,{base_dn}"
+
+        enrollment_agent_hash = self._get_enrollment_agent_hash()
+
+        if enrollment_agent_hash is None:
+            return self.request_basic(template, subject)
+
+        requester_name = f"{self.host.domain.upper()}\\Administrator"
+
+        base = subject.split(",")[0].split("=")[1]
+        inf_path = os.path.join(self.temp_dir, f"{base}.inf")
+        req_path = os.path.join(self.temp_dir, f"{base}.req")
+        signed_req_path = os.path.join(self.temp_dir, f"{base}_signed.req")
+        cert_path = os.path.join(self.temp_dir, f"{base}.cer")
+        pfx_path = os.path.join(self.temp_dir, f"{base}.pfx")
+        extracted_key_path = os.path.join(self.temp_dir, f"{base}_extracted.key")
+        key_path = os.path.join(self.temp_dir, f"{base}.key")
+
+        inf_content = textwrap.dedent(f"""\
+            $infContent = @"
+            [NewRequest]
+            Subject = "{user_dn}"
+            KeySpec = 1
+            KeyUsage = 0xA0
+            Exportable = TRUE
+            RequestType = CMC
+            RequesterName = "{requester_name}"
+            ProviderName = "Microsoft Software Key Storage Provider"
+
+            [RequestAttributes]
+            CertificateTemplate = "{template}"
+            "@
+            Set-Content -Path "{inf_path}" -Value $infContent
+        """)
+        self.host.conn.run(inf_content)
+
+        self.host.conn.run(f'certreq -q -new "{inf_path}" "{req_path}"')
+
+        self.host.conn.run(f'certreq -q -sign -cert "{enrollment_agent_hash}" "{req_path}" "{signed_req_path}"')
+
+        self.host.conn.run(f'certreq -submit -config "{self._get_ca_config()}" "{signed_req_path}" "{cert_path}"')
+
+        self.export_pfx(cert_path, pfx_path)
+
+        self.host.conn.run(
+            f'"Secret123" | & openssl pkcs12 -in {pfx_path} -nocerts -nodes'
+            f" -out {extracted_key_path} -passin stdin"
+        )
+
+        self.host.conn.run(f"openssl rsa -in {extracted_key_path} -out {key_path}")
+
+        self.host.conn.run(f"""
+            $certPath = "{cert_path}"
+            $userDN = "{user_dn}"
+            $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($certPath)
+
+            # Get Issuer DN
+            $issuerDN = $cert.Issuer
+
+            # Reverse Issuer DN to match order needed
+            $elements = $issuerDN -split ',\\s*'
+            [array]::Reverse($elements)
+            $reversedDN = $elements -join ","
+
+            # Get Serial Number, remove spaces, and reverse the byte order
+            $rawHex = $cert.SerialNumber
+            $hexArray = for ($i = $rawHex.Length - 2; $i -ge 0; $i -= 2) {{ $rawHex.Substring($i, 2) }}
+            $reversedHex = $hexArray -join ""
+
+            # Construct the altSecurityIdentities string
+            $altID = "X509:<I>$reversedDN<SR>$reversedHex"
+
+            # Add serial number mapping to user entry in AD
+            Set-ADUser -Identity $userDN -Add @{{altSecurityIdentities = $altID}}
+            """)
+
+        return cert_path, key_path, req_path
+
+    def revoke(self, cert_path: str, reason: str = "unspecified") -> None:
+        """
+        Revoke a certificate in AD CA.
+
+        Valid revocation reasons:
+
+        - ``unspecified`` (default)
+        - ``key_compromise``
+        - ``ca_compromise``
+        - ``affiliation_changed``
+        - ``superseded``
+        - ``cessation_of_operation``
+        - ``certificate_hold``
+        - ``remove_from_crl``
+        - ``privilege_withdrawn``
+        - ``aa_compromise``
+
+        :param cert_path: Path to the certificate file.
+        :type cert_path: str
+        :param reason: Reason for revocation, defaults to "unspecified"
+        :type reason: str, optional
+        """
+        serial = self._get_cert_serial(cert_path)
+        reason_code = self._revocation_reason_to_code(reason)
+
+        self.host.conn.run(f'certutil -config "{self._get_ca_config()}" -revoke {serial} {reason_code}')
+
+    def revoke_hold(self, cert_path: str) -> None:
+        """
+        Place a certificate on hold.
+
+        :param cert_path: Path to the certificate file.
+        :type cert_path: str
+        """
+        self.revoke(cert_path, reason="certificate_hold")
+
+    def revoke_hold_remove(self, cert_path: str) -> None:
+        """
+        Remove hold from a certificate.
+
+        :param cert_path: Path to the certificate file.
+        :type cert_path: str
+        """
+        serial = self._get_cert_serial(cert_path)
+
+        self.host.conn.run(f'certutil -config "{self._get_ca_config()}" -revoke {serial} 8')  # 8 = removeFromCRL
+
+    def get(self, cert_path: str) -> dict[str, list[str]]:
+        """
+        Retrieve certificate details from AD CA.
+
+        :param cert_path: Path to the certificate file.
+        :type cert_path: str
+        :return: A dictionary of certificate attributes.
+        :rtype: dict[str, list[str]]
+        """
+        result = self.host.conn.run(f'certutil "{cert_path}"')
+
+        return parse_cert_info(result.stdout)
+
+    def export_pfx(
+        self, cert_path: str, pfx_path: str, password: str = "Secret123", include_chain: bool = False
+    ) -> None:
+        """
+        Export certificate as PFX file.
+
+        :param cert_path: Path to the certificate file.
+        :type cert_path: str
+        :param pfx_path: Path where to save the PFX file.
+        :type pfx_path: str
+        :param password: Password for the PFX file, defaults to "Secret123"
+        :type password: str, optional
+        :param include_chain: Whether to include certificate chain, defaults to False
+        :type include_chain: bool, optional
+        """
+        self.host.conn.run(f'certreq -accept "{cert_path}"')
+
+        thumbprint = self._get_cert_thumbprint(cert_path)
+
+        export_cmd = textwrap.dedent(f"""\
+            $cert = Get-ChildItem -Path "Cert:\\\\CurrentUser\\\\My" | Where-Object {{
+                $_.Thumbprint -eq "{thumbprint}" }}
+            if ($cert) {{
+                $pfxPassword = ConvertTo-SecureString -String "{password}" -AsPlainText -Force
+                Export-PfxCertificate -Cert $cert -FilePath "{pfx_path}" -Password $pfxPassword
+            }} else {{
+                Write-Error "Certificate with thumbprint {thumbprint} not found in store"
+                exit 1
+            }}
+        """)
+        self.host.conn.run(export_cmd)
+
+    def get_certificate_template(self, template_name: str) -> dict[str, list[str]]:
+        """
+        Get certificate template information.
+
+        :param template_name: Name of the certificate template.
+        :type template_name: str
+        :return: Dictionary of template attributes.
+        :rtype: dict[str, list[str]]
+        """
+        cmd = textwrap.dedent(f"""\
+            $configNC = (Get-ADRootDSE).configurationNamingContext
+            $templateDN = "CN={template_name},CN=Certificate Templates,CN=Public Key Services,CN=Services," + $configNC
+            Get-ADObject -Identity $templateDN -Properties *
+        """)
+        result = self.host.conn.run(cmd)
+
+        return parse_ad_object_info(result.stdout)
+
+    def _get_ca_config(self) -> str:
+        """
+        Get CA configuration string.
+
+        :return: CA configuration string.
+        :rtype: str
+        """
+        result = self.host.conn.run("certutil -dump", raise_on_error=False)
+        if result.rc == 0:
+            for line in result.stdout_lines:
+                if "Config:" in line:
+                    return line.split(":", 1)[1].strip()
+
+        return f"{self.host.hostname}\\{self.host.domain}-CA"
+
+    def _get_cert_serial(self, cert_path: str) -> str:
+        """
+        Extract certificate serial number.
+
+        :param cert_path: Path to certificate file.
+        :type cert_path: str
+        :return: Certificate serial number.
+        :rtype: str
+        :raises RuntimeError: If serial extraction fails.
+        """
+        result = self.host.conn.run(f'certutil "{cert_path}"')
+
+        for line in result.stdout_lines:
+            if "Serial Number:" in line:
+                return line.split(":", 1)[1].strip()
+
+        raise RuntimeError("Serial number not found in certificate output")
+
+    def _get_cert_thumbprint(self, cert_path: str) -> str:
+        """
+        Extract certificate thumbprint.
+
+        :param cert_path: Path to certificate file.
+        :type cert_path: str
+        :return: Certificate thumbprint.
+        :rtype: str
+        """
+        result = self.host.conn.run(f"(Get-PfxCertificate -FilePath {cert_path}).Thumbprint")
+        return result.stdout.strip()
+
+    def _revocation_reason_to_code(self, reason: str) -> int:
+        """
+        Map revocation reason to numeric code.
+
+        :param reason: Revocation reason string.
+        :type reason: str
+        :return: Numeric reason code.
+        :rtype: int
+        """
+        reason_map = {
+            "unspecified": 0,
+            "key_compromise": 1,
+            "ca_compromise": 2,
+            "affiliation_changed": 3,
+            "superseded": 4,
+            "cessation_of_operation": 5,
+            "certificate_hold": 6,
+            "remove_from_crl": 8,
+            "privilege_withdrawn": 9,
+            "aa_compromise": 10,
+        }
+        return reason_map[reason]
+
+    def cleanup(self) -> None:
+        """
+        Clean up temporary certificate directory.
+        """
+        if hasattr(self, "temp_dir") and self.temp_dir:
+            self.host.conn.run(
+                f'if (Test-Path "{self.temp_dir}") {{ '
+                f'Remove-Item "{self.temp_dir}" -Recurse -Force -ErrorAction SilentlyContinue }}',
+                raise_on_error=False,
+            )
+
+        self.host.conn.run(
+            'if (Test-Path "C:\\pki") { '
+            'Write-Host "Cleaning up certificate directories in C:\\pki"; '
+            'Remove-Item "C:\\pki" -Recurse -Force -ErrorAction SilentlyContinue }',
+            raise_on_error=False,
+        )
+
+    def get_ca_cert(self) -> str:
+        """
+        Get the CA certificate in PEM format.
+
+        :return: CA certificate in PEM format.
+        :rtype: str
+        :raises RuntimeError: If CA certificate cannot be retrieved.
+        """
+        result = self.host.conn.run(
+            """
+$ca = Get-ChildItem -Path Cert:\\LocalMachine\\Root | Where-Object {
+    $_.Subject -like '*CN=ad-RootCA*' -and $_.Issuer -eq $_.Subject
+} | Select-Object -First 1
+if ($ca) {
+    [System.Convert]::ToBase64String($ca.Export('Cert'))
+} else {
+    $ca = Get-ChildItem -Path Cert:\\LocalMachine\\My | Where-Object {
+        $_.Subject -like '*CN=ad-RootCA*'
+    } | Select-Object -First 1
+    if ($ca) {
+        [System.Convert]::ToBase64String($ca.Export('Cert'))
+    } else {
+        Write-Error "CA certificate not found"
+        exit 1
+    }
+}
+""",
+            raise_on_error=False,
+        )
+
+        if result.rc != 0:
+            raise RuntimeError(f"Failed to get CA certificate: {result.stderr}")
+
+        ca_cert_b64 = result.stdout.strip()
+
+        if not ca_cert_b64:
+            raise RuntimeError("CA certificate not found in certificate stores")
+
+        ca_cert_lines = [ca_cert_b64[i : i + 64] for i in range(0, len(ca_cert_b64), 64)]
+        return "-----BEGIN CERTIFICATE-----\n" + "\n".join(ca_cert_lines) + "\n-----END CERTIFICATE-----\n"

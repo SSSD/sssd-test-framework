@@ -9,7 +9,7 @@ import time
 import uuid
 from itertools import groupby
 from textwrap import dedent
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 from pytest_mh import MultihostHost
 from pytest_mh.cli import CLIBuilder, CLIBuilderArgs
@@ -32,7 +32,7 @@ from ..roles.client import Client
 from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
 from .base import BaseLinuxRole, BaseObject
-from .generic import GenericNetgroupMember, GenericPasswordPolicy
+from .generic import GenericCertificateAuthority, GenericNetgroupMember, GenericPasswordPolicy
 from .nfs import NFSExport
 
 __all__ = [
@@ -53,19 +53,6 @@ __all__ = [
     "IPAHBACServiceGroup",
     "IPAHostGroup",
     "IPAHBAC",
-]
-
-RevocationReason = Literal[
-    "unspecified",
-    "key_compromise",
-    "ca_compromise",
-    "affiliation_changed",
-    "superseded",
-    "cessation_of_operation",
-    "certificate_hold",
-    "remove_from_crl",
-    "privilege_withdrawn",
-    "aa_compromise",
 ]
 
 
@@ -185,7 +172,7 @@ class IPA(BaseLinuxRole[IPAHost]):
                 }
         """
 
-        self.ca = IPACertificateAuthority(self.host, self.fs)
+        self._ca = IPACertificateAuthority(self.host, self.fs)
         """
         IPA Certificate Authority management.
 
@@ -218,6 +205,36 @@ class IPA(BaseLinuxRole[IPAHost]):
                 ipa.password_policy.lockout(attempts=3, duration=30)
         """
         return self._password_policy
+
+    @property
+    def ca(self) -> IPACertificateAuthority:
+        """
+        IPA Certificate Authority management.
+
+        Provides certificate operations:
+        - Request certificates for services/users
+        - Revoke certificates with configurable reasons
+        - Manage certificate holds
+        - Retrieve certificate details
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.IPA)
+            def test_example(client: Client, ipa: IPA):
+                # Request certificate
+                cert, key, csr = ipa.ca.request(principal="HTTP/client.ipa.test")
+
+                # Revoke certificate
+                ipa.ca.revoke(cert, reason="key_compromise")
+
+                # Place on hold
+                ipa.ca.revoke_hold(cert)
+
+                # Remove hold
+                ipa.ca.revoke_hold_remove(cert)
+        """
+        return self._ca
 
     @property
     def naming_context(self) -> str:
@@ -2906,7 +2923,7 @@ class IPADNSZone(IPADNSServer):
         return result
 
 
-class IPACertificateAuthority:
+class IPACertificateAuthority(GenericCertificateAuthority):
     """
     Provides helper methods for FreeIPA Certificate Authority operations.
 
@@ -3021,14 +3038,14 @@ class IPACertificateAuthority:
 
         return cert_path, key_path, csr_path
 
-    def revoke(self, cert_path: str, reason: RevocationReason = "unspecified") -> None:
+    def revoke(self, cert_path: str, reason: str = "unspecified") -> None:
         """
         Revoke a certificate in IPA.
 
         :param cert_path: Path to the certificate file.
         :type cert_path: str
         :param reason: Reason for revocation.
-        :type reason: RevocationReason
+        :type reason: str
         :raises RuntimeError: If revocation fails.
         """
         serial = self._get_cert_serial(cert_path)
@@ -3128,12 +3145,12 @@ class IPACertificateAuthority:
             return out.split("=", 1)[1].lower()
         return out.lower()
 
-    def _revocation_reason_to_code(self, reason: RevocationReason) -> int:
+    def _revocation_reason_to_code(self, reason: str) -> int:
         """
         Map a revocation reason string to its corresponding numeric code.
 
         :param reason: Revocation reason string.
-        :type reason: RevocationReason
+        :type reason: str
         :returns: Numeric reason code.
         :rtype: int
         """
