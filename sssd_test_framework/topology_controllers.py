@@ -290,19 +290,6 @@ class GDMTopologyController(ProvisionedBackupTopologyController):
 
         self.logger.info(f"Enrolling IPA server {ipa.hostname} into {keycloak.hostname} by creating an IdP client")
 
-        self.logger.info(f"Enrolling {client.hostname} into {ipa.domain}")
-
-        # Remove any existing Kerberos configuration and keytab
-        client.fs.rm("/etc/krb5.conf")
-        client.fs.rm("/etc/krb5.keytab")
-
-        # Backup ipa-client-install files
-        client.fs.backup("/etc/ipa")
-        client.fs.backup("/var/lib/ipa-client")
-
-        # Join ipa domain
-        client.conn.exec(["realm", "join", ipa.domain], input=ipa.adminpw)
-
         # Create an IdP client
         keycloak.kclogin()
         keycloak.conn.run(

@@ -66,7 +66,6 @@ class KnownTopology(KnownTopologyBase):
         name="gdm",
         topology=Topology(TopologyDomain("sssd", client=1, ipa=1, keycloak=1)),
         controller=GDMTopologyController(),
-        domains=dict(test="sssd.ipa[0]"),
         fixtures=dict(client="sssd.client[0]", ipa="sssd.ipa[0]", provider="sssd.ipa[0]", keycloak="sssd.keycloak[0]"),
     )
     """

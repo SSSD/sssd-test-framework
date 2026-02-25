@@ -56,7 +56,7 @@ class GDM(MultihostUtility[MultihostHost]):
         if not self.init_completed:
             self.init()
 
-        result = self.host.conn.exec([*self.cmd, "assert-text", word], raise_on_error=False)
+        result = self.host.conn.exec([*self.cmd, "assert-text", word])
         return result.rc == 0
 
     def click_on(self, word: str) -> bool:
