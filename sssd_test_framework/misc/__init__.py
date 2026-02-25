@@ -198,34 +198,67 @@ def seconds_to_timespan(seconds: int) -> str:
     return f"{d:02d}:{h:02d}:{m:02d}:{s:02d}:00"
 
 
-def ip_to_ptr(ip_address: str) -> str:
+def ip_to_ptr(ip_address: str, prefixlen: int | None = None) -> str:
     """
     Get the reverse pointer from given address.
 
     :param ip_address: Address.
     :type ip_address: str
+    :param prefixlen: Prefix  length, optional
+    :type prefixlen: int | None = None
     :return: Reverse pointer.
     :rtype: str
     """
     ip = ipaddress.ip_address(ip_address)
-    if ip.version == 4:
-        octets = ip.packed
-        ptr = f"{octets[2]}.{octets[1]}.{octets[0]}.in-addr.arpa."
-    elif ip.version == 6:
-        hex_parts = ip.exploded.replace(":", "").lower()
-        ptr = f"{hex_parts[::-1]}.ip6.arpa."
+    network = ipaddress.ip_network(ip)
+
+    if prefixlen is not None:
+        network = network.supernet(new_prefix=prefixlen)
+    elif ip.version == 4:
+        prefixlen = 24
     else:
-        raise ValueError("Unsupported IP version")
-    return ptr
+        prefixlen = 64
+
+    if prefixlen > network.max_prefixlen:
+        raise ValueError(f"Prefix {prefixlen} too large for {ip.version}!")
+
+    subnet = network.supernet(new_prefix=prefixlen)
+
+    if ip.version == 4:
+        octets = subnet.network_address.packed
+        parts = [str(octets[i]) for i in range((prefixlen // 8) - 1, -1, -1)]
+        return ".".join(parts) + ".in-addr.arpa"
+    else:
+        hex_str = subnet.network_address.exploded.replace(":", "").lower()
+        nibbles = list(hex_str)
+        relevant_nibbles = nibbles[: prefixlen // 4]
+        reversed_nibbles = ".".join(relevant_nibbles[::-1])
+        return f"{reversed_nibbles}.ip6.arpa"
+
+
+def ip_is_valid(ip: str) -> bool:
+    """
+    Check ip is valid.
+
+    :param ip: IP address.
+    :type ip: str
+    :return: True, false if str is not an ip.
+    :rtype: bool
+    """
+    try:
+        ipaddress.ip_address(ip)
+        return True
+    except ValueError:
+        return False
 
 
 def ip_version(ip_address: str) -> int | None:
     """
     Parse str and return the IP version.
 
-    ::param ip_address: IP address.
+    :param ip_address: IP address.
     :type ip_address: str
-    :return:  IP version or None if not found.
+    :return: IP version or None if not found.
     :rtype: int | None
     """
     try:

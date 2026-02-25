@@ -82,12 +82,20 @@ class IPATopologyController(ProvisionedBackupTopologyController):
 
     @BackupTopologyController.restore_vanilla_on_error
     def topology_setup(self, client: ClientHost, ipa: IPAHost) -> None:
+        short_hostname = client.conn.run("hostname").stdout.split(".")[0].strip()
+        hostname = f"{short_hostname}.{ipa.domain}"
+
+        # Change client hostname to match the domain
+        self.logger.info(f"Changing hostname to {hostname}")
+        client.conn.run(f"hostname {hostname}")
+
+        client.fs.backup("/etc/resolv.conf")
+
         if self.provisioned:
             self.logger.info(f"Topology '{self.name}' is already provisioned")
             return
 
-        self.logger.info(f"Enrolling {client.hostname} into {ipa.domain}")
-
+        self.logger.info(f"Enrolling {hostname} into {ipa.domain}")
         # Remove any existing Kerberos configuration and keytab
         client.fs.rm("/etc/krb5.conf")
         client.fs.rm("/etc/krb5.keytab")
@@ -110,12 +118,18 @@ class ADTopologyController(ProvisionedBackupTopologyController):
 
     @BackupTopologyController.restore_vanilla_on_error
     def topology_setup(self, client: ClientHost, provider: ADHost | SambaHost) -> None:
+        short_hostname = client.conn.run("hostname").stdout.split(".")[0].strip()
+        hostname = f"{short_hostname}.{provider.domain}"
+
+        # Change client hostname to match the domain
+        self.logger.info(f"Changing hostname to {hostname}")
+        client.conn.run(f"hostname {hostname}")
+
         if self.provisioned:
             self.logger.info(f"Topology '{self.name}' is already provisioned")
             return
 
-        self.logger.info(f"Enrolling {client.hostname} into {provider.domain}")
-
+        self.logger.info(f"Enrolling {hostname} into {provider.domain}")
         # Remove any existing Kerberos configuration and keytab
         client.fs.rm("/etc/krb5.conf")
         client.fs.rm("/etc/krb5.keytab")
@@ -142,6 +156,13 @@ class IPATrustADTopologyController(ProvisionedBackupTopologyController):
 
     @BackupTopologyController.restore_vanilla_on_error
     def topology_setup(self, client: ClientHost, ipa: IPAHost, trusted: ADHost | SambaHost) -> None:
+        short_hostname = client.conn.run("hostname").stdout.split(".")[0].strip()
+        hostname = f"{short_hostname}.{ipa.domain}"
+
+        # Change client hostname to match the domain
+        self.logger.info(f"Changing hostname to {hostname}")
+        client.conn.run(f"hostname {hostname}")
+
         if self.provisioned:
             self.logger.info(f"Topology '{self.name}' is already provisioned")
             return
@@ -156,7 +177,7 @@ class IPATrustADTopologyController(ProvisionedBackupTopologyController):
 
         # Do not enroll client into IPA domain if it is already joined
         if "ipa" not in self.multihost.provisioned_topologies:
-            self.logger.info(f"Enrolling {client.hostname} into {ipa.domain}")
+            self.logger.info(f"Enrolling {hostname} into {ipa.domain}")
 
             # Remove any existing Kerberos configuration and keytab
             client.fs.rm("/etc/krb5.conf")
@@ -284,6 +305,13 @@ class GDMTopologyController(ProvisionedBackupTopologyController):
 
     @BackupTopologyController.restore_vanilla_on_error
     def topology_setup(self, client: ClientHost, ipa: IPAHost, keycloak: KeycloakHost) -> None:
+        short_hostname = client.conn.run("hostname").stdout.split(".")[0].strip()
+        hostname = f"{short_hostname}.{keycloak.domain}"
+
+        # Change client hostname to match the domain
+        self.logger.info(f"Changing hostname to {hostname}")
+        client.conn.run(f"hostname {hostname}")
+
         if self.provisioned:
             self.logger.info(f"Topology '{self.name}' is already provisioned")
             return
@@ -333,4 +361,5 @@ class GDMTopologyController(ProvisionedBackupTopologyController):
         )
         ipa.kinit()
         ipa.conn.run("ipa idp-del keycloak")
+
         super().topology_teardown()
