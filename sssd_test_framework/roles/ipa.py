@@ -257,6 +257,13 @@ class IPA(BaseLinuxRole[IPAHost]):
         """
         return f"{name}@{self.domain}"
 
+    @property
+    def admin_fqn(self) -> str:
+        """
+        Return fully qualified admin name in form name@domain.
+        """
+        return f"admin@{self.domain}"
+
     @staticmethod
     def ipa_search(
         role: IPA,
@@ -1229,6 +1236,63 @@ class IDUserOverride(IPAUser):
         """
         super().__init__(user.role, user.name)
         self.name = user.name
+
+    def add_override_template(
+        self,
+        idview_name: str,
+        *,
+        home: str | None = None,
+        shell: str | None = None,
+        domain_name: str | None = None,
+        global_template: bool = False,
+        **kwargs,
+    ) -> ProcessResult[ProcessError]:
+        """
+        Add a new User ID override.
+
+        :param idview_name: Name of IDView.
+        :type idview_name: str
+        :param description: Description.
+        :type description: str | None, defaults to None
+        :param home: Overridden Home directory.
+        :type home: str | None, defaults to None
+        :param shell: Overridden Login shell.
+        :type shell: str | None, defaults to None
+        :param domain_name: Override template Domain name. Assumes domain template will be added.
+        :type domain_name: str | None, defaults to None
+        :param global_template: Global template override.
+        :type global_template: bool, defaults to False.
+        :return: ProcessResult
+        :rtype: ProcessResult[ProcessError]
+        """
+
+        if domain_name and global_template:
+            raise ValueError("Cannot add ID override template that is domain AND global.")
+
+        attrs: CLIBuilderArgs = {
+            "homedir": (self.cli.option.VALUE, home),
+            "shell": (self.cli.option.VALUE, shell),
+        }
+
+        if kwargs:
+            unexpected_keys = ",d ".join(kwargs.keys())
+            raise TypeError(f"Unexpected keyword arguments: {unexpected_keys}")
+
+        # Create the ID override first
+        if domain_name:
+            result = self.role.host.conn.exec(
+                ["ipa", "idoverrideuser-add", idview_name, "*", "--template", domain_name]
+                + to_list_without_none(self.cli.args(attrs)),
+                raise_on_error=False,
+            )
+        elif global_template:
+            result = self.role.host.conn.exec(
+                ["ipa", "idoverrideuser-add", idview_name, "*", "--global-template"]
+                + to_list_without_none(self.cli.args(attrs)),
+                raise_on_error=False,
+            )
+
+        return result
 
     def add_override(
         self,
