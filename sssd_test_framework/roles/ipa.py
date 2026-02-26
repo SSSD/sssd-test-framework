@@ -1196,7 +1196,11 @@ class IPAUser(IPAObject):
             retry += 1
             time.sleep(1)
 
-        return result.stdout_lines[-1].strip()
+        for line in result.stdout_lines:
+            if line.strip().startswith("Passkey mapping:"):
+                return line.strip()
+
+        raise AssertionError("Passkey mapping not found in ipa command output")
 
     def iduseroverride(self) -> IDUserOverride:
         """
