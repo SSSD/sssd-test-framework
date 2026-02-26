@@ -417,6 +417,7 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
     ) -> tuple[int, int, str, str]:
         """wrapper for passkey_with_output methods"""
         if "virt_type" in kwargs and kwargs["virt_type"] == "vfido":
+            del kwargs["virt_type"]
             return self.vfido_passkey_with_output(**kwargs)
         else:
             return self.umockdev_passkey_with_output(**kwargs)
@@ -427,6 +428,7 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
     ) -> bool:
         """wrapper for passkey methods"""
         if "virt_type" in kwargs and kwargs["virt_type"] == "vfido":
+            del kwargs["virt_type"]
             return self.vfido_passkey(**kwargs)
         else:
             return self.umockdev_passkey(**kwargs)
