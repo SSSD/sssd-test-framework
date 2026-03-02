@@ -694,12 +694,15 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
         """
 
         match auth_method:
-            case PasskeyAuthenticationUseCases.PASSKEY_PIN | PasskeyAuthenticationUseCases.PASSKEY_PIN_AND_PROMPTS:
+            case (
+                PasskeyAuthenticationUseCases.PASSKEY_PIN
+                | PasskeyAuthenticationUseCases.PASSKEY_PIN_AND_PROMPTS
+                | PasskeyAuthenticationUseCases.PASSKEY_FALLBACK_TO_PASSWORD
+            ):
                 if pin is None:
                     raise ValueError(f"PIN is required for {str(auth_method)}")
             case (
                 PasskeyAuthenticationUseCases.PASSKEY_PROMPTS_NO_PIN
-                | PasskeyAuthenticationUseCases.PASSKEY_FALLBACK_TO_PASSWORD
                 | PasskeyAuthenticationUseCases.PASSKEY_NO_PIN_NO_PROMPTS
             ):
                 if pin is not None:
