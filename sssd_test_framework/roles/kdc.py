@@ -163,7 +163,13 @@ class KDCPrincipal(BaseObject[KDCHost, KDC]):
         self.name: str = name
         """Principal name."""
 
-    def add(self, *, password: str | None = "Secret123") -> KDCPrincipal:
+    def add(
+        self,
+        *,
+        password: str | None = "Secret123",
+        requires_preauth: bool = False,
+        args: str | None = None,
+    ) -> KDCPrincipal:
         """
         Add a new Kerberos principal.
 
@@ -171,13 +177,24 @@ class KDCPrincipal(BaseObject[KDCHost, KDC]):
 
         :param password: Principal's password, defaults to 'Secret123'
         :type password: str | None
+        :param requires_preauth: Add +requires_preauth flag (for clock skew tests), defaults to False
+        :type requires_preauth: bool, optional
+        :param args: Extra addprinc options (e.g. '+nokey'), defaults to None
+        :type args: str | None, optional
         :return: Self.
         :rtype: KDCPrincipal
         """
+        opts: list[str] = []
+        if requires_preauth:
+            opts.append("+requires_preauth")
+        if args:
+            opts.append(args)
+        opts_str = " ".join(opts) if opts else ""
+
         if password is not None:
-            self.role.kadmin(f'addprinc -pw "{password}" "{self.name}"')
+            self.role.kadmin(f'addprinc -pw "{password}" {opts_str} "{self.name}"')
         else:
-            self.role.kadmin(f'addprinc -randkey "{self.name}"')
+            self.role.kadmin(f'addprinc -randkey {opts_str} "{self.name}"')
 
         return self
 

@@ -860,6 +860,11 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
         self.opts = "-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
         """SSH CLI options."""
 
+        self.passwd: SSHPasswdUtils = SSHPasswdUtils(host)
+        """
+        Change password via SSH session using passwd command.
+        """
+
     def password_with_output(
         self, username: str, password: str, hostname: str = "localhost"
     ) -> tuple[int, int, str, str]:
@@ -1073,6 +1078,177 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
         :rtype: bool
         """
         rc, _, _, _ = self.password_expired_with_output(username, password, new_password, hostname)
+        return rc == 0
+
+
+class SSHPasswdUtils(MultihostUtility[MultihostHost]):
+    """
+    Change password via SSH session using passwd command.
+
+    SSHs as user, logs in, runs ``passwd`` interactively, and
+    changes the password. Used when testing krb5_child
+    "Initial authentication for change password".
+    """
+
+    def __init__(self, host: MultihostHost) -> None:
+        """
+        :param host: Multihost host.
+        :type host: MultihostHost
+        """
+        super().__init__(host)
+
+        self.opts = "-o UserKnownHostsFile=/dev/null" " -o StrictHostKeyChecking=no"
+
+    def password_with_output(
+        self,
+        username: str,
+        password: str,
+        new_password: str,
+        retyped: str | None = None,
+        *,
+        hostname: str = "localhost",
+    ) -> tuple[int, int, str, str]:
+        """
+        SSH to host, run passwd, and change password.
+
+        :param username: Username.
+        :type username: str
+        :param password: Current password.
+        :type password: str
+        :param new_password: New password.
+        :type new_password: str
+        :param retyped: Retyped new password (defaults to new_password).
+        :type retyped: str | None, optional
+        :param hostname: SSH target host, defaults to "localhost".
+        :type hostname: str
+        :return: Tuple containing [return code, command code, stdout, stderr].
+        :rtype: Tuple[int, int, str, str]
+        """
+        if retyped is None:
+            retyped = new_password
+
+        result = self.host.conn.expect_nobody(
+            rf"""
+            exp_internal 0
+
+            proc exitmsg {{ msg code }} {{
+                catch close
+                lassign [wait] pid spawnid os_error_flag rc
+
+                puts ""
+                puts "expect result: $msg"
+                puts "expect exit code: $code"
+                puts "expect spawn exit code: $rc"
+                exit $code
+            }}
+
+            set timeout {DEFAULT_AUTHENTICATION_TIMEOUT}
+            set prompt "\n.*\[#\$>\] $"
+
+            spawn ssh {self.opts} \
+                -o PreferredAuthentications=password \
+                -o NumberOfPasswordPrompts=1 \
+                -l "{username}" "{hostname}"
+
+            expect {{
+                "password:" {{send "{password}\n"}}
+                timeout {{exitmsg "Unexpected output" 201}}
+                eof {{exitmsg "Unexpected end of file" 202}}
+            }}
+
+            expect {{
+                -re $prompt {{}}
+                timeout {{exitmsg "Unexpected output" 201}}
+                eof {{exitmsg "Unexpected end of file" 202}}
+            }}
+
+            send "passwd\r"
+
+            expect {{
+                -nocase "Current Password:" {{send "{password}\n"}}
+                timeout {{exitmsg "Unexpected output" 201}}
+                eof {{exitmsg "Unexpected end of file" 202}}
+            }}
+
+            expect {{
+                -nocase "New password:" {{send "{new_password}\n"}}
+                timeout {{exitmsg "Unexpected output" 201}}
+                eof {{exitmsg "Unexpected end of file" 202}}
+            }}
+
+            expect {{
+                -nocase "Retype new password:" {{send "{retyped}\n"}}
+                timeout {{exitmsg "Unexpected output" 201}}
+                eof {{exitmsg "Unexpected end of file" 202}}
+            }}
+
+            expect {{
+                -re "passwd: .+ updated successfully" {{
+                    send "exit\r"
+                    expect eof
+                    exitmsg "Password change was successful" 0
+                }}
+                "Sorry, passwords do not match." {{
+                    exitmsg "Passwords do not match" 1
+                }}
+                "Password change failed." {{
+                    exitmsg "Password change failed" 1
+                }}
+                timeout {{exitmsg "Unexpected output" 201}}
+                eof {{exitmsg "Unexpected end of file" 202}}
+            }}
+
+            exitmsg "Unexpected code path" 203
+            """,
+            verbose=False,
+        )
+
+        if result.rc > 200:
+            raise ExpectScriptError(result.rc)
+
+        expect_data = result.stdout_lines[-3:]
+
+        # Get command exit code.
+        cmdrc = int(expect_data[2].split(":")[1].strip())
+
+        # Alter stdout, first line is spawned command,
+        # the last three are our expect output.
+        stdout = "\n".join(result.stdout_lines[1:-3])
+
+        return result.rc, cmdrc, stdout, result.stderr
+
+    def password(
+        self,
+        username: str,
+        password: str,
+        new_password: str,
+        retyped: str | None = None,
+        *,
+        hostname: str = "localhost",
+    ) -> bool:
+        """
+        SSH to host, run passwd, and change password.
+
+        :param username: Username.
+        :type username: str
+        :param password: Current password.
+        :type password: str
+        :param new_password: New password.
+        :type new_password: str
+        :param retyped: Retyped new password (defaults to new_password).
+        :type retyped: str | None, optional
+        :param hostname: SSH target host, defaults to "localhost".
+        :type hostname: str
+        :return: True if password change succeeded, False otherwise.
+        :rtype: bool
+        """
+        rc, _, _, _ = self.password_with_output(
+            username,
+            password,
+            new_password,
+            retyped,
+            hostname=hostname,
+        )
         return rc == 0
 
 
@@ -1509,6 +1685,83 @@ class KerberosAuthenticationUtils(MultihostUtility[MultihostHost]):
                 return (start, end)
 
         raise Exception("TGT was not found")
+
+    def ktutil_create_mixed_keytab(
+        self,
+        wrong_principal: str,
+        valid_keytab: str,
+        output_keytab: str,
+        password: str = "Secret123",
+        *,
+        raise_on_error: bool = True,
+    ) -> ProcessResult:
+        """
+        Create keytab with wrong principal first, then entries from valid keytab.
+
+        BZ 805281: Uses ktutil to add a password-based entry (wrong realm) first,
+        then merge with an existing keytab. Tests that SSSD selects the correct
+        principal when multiple realms exist in one keytab.
+
+        :param wrong_principal: Principal to add first (e.g. nfs/host@TEST.EXAMPLE.COM)
+        :param valid_keytab: Path to keytab with correct principal
+        :param output_keytab: Path for the combined keytab output
+        :param password: Password for addent -password, defaults to "Secret123"
+        :param raise_on_error: Raise on failure, defaults to True
+        :return: Process result from expect
+        """
+        return self.host.conn.expect(
+            f"""
+            spawn ktutil
+            expect "ktutil:  "
+            send "addent -password -p {wrong_principal} -k 3 -e rc4-hmac\\r"
+            expect "Password: *"
+            send "{password}\\r"
+            send "rkt {valid_keytab}\\r"
+            send "wkt {output_keytab}\\r"
+            expect eof
+            """,
+            raise_on_error=raise_on_error,
+        )
+
+    def ktutil_create_keytab(
+        self,
+        principal: str,
+        output_keytab: str,
+        password: str = "Secret123",
+        enctype: str = "aes256-cts-hmac-sha1-96",
+        kvno: int = 1,
+        *,
+        raise_on_error: bool = True,
+    ) -> ProcessResult:
+        """
+        Create keytab with single password-based entry (BZ 1198478).
+
+        Uses ktutil to add a principal with password and write to keytab file.
+        Useful for dummy keytabs (principal in keytab but not on KDC).
+
+        :param principal: Principal name (e.g. bla@EXAMPLE.COM)
+        :param output_keytab: Path for the keytab output
+        :param password: Password for addent -password, defaults to "Secret123"
+        :param enctype: Encryption type (default: aes256-cts-hmac-sha1-96)
+        :param kvno: Key version number, defaults to 1
+        :param raise_on_error: Raise on failure, defaults to True
+        :return: Process result from expect
+        """
+        return self.host.conn.expect(
+            f"""
+            spawn ktutil
+            expect "ktutil:  "
+            send "addent -password -p {principal} -k {kvno} -e {enctype}\\r"
+            expect "Password: *"
+            send "{password}\\r"
+            expect "ktutil:  "
+            send "wkt {output_keytab}\\r"
+            expect "ktutil:  "
+            send "q\\r"
+            expect eof
+            """,
+            raise_on_error=raise_on_error,
+        )
 
     def __enter__(self) -> KerberosAuthenticationUtils:
         """
