@@ -1519,12 +1519,14 @@ class GenericDNSZone(GenericDNSServer):
         pass
 
     @abstractmethod
-    def delete_record(self, name: str) -> None:
+    def delete_record(self, name: str, data: str) -> None:
         """
         Delete DNS record.
 
         :param name: Name of the record.
         :type name: str
+        :param data: Record data.
+        :type data: str
         """
         pass
 
