@@ -20,6 +20,7 @@ from ..misc import (
     attrs_parse,
     attrs_to_hash,
     ip_version,
+    ip_to_ptr,
     seconds_to_timespan,
 )
 from .base import BaseObject, BaseWindowsRole, DeleteAttribute
@@ -2347,32 +2348,57 @@ class ADDNSZone(ADDNSServer, ABC):
         """
         args = ""
 
+        if self.domain not in name:
+            name = f"{name}.{self.domain}"
+        short_name = name.split(".")[0]
+
         if isinstance(data, int):
-            args = f"-Ptr -Name {str(data)} -AllowUpdateAny -PtrDomainName {name}.{self.zone_name}"
+            args = f"-Ptr -Name {str(data)} -AllowUpdateAny -PtrDomainName {name}."
         elif isinstance(data, str) and ip_version(data) == 4:
-            args = f"-A -Name {name} -IPv4Address {data}"
+            args = f"-A -Name {short_name} -IPv4Address {data}"
         elif isinstance(data, str) and ip_version(data) == 6:
-            args = f"-A -Name {name} -IPv6Address {data}"
+            args = f"-A -Name {short_name} -IPv6Address {data}"
 
         self.host.conn.run(f"Add-DnsServerResourceRecord -ZoneName {self.zone_name} {args} ")
         return self
 
     def delete_record(self, name: str) -> None:
         """
-        Delete DNS record.
+        Delete DNS record, both forward and reverse records are deleted.
 
-        :param name: Name of the record.
+        :param name: Name or IP of the record.
         :type name: str
         """
-        if "in-addr" in self.zone_name:
-            record_type = "PTR"
-        else:
-            data = self.host.conn.run(f"dig +short {name}").stdout.strip()
-            record_type = "AAAA" if ":" in data else "A"
+        if self.domain not in name:
+            name = f"{name}.{self.domain}"
 
-        self.host.conn.run(
-            f"Remove-DnsServerResourceRecord -ZoneName {self.zone_name} -Name {name} -RRType {record_type} -Force"
-        )
+        records = self.host.conn.run(f"dig +short +norecurse {name} '@{self.server}'").stdout_lines
+        records = [s.rstrip("\r") for s in records]
+
+        if not isinstance(records, list) or records is None:
+            return None
+
+        if len(records) > 1:
+            for record in records:
+                if ip_version(record) == 4:
+                    self.role.host.conn.run(
+                        f"Remove-DnsServerResourceRecord -RRType A -Force -ZoneName {self.zone_name} -Name {name}"
+                    )
+                if ip_version(record) == 6:
+                    self.host.conn.run(
+                        f"Remove-DnsServerResourceRecord -RRType AAAA -Force -ZoneName {self.zone_name} -Name {name}"
+                    )
+
+        for ptr_records in records:
+            ptr_record = self.host.conn.run(f"dig +short -x +norecurse {ptr_records} '@{self.server}'").stdout_lines
+            ptr_record = [r.rstrip("\r") for r in ptr_record]
+            if ptr_record:
+                self.host.conn.run(
+                    f"Remove-DnsServerResourceRecord -RRType PTR "
+                    f"-Force -ZoneName {ip_to_ptr(ptr_record[0])} "
+                    f"-Name {'.'.join(ptr_record).split()[-1]}",
+                )
+        return None
 
     def print(self) -> str:
         """
@@ -2381,7 +2407,7 @@ class ADDNSZone(ADDNSServer, ABC):
         :return: Print zone data.
         :rtype: str
         """
-        return self.host.conn.run(f"Get-DnsServerResourceRecord -ZoneName {self.zone_name}").stdout
+        return self.host.conn.run(f"Get-DnsServerResourceRecord -ZoneName {self.zone_name} | Format-List").stdout
 
 
 ADNetgroupMember: TypeAlias = LDAPNetgroupMember[ADUser, ADNetgroup]
