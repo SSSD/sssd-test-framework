@@ -1196,7 +1196,7 @@ class IPAUser(IPAObject):
             retry += 1
             time.sleep(1)
 
-        return result.stdout_lines[-1].strip()
+        return result.stdout_lines[-2].strip()
 
     def iduseroverride(self) -> IDUserOverride:
         """

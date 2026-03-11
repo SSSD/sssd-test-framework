@@ -417,6 +417,7 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
     ) -> tuple[int, int, str, str]:
         """wrapper for passkey_with_output methods"""
         if "virt_type" in kwargs and kwargs["virt_type"] == "vfido":
+            del kwargs["virt_type"]
             return self.vfido_passkey_with_output(**kwargs)
         else:
             return self.umockdev_passkey_with_output(**kwargs)
@@ -427,6 +428,7 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
     ) -> bool:
         """wrapper for passkey methods"""
         if "virt_type" in kwargs and kwargs["virt_type"] == "vfido":
+            del kwargs["virt_type"]
             return self.vfido_passkey(**kwargs)
         else:
             return self.umockdev_passkey(**kwargs)
@@ -690,12 +692,15 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
         """
 
         match auth_method:
-            case PasskeyAuthenticationUseCases.PASSKEY_PIN | PasskeyAuthenticationUseCases.PASSKEY_PIN_AND_PROMPTS:
+            case (
+                PasskeyAuthenticationUseCases.PASSKEY_PIN
+                | PasskeyAuthenticationUseCases.PASSKEY_PIN_AND_PROMPTS
+                | PasskeyAuthenticationUseCases.PASSKEY_FALLBACK_TO_PASSWORD
+            ):
                 if pin is None:
                     raise ValueError(f"PIN is required for {str(auth_method)}")
             case (
                 PasskeyAuthenticationUseCases.PASSKEY_PROMPTS_NO_PIN
-                | PasskeyAuthenticationUseCases.PASSKEY_FALLBACK_TO_PASSWORD
                 | PasskeyAuthenticationUseCases.PASSKEY_NO_PIN_NO_PROMPTS
             ):
                 if pin is not None:
@@ -738,71 +743,68 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
             spawn "{run_su}"
             set ID_su $spawn_id
 
-            # If the authentication method set without entering the PIN, it will directly ask
-            # prompt, if we set prompting options in sssd.conf it will ask interactive and touch prompt.
-
-            if {{ ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_NO_PIN_NO_PROMPTS}")
-                || ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_PROMPTS_NO_PIN}") }}  {{
-                expect {{
-                    -i $ID_su -re "{interactive_prompt}*" {{ send -i $ID_su "\n" }}
-                    -i $ID_su timeout {{exitmsg "Unexpected output" 201 }}
-                    -i $ID_su eof {{exitmsg "Unexpected end of file" 202 }}
-                }}
-                # If prompt options are set
-                if {{ ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_PROMPTS_NO_PIN}") }} {{
-                    expect {{
-                        -i $ID_su -re "{touch_prompt}*" {{ }}
-                        -i $ID_su timeout {{exitmsg "Unexpected output" 203 }}
-                        -i $ID_su eof {{exitmsg "Unexpected end of file" 204 }}
-                    }}
-                }}
+            # Phase 1: all methods start with interactive prompt
+            expect {{
+                -i $ID_su -re "{interactive_prompt}*" {{ send -i $ID_su "\n" }}
+                -i $ID_su timeout {{exitmsg "Unexpected output" 201 }}
+                -i $ID_su eof {{exitmsg "Unexpected end of file" 202 }}
             }}
 
-            # If authentication method set with PIN, after interactive prompt always ask to Enter the PIN.
-            # If PIN is correct with prompt options in sssd.conf it will ask interactive and touch prompt.
-            # If we press Enter key for PIN, sssd will fallback to next auth method, here it will ask
-            # for Password.
-
+            # Phase 2: PIN-based methods need PIN prompt
             if {{ ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_PIN}")
                 || ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_PIN_AND_PROMPTS}")
                 || ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_FALLBACK_TO_PASSWORD}")}} {{
-                expect {{
-                    -i $ID_su -re "{interactive_prompt}*" {{ send -i $ID_su "\n" }}
-                    -i $ID_su timeout {{exitmsg "Unexpected output" 205 }}
-                    -i $ID_su eof {{exitmsg "Unexpected end of file" 206 }}
-                }}
                 expect {{
                     -i $ID_su -re "Enter PIN:*" {{send -i $ID_su "{pin}\r"}}
                     -i $ID_su timeout {{exitmsg "Unexpected output" 207}}
                     -i $ID_su eof {{exitmsg "Unexpected end of file" 208}}
                 }}
-                if {{ ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_FALLBACK_TO_PASSWORD}") }} {{
-                    expect {{
-                        -i $ID_su -re "Password:*" {{send -i $ID_su "Secret123\r"}}
-                        -i $ID_su timeout {{exitmsg "Unexpected output" 209}}
-                        -i $ID_su eof {{exitmsg "Unexpected end of file" 210}}
-                    }}
-                }}
-                if {{ ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_PIN_AND_PROMPTS}") }} {{
-                    expect {{
-                        -i $ID_su -re "{touch_prompt}*" {{ }}
-                        -i $ID_su timeout {{exitmsg "Unexpected output" 211 }}
-                        -i $ID_su eof {{exitmsg "Unexpected end of file" 212 }}
-                    }}
+            }}
+
+            # Password fallback method needs password prompt
+            if {{ ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_FALLBACK_TO_PASSWORD}") }} {{
+                expect {{
+                    -i $ID_su -re "Password:*" {{send -i $ID_su "Secret123\r"}}
+                    -i $ID_su timeout {{exitmsg "Unexpected output" 209}}
+                    -i $ID_su eof {{exitmsg "Unexpected end of file" 210}}
                 }}
             }}
 
-            # Now simulate touch on vfido device
+            # Phase 3: handle touch prompts (for methods that show them)
+            if {{ ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_PROMPTS_NO_PIN}")
+                || ($auth_method eq "{PasskeyAuthenticationUseCases.PASSKEY_PIN_AND_PROMPTS}") }} {{
+                # Wait for touch prompt to appear and acknowledge it
+                expect {{
+                    -i $ID_su -re "{touch_prompt}*" {{
+                        # Touch prompt appeared - send Enter to acknowledge it
+                        send -i $ID_su "\n"
+                    }}
+                    -i $ID_su timeout {{exitmsg "Unexpected output" 203 }}
+                    -i $ID_su eof {{exitmsg "Unexpected end of file" 204 }}
+                }}
+            }}
+
+            # Phase 4: Device touch
             spawn {test_venv_bin}/vfido_touch
             set ID_touch $spawn_id
 
             expect {{
-                -i $ID_su -re "Authentication failure" {{exitmsg "Authentication failure" 1}}
-                -i $ID_su eof {{exitmsg "Passkey authentication successful" 0}}
-                -i $ID_su timeout {{exitmsg "Unexpected output" 213}}
+                -i $ID_touch eof {{}}
+                -i $ID_touch timeout {{}}
             }}
 
-            expect -i $ID_touch eof
+            # Phase 5: Wait for authentication completion
+            expect {{
+                -i $ID_su -re "Authentication failure" {{
+                    exitmsg "Authentication failure" 1
+                }}
+                -i $ID_su eof {{
+                    exitmsg "Passkey authentication successful" 0
+                }}
+                -i $ID_su timeout {{
+                    exitmsg "Unexpected output" 213
+                }}
+            }}
 
             exitmsg "Unexpected code path" 220
             """,
