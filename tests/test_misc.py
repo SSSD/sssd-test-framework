@@ -288,14 +288,16 @@ def test_seconds_to_timespan(seconds: tuple[int, str]):
 
 
 @pytest.mark.parametrize(
-    "value, expected",
+    "value, expected, prefixlen",
     [
-        ("192.168.1.0", "1.168.192.in-addr.arpa."),
-        ("2001:db8::1", "1000000000000000000000008bd01002.ip6.arpa."),
+        ("192.168.1.0", "1.168.192.in-addr.arpa", None),
+        ("10.20.30.40", "20.10.in-addr.arpa", 16),
+        ("fe80::48b2:6cff:fefc:17ff", "0.0.0.0.0.0.0.0.0.0.0.0.0.8.e.f.ip6.arpa", None),
+        ("2001:db8:abcd:1234::1", "4.3.2.1.d.c.b.a.8.b.d.0.1.0.0.2.ip6.arpa", None),
     ],
 )
-def test_ip_to_ptr(value, expected):
-    assert ip_to_ptr(value) == expected
+def test_ip_to_ptr(value, expected, prefixlen):
+    assert ip_to_ptr(value, prefixlen) == expected
 
 
 @pytest.mark.parametrize(
