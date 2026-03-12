@@ -153,18 +153,21 @@ class AD(BaseWindowsRole[ADHost]):
                 }
         """
 
-        self._ca = ADCertificateAuthority(self.host)
-        """
-        AD Certificate Authority server management.
-
-        Provides certificate operations:
-        - Request certificates using templates
-        - Request smartcard certificates with Enrollment Agent
-        - Revoke certificates with configurable reasons
-        - Manage certificate holds
-        - Export certificates as PFX
-        - Retrieve certificate and template details
-        """
+    #
+    # Disabling CA functionality until sssd-ci-container updated
+    #
+    #        self._ca = ADCertificateAuthority(self.host)
+    #        """
+    #        AD Certificate Authority server management.
+    #
+    #        Provides certificate operations:
+    #        - Request certificates using templates
+    #        - Request smartcard certificates with Enrollment Agent
+    #        - Revoke certificates with configurable reasons
+    #        - Manage certificate holds
+    #        - Export certificates as PFX
+    #        - Retrieve certificate and template details
+    #        """
 
     @property
     def password_policy(self) -> ADPasswordPolicy:
@@ -184,44 +187,47 @@ class AD(BaseWindowsRole[ADHost]):
         """
         return self._password_policy
 
-    @property
-    def ca(self) -> ADCertificateAuthority:
-        """
-        AD Certificate Authority management.
-
-        Provides certificate operations:
-
-        - Request certificates using templates
-        - Request smartcard certificates with Enrollment Agent
-        - Revoke certificates with configurable reasons
-        - Manage certificate holds
-        - Export certificates as PFX
-        - Retrieve certificate and template details
-
-        .. code-block:: python
-            :caption: Example usage
-
-            @pytest.mark.topology(KnownTopology.AD)
-            def test_example(client: Client, ad: AD):
-                # Request smartcard certificate
-                cert, key, csr = ad.ca.request(
-                    template="SmartcardLogon",
-                    subject="CN=testuser"
-                )
-
-                # Get certificate details
-                cert_details = ad.ca.get(cert)
-
-                # Place certificate on hold (temporary revocation)
-                ad.ca.revoke_hold(cert)
-
-                # Remove hold (restore certificate)
-                ad.ca.revoke_hold_remove(cert)
-
-                # Permanently revoke certificate
-                ad.ca.revoke(cert, reason="key_compromise")
-        """
-        return self._ca
+    #
+    # Disabling CA functionality until sssd-ci-container updated
+    #
+    #    @property
+    #    def ca(self) -> ADCertificateAuthority:
+    #        """
+    #        AD Certificate Authority management.
+    #
+    #        Provides certificate operations:
+    #
+    #        - Request certificates using templates
+    #        - Request smartcard certificates with Enrollment Agent
+    #        - Revoke certificates with configurable reasons
+    #        - Manage certificate holds
+    #        - Export certificates as PFX
+    #        - Retrieve certificate and template details
+    #
+    #        .. code-block:: python
+    #            :caption: Example usage
+    #
+    #            @pytest.mark.topology(KnownTopology.AD)
+    #            def test_example(client: Client, ad: AD):
+    #                # Request smartcard certificate
+    #                cert, key, csr = ad.ca.request(
+    #                    template="SmartcardLogon",
+    #                    subject="CN=testuser"
+    #                )
+    #
+    #                # Get certificate details
+    #                cert_details = ad.ca.get(cert)
+    #
+    #                # Place certificate on hold (temporary revocation)
+    #                ad.ca.revoke_hold(cert)
+    #
+    #                # Remove hold (restore certificate)
+    #                ad.ca.revoke_hold_remove(cert)
+    #
+    #                # Permanently revoke certificate
+    #                ad.ca.revoke(cert, reason="key_compromise")
+    #        """
+    #        return self._ca
 
     @property
     def naming_context(self) -> str:
