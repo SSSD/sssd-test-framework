@@ -11,7 +11,9 @@ from pytest_mh.conn import Connection, ProcessResult
 from pytest_mh.utils.fs import LinuxFileSystem
 
 from ..misc.errors import ExpectScriptError
-from ..misc.globals import test_venv_bin
+from ..misc.globals import (
+    test_venv_bin,
+)
 from .idp import IdpAuthenticationUtils
 
 __all__ = [
@@ -843,6 +845,48 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
         """
         rc, _, _, _ = self.vfido_passkey_with_output(username=username, pin=pin, command=command)
         return rc == 0
+
+    def smartcard_with_output(
+        self, username: str, pin: str, *, num_certs: int = 1, cert_selection: int = 1
+    ) -> ProcessResult:
+        """
+        Wait for the user to become resolvable then authenticate via ``su`` with the smart card PIN.
+
+        :param username: Username.
+        :type username: str
+        :param pin: Smart card PIN.
+        :type pin: str
+        :param num_certs: Number of certificates that map to the user, defaults to 1.
+        :type num_certs: int, optional
+        :param cert_selection: Index of the certificate to select when multiple are present, defaults to 1.
+        :type cert_selection: int, optional
+        :return: Result of the ``su`` command.
+        :rtype: ProcessResult
+        """
+        su_input = f"{cert_selection}\n{pin}" if num_certs > 1 else pin
+        return self.host.conn.run(
+            f"su - {username} -c 'su - {username} -c whoami'",
+            input=su_input,
+            raise_on_error=False,
+        )
+
+    def smartcard(self, username: str, pin: str, *, num_certs: int = 1, cert_selection: int = 1) -> bool:
+        """
+        Wait for the user to become resolvable then authenticate via ``su`` with the smart card PIN.
+
+        :param username: Username.
+        :type username: str
+        :param pin: Smart card PIN.
+        :type pin: str
+        :param num_certs: Number of certificates that map to the user, defaults to 1.
+        :type num_certs: int, optional
+        :param cert_selection: Index of the certificate to select when multiple are present, defaults to 1.
+        :type cert_selection: int, optional
+        :return: True if authentication was successful, False otherwise.
+        :rtype: bool
+        """
+        result = self.smartcard_with_output(username, pin, num_certs=num_certs, cert_selection=cert_selection)
+        return result.rc == 0 and "PIN" in result.stderr and username in result.stdout
 
 
 class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
