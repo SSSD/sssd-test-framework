@@ -9,6 +9,7 @@ from pytest_mh.utils.services import SystemdServices
 
 if TYPE_CHECKING:
     from ..roles.client import Client
+    from ..roles.ipa import IPA
 
 __all__ = [
     "SmartCardUtils",
@@ -47,11 +48,19 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
         self.svc: SystemdServices = svc
         """Systemd utility to manage and interact with svc."""
 
-    def initialize_card(self, label: str = "sc_test", so_pin: str = "12345678", user_pin: str = "123456") -> None:
+    def initialize_card(
+        self,
+        label: str = "sc_test",
+        so_pin: str = "12345678",
+        user_pin: str = "123456",
+        reset: bool = True,
+    ) -> None:
         """
-        Initializes a SoftHSM token with the given label and PINs.
+        Initialize a SoftHSM token with the given label and PINs.
 
-        Cleans cache directories and prepares the token directory.
+        When *reset* is ``True`` (default), existing token storage and OpenSC
+        caches are removed first.  Pass ``False`` to add a token alongside
+        existing ones (multi-token / multi-card setup).
 
         :param label: Token label, defaults to "sc_test"
         :type label: str, optional
@@ -59,12 +68,14 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
         :type so_pin: str, optional
         :param user_pin: User PIN, defaults to "123456"
         :type user_pin: str, optional
+        :param reset: Remove existing tokens before initializing, defaults to True
+        :type reset: bool, optional
         """
-        for path in self.OPENSC_CACHE_PATHS:
-            self.fs.rm(path)
-
-        self.fs.rm(self.TOKEN_STORAGE_PATH)
-        self.fs.mkdir_p(self.TOKEN_STORAGE_PATH)
+        if reset:
+            for path in self.OPENSC_CACHE_PATHS:
+                self.fs.rm(path)
+            self.fs.rm(self.TOKEN_STORAGE_PATH)
+            self.fs.mkdir_p(self.TOKEN_STORAGE_PATH)
 
         args: CLIBuilderArgs = {
             "label": (self.cli.option.VALUE, label),
@@ -82,6 +93,7 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
         cert_id: str = "01",
         pin: str = "123456",
         private: bool | None = False,
+        token_label: str | None = None,
         label: str | None = None,
     ) -> None:
         """
@@ -95,7 +107,14 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
         :type pin: str, optional
         :param private: Whether the object is a private key. Defaults to False.
         :type private: bool, optional
-        :param label: Label for the PKCS#11 object, defaults to None.
+        :param token_label: Label of the target token. When ``None`` (the
+            default) ``pkcs11-tool`` writes to the first available token.
+            Set this when multiple tokens exist to target a specific one.
+        :type token_label: str | None, optional
+        :param label: Label for the PKCS#11 object being written.  Required
+            when ``p11_child`` accesses the token directly (i.e. without
+            ``virt_cacard``), because the response parser expects a
+            non-empty label.
         :type label: str | None, optional
         """
         obj_type = "privkey" if private else "cert"
@@ -107,11 +126,20 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
             "type": (self.cli.option.VALUE, obj_type),
             "id": (self.cli.option.VALUE, cert_id),
         }
+        if token_label is not None:
+            args["token-label"] = (self.cli.option.VALUE, token_label)
         if label is not None:
             args["label"] = (self.cli.option.VALUE, label)
         self.host.conn.run(self.cli.command("pkcs11-tool", args), env={"SOFTHSM2_CONF": self.SOFTHSM2_CONF_PATH})
 
-    def add_key(self, key_path: str, key_id: str = "01", pin: str = "123456", label: str | None = None) -> None:
+    def add_key(
+        self,
+        key_path: str,
+        key_id: str = "01",
+        pin: str = "123456",
+        token_label: str | None = None,
+        label: str | None = None,
+    ) -> None:
         """
         Adds a private key to the smart card.
 
@@ -121,10 +149,12 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
         :type key_id: str, optional
         :param pin: User PIN, defaults to "123456"
         :type pin: str, optional
-        :param label: Label for the PKCS#11 object, defaults to None.
+        :param token_label: Label of the target token (see :meth:`add_cert`).
+        :type token_label: str | None, optional
+        :param label: Label for the PKCS#11 object (see :meth:`add_cert`).
         :type label: str | None, optional
         """
-        self.add_cert(cert_path=key_path, cert_id=key_id, pin=pin, private=True, label=label)
+        self.add_cert(cert_path=key_path, cert_id=key_id, pin=pin, private=True, token_label=token_label, label=label)
 
     def generate_cert(
         self,
@@ -199,3 +229,56 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
         data = client.host.fs.read(cert)
         client.host.fs.append("/etc/sssd/pki/sssd_auth_ca_db.pem", data)
         client.sssd.start()
+
+    def enroll_to_token(
+        self,
+        client: Client,
+        ipa: IPA,
+        username: str,
+        *,
+        token_label: str = "sc_test",
+        cert_id: str = "01",
+        pin: str = "123456",
+        init: bool = False,
+    ) -> None:
+        """
+        Request an IPA-signed certificate for *username* and store it on *token_label*.
+
+        When *init* is ``True``, the token is first initialized via
+        :meth:`initialize_card` (resetting any existing token storage).
+        Pass ``False`` when the card has already been initialized or when
+        adding a second certificate to an existing token.
+
+        :param client: Client role object.
+        :type client: Client
+        :param ipa: IPA role object whose CA issues the certificate.
+        :type ipa: IPA
+        :param username: IPA principal to issue the certificate for.
+        :type username: str
+        :param token_label: SoftHSM token label to write the objects to,
+            defaults to "sc_test".
+        :type token_label: str, optional
+        :param cert_id: PKCS#11 object ID, defaults to "01".
+        :type cert_id: str, optional
+        :param pin: User PIN for the token, defaults to "123456".
+        :type pin: str, optional
+        :param init: Initialize (and reset) the token before enrolling,
+            defaults to False.
+        :type init: bool, optional
+        """
+        if init:
+            self.initialize_card(label=token_label, user_pin=pin)
+
+        cert, key, _ = ipa.ca.request(username)
+        cert_content = ipa.fs.read(cert)
+        key_content = ipa.fs.read(key)
+
+        name_suffix = token_label
+        cert_path = f"/opt/test_ca/{username}_{name_suffix}.crt"
+        key_path = f"/opt/test_ca/{username}_{name_suffix}.key"
+
+        client.fs.write(cert_path, cert_content)
+        client.fs.write(key_path, key_content)
+
+        self.add_key(key_path, key_id=cert_id, pin=pin, token_label=token_label, label=username)
+        self.add_cert(cert_path, cert_id=cert_id, pin=pin, token_label=token_label, label=username)
