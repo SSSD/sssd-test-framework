@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from datetime import datetime
 from enum import Enum
 from typing import Any
@@ -11,7 +12,12 @@ from pytest_mh.conn import Connection, ProcessResult
 from pytest_mh.utils.fs import LinuxFileSystem
 
 from ..misc.errors import ExpectScriptError
-from ..misc.globals import test_venv_bin
+from ..misc.globals import (
+    USER_RESOLVABLE_ATTEMPTS,
+    USER_RESOLVABLE_CACHE_EXPIRY_ATTEMPT,
+    USER_RESOLVABLE_INTERVAL_S,
+    test_venv_bin,
+)
 from .idp import IdpAuthenticationUtils
 
 __all__ = [
@@ -843,6 +849,54 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
         """
         rc, _, _, _ = self.vfido_passkey_with_output(username=username, pin=pin, command=command)
         return rc == 0
+
+    def smartcard_with_su_output(self, username: str, pin: str, *, num_certs: int = 1) -> ProcessResult:
+        """
+        Wait for the user to become resolvable then authenticate via ``su`` with the smart card PIN.
+
+        :param username: Username.
+        :type username: str
+        :param pin: Smart card PIN.
+        :type pin: str
+        :param num_certs: Number of certificates that map to the user, defaults to 1.
+        :type num_certs: int, optional
+        :return: Result of the ``su`` command.
+        :rtype: ProcessResult
+        """
+        for attempt in range(USER_RESOLVABLE_ATTEMPTS):
+            time.sleep(USER_RESOLVABLE_INTERVAL_S)
+            check = self.host.conn.run(f"getent passwd {username}", raise_on_error=False)
+            if check.rc == 0:
+                break
+            if attempt == USER_RESOLVABLE_CACHE_EXPIRY_ATTEMPT:
+                self.host.conn.run("sss_cache -E", raise_on_error=False)
+        else:
+            raise AssertionError(
+                f"User '{username}' was not resolvable by SSSD after {USER_RESOLVABLE_ATTEMPTS} attempts"
+            )
+
+        su_input = f"1\n{pin}" if num_certs > 1 else pin
+        return self.host.conn.run(
+            f"su - {username} -c 'su - {username} -c whoami'",
+            input=su_input,
+            raise_on_error=False,
+        )
+
+    def smartcard_with_su(self, username: str, pin: str, *, num_certs: int = 1) -> bool:
+        """
+        Wait for the user to become resolvable then authenticate via ``su`` with the smart card PIN.
+
+        :param username: Username.
+        :type username: str
+        :param pin: Smart card PIN.
+        :type pin: str
+        :param num_certs: Number of certificates that map to the user, defaults to 1.
+        :type num_certs: int, optional
+        :return: True if authentication was successful, False otherwise.
+        :rtype: bool
+        """
+        result = self.smartcard_with_su_output(username, pin, num_certs=num_certs)
+        return result.rc == 0 and "PIN" in result.stderr and username in result.stdout
 
 
 class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
