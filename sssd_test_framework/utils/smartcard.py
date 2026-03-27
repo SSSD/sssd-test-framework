@@ -82,6 +82,7 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
         cert_id: str = "01",
         pin: str = "123456",
         private: bool | None = False,
+        label: str | None = None,
     ) -> None:
         """
         Adds a certificate or private key to the smart card.
@@ -94,6 +95,8 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
         :type pin: str, optional
         :param private: Whether the object is a private key. Defaults to False.
         :type private: bool, optional
+        :param label: Label for the PKCS#11 object, defaults to None.
+        :type label: str | None, optional
         """
         obj_type = "privkey" if private else "cert"
         args: CLIBuilderArgs = {
@@ -104,9 +107,11 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
             "type": (self.cli.option.VALUE, obj_type),
             "id": (self.cli.option.VALUE, cert_id),
         }
+        if label is not None:
+            args["label"] = (self.cli.option.VALUE, label)
         self.host.conn.run(self.cli.command("pkcs11-tool", args), env={"SOFTHSM2_CONF": self.SOFTHSM2_CONF_PATH})
 
-    def add_key(self, key_path: str, key_id: str = "01", pin: str = "123456") -> None:
+    def add_key(self, key_path: str, key_id: str = "01", pin: str = "123456", label: str | None = None) -> None:
         """
         Adds a private key to the smart card.
 
@@ -116,8 +121,10 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
         :type key_id: str, optional
         :param pin: User PIN, defaults to "123456"
         :type pin: str, optional
+        :param label: Label for the PKCS#11 object, defaults to None.
+        :type label: str | None, optional
         """
-        self.add_cert(cert_path=key_path, cert_id=key_id, pin=pin, private=True)
+        self.add_cert(cert_path=key_path, cert_id=key_id, pin=pin, private=True, label=label)
 
     def generate_cert(
         self,
