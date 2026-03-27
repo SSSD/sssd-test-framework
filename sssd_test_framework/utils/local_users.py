@@ -11,10 +11,14 @@ from pytest_mh.cli import CLIBuilder, CLIBuilderArgs
 from pytest_mh.conn import ProcessLogLevel
 from pytest_mh.utils.fs import LinuxFileSystem
 
+from ..roles.generic import GenericNetgroupMember
+
 __all__ = [
     "LocalGroup",
     "LocalUser",
     "LocalUsersUtils",
+    "LocalNetgroup",
+    "LocalNetgroupMember",
     "LocalSudoAlias",
     "LocalSudoAliasKind",
     "LocalSudoRule",
@@ -45,6 +49,10 @@ class LocalUsersUtils(MultihostUtility[MultihostHost]):
         self.fs: LinuxFileSystem = fs
         self._users: list[str] = []
         self._groups: list[str] = []
+        self._netgroup_baseline: str | None = None
+        self._netgroup_initialized: bool = False
+        self._netgroup_names_touched: set[str] = set()
+        self._netgroups: dict[str, LocalNetgroup] = {}
         self._sudoaliases: list[LocalSudoAlias] = []
         self._sudorules: list[LocalSudoRule] = []
 
@@ -130,6 +138,66 @@ class LocalUsersUtils(MultihostUtility[MultihostHost]):
         :rtype: LocalGroup
         """
         return LocalGroup(self, name)
+
+    def netgroup(self, name: str) -> LocalNetgroup:
+        """
+        Get a local netgroup object (``/etc/netgroup``).
+
+        The interface matches :class:`~sssd_test_framework.roles.ipa.IPANetgroup`: ``add``,
+        ``add_member`` / ``add_members``, ``remove_member`` / ``remove_members``, and ``delete``.
+        Only NIS-style triples ``(host,user,domain)`` and nested netgroups are supported; ``group``
+        and ``hostgroup`` members are not supported for file-based netgroups (use IPA or LDAP
+        providers for those).
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.Client)
+            def test_example(client: Client):
+                ng = client.local.netgroup("ng-1").add()
+                ng.add_member(user=client.local.user("u1"))
+
+                result = client.tools.getent.netgroup("ng-1")
+                assert result is not None
+
+        :param name: Netgroup name.
+        :type name: str
+        :return: Netgroup helper.
+        :rtype: LocalNetgroup
+        """
+        return LocalNetgroup(self, name)
+
+    def _netgroup_ensure_initialized(self) -> None:
+        if self._netgroup_initialized:
+            return
+        self.fs.backup("/etc/netgroup")
+        result = self.host.conn.exec(["cat", "/etc/netgroup"], raise_on_error=False)
+        self._netgroup_baseline = result.stdout if result.rc == 0 else ""
+        self._netgroup_initialized = True
+
+    def _rewrite_netgroup_file(self) -> None:
+        self._netgroup_ensure_initialized()
+        baseline = self._netgroup_baseline or ""
+        lines_out: list[str] = []
+        for line in baseline.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                lines_out.append(line)
+                continue
+            first = stripped.split()[0]
+            if first in self._netgroup_names_touched:
+                continue
+            lines_out.append(line)
+        body = "\n".join(lines_out)
+        if body and not body.endswith("\n"):
+            body += "\n"
+        additions: list[str] = []
+        for ng in sorted(self._netgroups.values(), key=lambda x: x.name):
+            additions.append(ng._format_line())
+        addition_str = "\n".join(additions)
+        if addition_str:
+            addition_str += "\n"
+        self.fs.write("/etc/netgroup", body + addition_str)
 
     def sudo_alias(self, name: str, kind: LocalSudoAliasKind) -> LocalSudoAlias:
         """
@@ -479,6 +547,199 @@ class LocalGroup(object):
         self.util.host.conn.run("set -ex\n" + cmd, log_level=ProcessLogLevel.Error)
 
         return self
+
+
+class LocalNetgroupMember(GenericNetgroupMember):
+    """
+    Local netgroup member (NIS triple and/or nested netgroup).
+
+    Same keyword parameters as :class:`~sssd_test_framework.roles.ipa.IPANetgroupMember`.
+    ``group`` and ``hostgroup`` are not supported for ``/etc/netgroup`` (raise
+    :class:`ValueError`).
+    """
+
+    def __init__(
+        self,
+        *,
+        host: str | None = None,
+        user: LocalUser | str | None = None,
+        group: LocalGroup | str | None = None,
+        hostgroup: str | None = None,
+        ng: "LocalNetgroup | str | None" = None,
+    ) -> None:
+        """
+        :param host: Host part of the triple, defaults to None
+        :type host: str | None, optional
+        :param user: User part of the triple, defaults to None
+        :type user: LocalUser | str | None, optional
+        :param group: Not supported for local netgroups.
+        :type group: LocalGroup | str | None, optional
+        :param hostgroup: Not supported for local netgroups.
+        :type hostgroup: str | None, optional
+        :param ng: Nested netgroup, defaults to None
+        :type ng: LocalNetgroup | str | None, optional
+        """
+        super().__init__(host=host, user=user, ng=ng)
+
+        self.group: str | None = self._get_name(group)
+        """Netgroup group (not supported locally)."""
+
+        self.hostgroup: str | None = hostgroup
+        """Netgroup hostgroup (not supported locally)."""
+
+    def to_member_string(self) -> str:
+        """
+        Format this member for ``/etc/netgroup``.
+
+        :return: Triple or nested netgroup name.
+        :rtype: str
+        """
+        if self.netgroup is not None:
+            return self.netgroup
+
+        if self.group is not None or self.hostgroup is not None:
+            raise ValueError(
+                "Local /etc/netgroup netgroups do not support group or hostgroup members "
+                "(use IPANetgroup for IPA)."
+            )
+
+        if self.host is None and self.user is None:
+            raise ValueError("Netgroup member must specify host, user, and/or nested netgroup (ng)")
+
+        h = self.host if self.host is not None else "-"
+        u = self.user if self.user is not None else "-"
+        return f"({h},{u},)"
+
+
+class LocalNetgroup(object):
+    """
+    Local netgroup management via ``/etc/netgroup`` (``files`` NSS backend).
+    """
+
+    def __init__(self, util: LocalUsersUtils, name: str) -> None:
+        """
+        :param util: LocalUsersUtils utility object.
+        :type util: LocalUsersUtils
+        :param name: Netgroup name.
+        :type name: str
+        """
+        self.util = util
+        self.name = name
+        self._members: list[str] = []
+
+    def __str__(self) -> str:
+        return self.name
+
+    def _format_line(self) -> str:
+        if not self._members:
+            return f"{self.name}\t(,,)"
+        return f"{self.name}\t" + " ".join(self._members)
+
+    def add(self) -> LocalNetgroup:
+        """
+        Create a new netgroup entry (see :meth:`~sssd_test_framework.roles.ipa.IPANetgroup.add`).
+
+        :return: Self.
+        :rtype: LocalNetgroup
+        """
+        self.util.logger.info(f'Creating local netgroup "{self.name}" on {self.util.host.hostname}')
+        self.util._netgroup_names_touched.add(self.name)
+        self.util._netgroups[self.name] = self
+        self.util._rewrite_netgroup_file()
+        return self
+
+    def add_member(
+        self,
+        *,
+        host: str | None = None,
+        user: LocalUser | str | None = None,
+        group: LocalGroup | str | None = None,
+        hostgroup: str | None = None,
+        ng: "LocalNetgroup | str | None" = None,
+    ) -> LocalNetgroup:
+        """
+        Add a netgroup member (see :meth:`~sssd_test_framework.roles.ipa.IPANetgroup.add_member`).
+
+        :return: Self.
+        :rtype: LocalNetgroup
+        """
+        return self.add_members(
+            [LocalNetgroupMember(host=host, user=user, group=group, hostgroup=hostgroup, ng=ng)]
+        )
+
+    def add_members(self, members: list[LocalNetgroupMember]) -> LocalNetgroup:
+        """
+        Add multiple netgroup members (see :meth:`~sssd_test_framework.roles.ipa.IPANetgroup.add_members`).
+
+        :param members: Netgroup members.
+        :type members: list[LocalNetgroupMember]
+        :return: Self.
+        :rtype: LocalNetgroup
+        """
+        self.util.logger.info(f'Adding members to local netgroup "{self.name}" on {self.util.host.hostname}')
+
+        if not members:
+            return self
+
+        if self.name not in self.util._netgroups:
+            raise RuntimeError(f'Netgroup "{self.name}" was not created; call add() first')
+
+        for m in members:
+            self._members.append(m.to_member_string())
+        self.util._rewrite_netgroup_file()
+        return self
+
+    def remove_member(
+        self,
+        *,
+        host: str | None = None,
+        user: LocalUser | str | None = None,
+        group: LocalGroup | str | None = None,
+        hostgroup: str | None = None,
+        ng: "LocalNetgroup | str | None" = None,
+    ) -> LocalNetgroup:
+        """
+        Remove a netgroup member (see :meth:`~sssd_test_framework.roles.ipa.IPANetgroup.remove_member`).
+
+        :return: Self.
+        :rtype: LocalNetgroup
+        """
+        return self.remove_members(
+            [LocalNetgroupMember(host=host, user=user, group=group, hostgroup=hostgroup, ng=ng)]
+        )
+
+    def remove_members(self, members: list[LocalNetgroupMember]) -> LocalNetgroup:
+        """
+        Remove netgroup members (see :meth:`~sssd_test_framework.roles.ipa.IPANetgroup.remove_members`).
+
+        :param members: Members to remove (must match strings produced when added).
+        :type members: list[LocalNetgroupMember]
+        :return: Self.
+        :rtype: LocalNetgroup
+        """
+        self.util.logger.info(f'Removing members from local netgroup "{self.name}" on {self.util.host.hostname}')
+
+        if not members:
+            return self
+
+        if self.name not in self.util._netgroups:
+            raise RuntimeError(f'Netgroup "{self.name}" was not created; call add() first')
+
+        remove_strings = {m.to_member_string() for m in members}
+        self._members = [x for x in self._members if x not in remove_strings]
+        self.util._rewrite_netgroup_file()
+        return self
+
+    def delete(self) -> None:
+        """
+        Remove this netgroup from ``/etc/netgroup``.
+        """
+        self.util.logger.info(f'Deleting local netgroup "{self.name}" on {self.util.host.hostname}')
+        self.util._netgroup_names_touched.add(self.name)
+        if self.name in self.util._netgroups:
+            del self.util._netgroups[self.name]
+        self._members.clear()
+        self.util._rewrite_netgroup_file()
 
 
 class LocalSudoAlias(object):

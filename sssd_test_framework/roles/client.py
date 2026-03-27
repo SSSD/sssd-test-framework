@@ -12,6 +12,7 @@ from ..utils.gdm import GDM
 from ..utils.ldb import LDBUtils
 from ..utils.local_users import (
     LocalGroup,
+    LocalNetgroup,
     LocalSudoAlias,
     LocalSudoAliasKind,
     LocalSudoRule,
@@ -192,6 +193,12 @@ class Client(BaseLinuxRole[ClientHost]):
         Get a sudoers alias object (see :meth:`LocalUsersUtils.sudo_alias`).
         """
         return self.local.sudo_alias(name, kind)
+
+    def netgroup(self, name: str) -> LocalNetgroup:
+        """
+        Get a local netgroup object (see :meth:`LocalUsersUtils.netgroup`).
+        """
+        return self.local.netgroup(name)
 
     def sudorule(self, name: str) -> LocalSudoRule:
         """
