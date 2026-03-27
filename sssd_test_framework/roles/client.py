@@ -10,7 +10,14 @@ from ..utils.adcli import AdcliUtils
 from ..utils.automount import AutomountUtils
 from ..utils.gdm import GDM
 from ..utils.ldb import LDBUtils
-from ..utils.local_users import LocalGroup, LocalSudoRule, LocalUser, LocalUsersUtils
+from ..utils.local_users import (
+    LocalGroup,
+    LocalSudoAlias,
+    LocalSudoAliasKind,
+    LocalSudoRule,
+    LocalUser,
+    LocalUsersUtils,
+)
 from ..utils.realmd import RealmUtils
 from ..utils.sbus import DBUSDestination, DBUSKnownBus
 from ..utils.smartcard import SmartCardUtils
@@ -179,6 +186,12 @@ class Client(BaseLinuxRole[ClientHost]):
         """
 
         return LocalGroup(self.local, name)
+
+    def sudo_alias(self, name: str, kind: LocalSudoAliasKind) -> LocalSudoAlias:
+        """
+        Get a sudoers alias object (see :meth:`LocalUsersUtils.sudo_alias`).
+        """
+        return self.local.sudo_alias(name, kind)
 
     def sudorule(self, name: str) -> LocalSudoRule:
         """

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+import re
+from typing import Any, Literal
 
 import jc
 from pytest_mh import MultihostHost, MultihostUtility
@@ -14,8 +15,14 @@ __all__ = [
     "LocalGroup",
     "LocalUser",
     "LocalUsersUtils",
+    "LocalSudoAlias",
+    "LocalSudoAliasKind",
     "LocalSudoRule",
 ]
+
+_SUDO_ALIAS_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
+
+LocalSudoAliasKind = Literal["user", "runas", "host", "command"]
 
 
 class LocalUsersUtils(MultihostUtility[MultihostHost]):
@@ -38,6 +45,7 @@ class LocalUsersUtils(MultihostUtility[MultihostHost]):
         self.fs: LinuxFileSystem = fs
         self._users: list[str] = []
         self._groups: list[str] = []
+        self._sudoaliases: list[LocalSudoAlias] = []
         self._sudorules: list[LocalSudoRule] = []
 
     def teardown(self) -> None:
@@ -59,6 +67,9 @@ class LocalUsersUtils(MultihostUtility[MultihostHost]):
 
         for rule in self._sudorules[:]:
             rule.delete()
+
+        for alias in self._sudoaliases[:]:
+            alias.delete()
 
         super().teardown()
 
@@ -119,6 +130,34 @@ class LocalUsersUtils(MultihostUtility[MultihostHost]):
         :rtype: LocalGroup
         """
         return LocalGroup(self, name)
+
+    def sudo_alias(self, name: str, kind: LocalSudoAliasKind) -> LocalSudoAlias:
+        """
+        Get a sudoers alias object (``User_Alias``, ``Runas_Alias``, ``Host_Alias``, or ``Cmnd_Alias``).
+
+        Alias names must match sudoers rules: start with an uppercase letter and contain only
+        uppercase letters, digits, and underscores. Define aliases before rules that reference
+        them (e.g. write alias files first, or use lower ``order`` values than dependent rules).
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.Client)
+            def test_example(client: Client):
+                admins = client.local.sudo_alias("ADMINS", "user")
+                admins.add([client.local.user("u1"), client.local.group("g1")])
+
+                client.local.sudorule("r1").add(user=admins, host="ALL", command="/bin/ls")
+
+        :param name: Alias name (e.g. ``ADMINS``).
+        :type name: str
+        :param kind: ``user`` → ``User_Alias``, ``runas`` → ``Runas_Alias``, ``host`` → ``Host_Alias``,
+            ``command`` → ``Cmnd_Alias``.
+        :type kind: LocalSudoAliasKind
+        :return: Sudo alias helper.
+        :rtype: LocalSudoAlias
+        """
+        return LocalSudoAlias(self, name, kind)
 
 
 class LocalUser(object):
@@ -442,6 +481,129 @@ class LocalGroup(object):
         return self
 
 
+class LocalSudoAlias(object):
+    """
+    Local sudoers alias (``User_Alias``, ``Runas_Alias``, ``Host_Alias``, or ``Cmnd_Alias``).
+    """
+
+    _KEYWORD: dict[LocalSudoAliasKind, str] = {
+        "user": "User_Alias",
+        "runas": "Runas_Alias",
+        "host": "Host_Alias",
+        "command": "Cmnd_Alias",
+    }
+
+    def __init__(self, util: LocalUsersUtils, name: str, kind: LocalSudoAliasKind) -> None:
+        """
+        :param util: LocalUsersUtils utility object.
+        :type util: LocalUsersUtils
+        :param name: Alias name (uppercase; see sudoers(5)).
+        :type name: str
+        :param kind: Which alias type to write.
+        :type kind: LocalSudoAliasKind
+        """
+        if not _SUDO_ALIAS_NAME.match(name):
+            raise ValueError(
+                f'Invalid sudoers alias name "{name}": must match ^[A-Z][A-Z0-9_]*$ (see sudoers(5))'
+            )
+        self.util = util
+        self.name = name
+        self.kind = kind
+        self.filename: str | None = None
+        self.alias_str: str | None = None
+        self.__members: Any = None
+        self._order: int | None = None
+
+    def __str__(self) -> str:
+        return self.name
+
+    @staticmethod
+    def _format_member(kind: LocalSudoAliasKind, item: str | LocalUser | LocalGroup) -> str:
+        if kind in ("user", "runas"):
+            if isinstance(item, LocalGroup):
+                return f"%{item.name}"
+            return str(item)
+        return str(item)
+
+    @classmethod
+    def _format_members(
+        cls,
+        kind: LocalSudoAliasKind,
+        members: str | LocalUser | LocalGroup | list[str | LocalUser | LocalGroup],
+    ) -> str:
+        if isinstance(members, list):
+            if not members:
+                raise ValueError("sudoers alias member list must not be empty")
+            return ", ".join(cls._format_member(kind, x) for x in members)
+        return cls._format_member(kind, members)
+
+    def add(
+        self,
+        members: str | LocalUser | LocalGroup | list[str | LocalUser | LocalGroup],
+        *,
+        order: int | None = None,
+    ) -> LocalSudoAlias:
+        """
+        Write the alias line to ``/etc/sudoers.d/``.
+
+        :param members: One or more users/groups (for ``user`` / ``runas``), hostnames (for ``host``),
+            or commands (for ``command``).
+        :type members: str | LocalUser | LocalGroup | list[str | LocalUser | LocalGroup]
+        :param order: Optional ordering prefix for the drop-in file name (lower sorts first).
+        :type order: int | None, optional
+        :return: Self.
+        :rtype: LocalSudoAlias
+        """
+        self._order = order
+        orderstr = f"{order:02d}" if order is not None else str(len(self.util._sudoaliases))
+        if self.filename is None:
+            self.filename = f"{orderstr}_alias_{self.kind}_{self.name}"
+
+        self.__members = members
+        keyword = self._KEYWORD[self.kind]
+        body = self._format_members(self.kind, members)
+        self.alias_str = f"{keyword} {self.name} = {body}\n"
+        self.util.fs.write(f"/etc/sudoers.d/{self.filename}", self.alias_str)
+        if self not in self.util._sudoaliases:
+            self.util._sudoaliases.append(self)
+        return self
+
+    def modify(
+        self,
+        members: str | LocalUser | LocalGroup | list[str | LocalUser | LocalGroup] | None = None,
+        *,
+        order: int | None = None,
+    ) -> LocalSudoAlias:
+        """
+        Replace alias members (and optionally the file order prefix).
+
+        :param members: New member list, defaults to None (keep previous).
+        :type members: str | LocalUser | LocalGroup | list[str | LocalUser | LocalGroup] | None, optional
+        :param order: Optional ordering prefix for the drop-in file name.
+        :type order: int | None, optional
+        :return: Self.
+        :rtype: LocalSudoAlias
+        """
+        prev_order = self._order
+        self.delete()
+        return self.add(
+            members if members is not None else self.__members,
+            order=order if order is not None else prev_order,
+        )
+
+    def delete(self) -> None:
+        """
+        Remove this alias drop-in file.
+        """
+        if self.filename:
+            self.util.fs.rm(f"/etc/sudoers.d/{self.filename}")
+        self.filename = None
+        self.alias_str = None
+        self._order = None
+        if self in self.util._sudoaliases:
+            self.util._sudoaliases.remove(self)
+
+
 class LocalSudoRule(object):
     """
     Local sudo rule management.
@@ -485,9 +647,14 @@ class LocalSudoRule(object):
         :rtype: str
         """
         if isinstance(item, list):
-            result = ", ".join(f"%{str(x)}" if isinstance(x, LocalGroup) and add_percent else str(x) for x in item)
+            result = ", ".join(
+                f"%{str(x)}" if isinstance(x, LocalGroup) and add_percent else str(x)
+                for x in item
+            )
         else:
-            if isinstance(item, LocalGroup) and add_percent:
+            if isinstance(item, LocalSudoAlias):
+                result = item.name
+            elif isinstance(item, LocalGroup) and add_percent:
                 result = f"%{str(item)}"
             else:
                 result = str(item)
