@@ -21,6 +21,7 @@ from pytest_mh.utils.tc import LinuxTrafficControl
 from ..hosts.base import BaseHost, BaseLDAPDomainHost
 from ..utils.authentication import AuthenticationUtils
 from ..utils.authselect import AuthselectUtils
+from ..utils.chrony import ChronyUtils
 from ..utils.ldap import LDAPUtils
 from ..utils.network import NetworkUtils
 from ..utils.sshd import SSHDUtils
@@ -221,6 +222,11 @@ class BaseLinuxRole(BaseRole[HostType]):
         self.coredumpd: Coredumpd = Coredumpd(self.host, self.fs, mode=coredumpd_mode, filter=coredumpd_filter)
         """
         Coredumpd utilities.
+        """
+
+        self.chrony: ChronyUtils = ChronyUtils(self.host)
+        """
+        Chrony time manipulation utilities.
         """
 
 
