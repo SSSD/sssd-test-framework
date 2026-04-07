@@ -16,6 +16,7 @@ from .topology_controllers import (
     IPATrustADTopologyController,
     IPATrustSambaTopologyController,
     KeycloakTopologyController,
+    LDAPKRB5TopologyController,
     LDAPTopologyController,
     SambaTopologyController,
 )
@@ -105,6 +106,22 @@ class KnownTopology(KnownTopologyBase):
     )
     """
     .. topology-mark:: KnownTopology.LDAP
+    """
+
+    LDAP_KRB5 = SSSDTopologyMark(
+        name="ldap_krb5",
+        topology=Topology(TopologyDomain("sssd", client=1, ldap=1, kdc=1)),
+        controller=LDAPKRB5TopologyController(),
+        domains=dict(test="sssd.ldap[0]"),
+        fixtures=dict(client="sssd.client[0]", ldap="sssd.ldap[0]", provider="sssd.ldap[0]", kdc="sssd.kdc[0]"),
+    )
+    """
+    Like :attr:`~sssd_test_framework.topology.KnownTopology.BareLDAP` plus a KDC
+    (no NFS): client host keytab pre-provisioned for
+    GSSAPI (see
+    :class:`~sssd_test_framework.topology_controllers.LDAPKRB5TopologyController`).
+
+    .. topology-mark:: KnownTopology.LDAP_KRB5
     """
 
     BareIPA = SSSDTopologyMark(

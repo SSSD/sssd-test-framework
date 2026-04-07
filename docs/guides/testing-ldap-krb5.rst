@@ -7,6 +7,25 @@ domain with ``auth_provider = krb5``, using the Kerberos configuration from
 given KDC role object. It also provides means to run Kerberos tools such as
 ``kinit``, ``klist`` and ``kdestroy``.
 
+LDAP_KRB5 topology
+------------------
+
+:attr:`~sssd_test_framework.topology.KnownTopology.LDAP_KRB5` is the mark for
+client + LDAP + KDC with **no NFS** host. Think of it as
+:attr:`~sssd_test_framework.topology.KnownTopology.BareLDAP` plus a KDC fixture.
+
+Setup is handled by
+:class:`~sssd_test_framework.topology_controllers.LDAPKRB5TopologyController`:
+
+* ensure ``host/<client fqdn>`` exists in the KDC (create if missing);
+* place keys in ``/etc/krb5.keytab`` on the client;
+* set ``ldap_krb5_keytab`` on the LDAP provider defaults when not already set in
+  multihost config.
+
+That is enough for LDAP GSSAPI (``ldap_sasl_mech = gssapi``) without each test
+running ``ktadd``/upload itself. Tests still call
+``client.sssd.common.krb5_auth(kdc)`` and configure the SSSD domain as usual.
+
 .. seealso::
 
     * :class:`sssd_test_framework.roles.kdc.KDC`
