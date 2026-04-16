@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from ..roles.base import BaseRole
     from ..roles.kdc import KDC
     from .authselect import AuthselectUtils
+    from .smartcard import SmartCardUtils
 
 
 __all__ = [
@@ -1178,3 +1179,31 @@ class SSSDCommonConfiguration(object):
         Configure SSSD for subid.
         """
         self.sssd.authselect.select("sssd", ["with-subid"])
+
+    def smartcard_with_softhsm(self, smartcard: SmartCardUtils) -> None:
+        """
+        Configure SSSD for smart card authentication with SoftHSM multi-token support.
+
+        :param smartcard: SmartCardUtils instance.
+        :type smartcard: SmartCardUtils
+        """
+        conf = smartcard.SOFTHSM2_CONF_PATH
+        token_storage = smartcard.TOKEN_STORAGE_PATH
+        module = "/usr/lib64/pkcs11/libsofthsm2.so"
+
+        smartcard.host.conn.run(f"grep -q 'slots.removable' {conf} || echo 'slots.removable = true' >> {conf}")
+        smartcard.host.conn.run(f"cp {conf} /etc/softhsm2.conf")
+        smartcard.host.conn.run(f'echo "module: {module}" > /etc/pkcs11/modules/softhsm2.module')
+        smartcard.fs.mkdir_p("/etc/systemd/system/sssd.service.d")
+        smartcard.host.conn.run(
+            f'printf "[Service]\\nEnvironment=SOFTHSM2_CONF={conf}\\n" '
+            f"> /etc/systemd/system/sssd.service.d/softhsm.conf"
+        )
+        smartcard.host.conn.run("systemctl daemon-reload")
+        smartcard.host.conn.run("chmod -R o+rX /opt/test_ca/")
+        smartcard.host.conn.run(f"chown -R sssd:sssd {token_storage}/ && chmod -R 770 {token_storage}/")
+
+        self.sssd.authselect.select("sssd", ["with-smartcard", "with-mkhomedir"])
+        self.sssd.pam["pam_cert_auth"] = "True"
+        self.sssd.domain["local_auth_policy"] = "enable:smartcard"
+        self.sssd.start()
