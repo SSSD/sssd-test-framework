@@ -1552,7 +1552,7 @@ class GenericDNSZone(GenericDNSServer):
     @abstractmethod
     def delete_record(self, name: str) -> None:
         """
-        Delete DNS record.
+        Delete DNS record, both forward and reverse records are deleted.
 
         :param name: Name of the record.
         :type name: str
