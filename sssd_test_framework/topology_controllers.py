@@ -203,6 +203,11 @@ class IPATopologyController(ProvisionedBackupTopologyController):
     def topology_setup(self, client: ClientHost, ipa: IPAHost) -> None:
         short_hostname = client.conn.run("hostname").stdout.split(".")[0].strip()
         hostname = f"{short_hostname}.{ipa.domain}"
+        client.fs.backup("/etc/hostname")
+        client.fs.backup("/etc/hosts")
+        client.conn.run(f"echo {hostname} > /etc/hostname")
+        client.fs.write("/etc/hosts", client.fs.read("/etc/hosts").replace("client.test", hostname))
+
 
         # Change client hostname to match the domain
         self.logger.info(f"Changing hostname to {hostname}")
