@@ -188,16 +188,28 @@ class Client(BaseLinuxRole[ClientHost]):
 
         return LocalGroup(self.local, name)
 
-    def sudo_alias(self, name: str, kind: LocalSudoAliasKind) -> LocalSudoAlias:
+    def sudoalias(self, name: str, kind: LocalSudoAliasKind) -> LocalSudoAlias:
         """
-        Get a sudoers alias object (see :meth:`LocalUsersUtils.sudo_alias`).
+        Get sudo alias object.
+        :param name: Sudo alias name.
+        :type name: str
+        :param kind: Alias kind.
+        :type kind: LocalSudoAliasKind
+        :return: New sudo alias object.
+        :rtype: LocalSudoAlias
         """
-        return self.local.sudo_alias(name, kind)
+
+        return self.local.sudoalias(name, kind)
 
     def netgroup(self, name: str) -> LocalNetgroup:
         """
-        Get a local netgroup object (see :meth:`LocalUsersUtils.netgroup`).
+        Get netgroup object.
+        :param name: Netgroup name.
+        :type name: str
+        :return: New netgroup object.
+        :rtype: LocalNetgroup
         """
+
         return self.local.netgroup(name)
 
     def sudorule(self, name: str) -> LocalSudoRule:
@@ -209,4 +221,4 @@ class Client(BaseLinuxRole[ClientHost]):
         :rtype: LocalSudoRule
         """
 
-        return LocalSudoRule(self.local, name)
+        return self.local.sudorule(name)
