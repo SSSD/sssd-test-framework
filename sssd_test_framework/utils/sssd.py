@@ -973,6 +973,20 @@ class SSSDCommonConfiguration(object):
         self.sssd.authselect.select("sssd", ["with-mkhomedir"])
         self.sssd.svc.start("oddjobd.service")
 
+    def dyndns(self, device: str = "dummy0") -> None:
+        """
+        Configure SSSD for dynamic DNS.
+
+        :param device: Network device, defaults to 'dummy0'
+        :type device: str
+        """
+        self.sssd.domain["dyndns_update"] = "True"
+        # Note: The default value is False for IPA.The IPA server updates the PTR record itself.
+        self.sssd.domain["dyndns_update_ptr"] = "True"
+        self.sssd.domain["dyndns_iface"] = device
+        self.sssd.domain["dyndns_refresh_interval"] = "1"
+        self.sssd.domain["dyndns_refresh_interval_offset"] = "5"
+
     def ldap_provider(
         self,
         server: str,
