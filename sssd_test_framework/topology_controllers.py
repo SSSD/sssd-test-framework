@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import socket
 import tempfile
 
 from pytest_mh import BackupTopologyController
@@ -89,16 +88,6 @@ class ProvisionedBackupTopologyController(BackupTopologyController[SSSDMultihost
             # Backup ipa-client-install files
             client.fs.backup("/etc/ipa")
             client.fs.backup("/var/lib/ipa-client")
-
-        # Configure realm to keep kerberos intact
-        client.fs.backup("/etc/realmd.conf")
-        client.fs.write(
-            "/etc/realmd.conf",
-            """
-            [service]
-            manage-krb5-conf = no
-            """,
-        )
 
         # Join provider domain
         result = client.conn.exec(["realm", "join", provider.domain], input=provider.adminpw, raise_on_error=False)
@@ -211,6 +200,19 @@ class IPATopologyController(ProvisionedBackupTopologyController):
 
     @BackupTopologyController.restore_vanilla_on_error
     def topology_setup(self, client: ClientHost, ipa: IPAHost) -> None:
+        short_hostname = client.conn.run("hostname").stdout.split(".")[0].strip()
+        hostname = f"{short_hostname}.{ipa.domain}"
+        client.fs.backup("/etc/hostname")
+        client.fs.backup("/etc/hosts")
+        client.conn.run(f"echo {hostname} > /etc/hostname")
+        client.fs.write("/etc/hosts", client.fs.read("/etc/hosts").replace("client.test", hostname))
+
+        # Change client hostname to match the domain
+        self.logger.info(f"Changing hostname to {hostname}")
+        client.conn.run(f"hostname {hostname}")
+
+        client.fs.backup("/etc/resolv.conf")
+
         if self.provisioned:
             self.logger.info(f"Topology '{self.name}' is already provisioned")
             return
@@ -229,6 +231,13 @@ class ADTopologyController(ProvisionedBackupTopologyController):
 
     @BackupTopologyController.restore_vanilla_on_error
     def topology_setup(self, client: ClientHost, provider: ADHost | SambaHost) -> None:
+        short_hostname = client.conn.run("hostname").stdout.split(".")[0].strip()
+        hostname = f"{short_hostname}.{provider.domain}"
+
+        # Change client hostname to match the domain
+        self.logger.info(f"Changing hostname to {hostname}")
+        client.conn.run(f"hostname {hostname}")
+
         if self.provisioned:
             self.logger.info(f"Topology '{self.name}' is already provisioned")
             return
@@ -255,12 +264,16 @@ class IPATrustADTopologyController(ProvisionedBackupTopologyController):
 
     @BackupTopologyController.restore_vanilla_on_error
     def topology_setup(self, client: ClientHost, ipa: IPAHost, trusted: ADHost | SambaHost) -> None:
+        short_hostname = client.conn.run("hostname").stdout.split(".")[0].strip()
+        hostname = f"{short_hostname}.{ipa.domain}"
+
+        # Change client hostname to match the domain
+        self.logger.info(f"Changing hostname to {hostname}")
+        client.conn.run(f"hostname {hostname}")
+
         if self.provisioned:
             self.logger.info(f"Topology '{self.name}' is already provisioned")
             return
-
-        # Configure DNS forwarder for AD domain on IPA server
-        self.setup_dns_forwarder(ipa, trusted)
 
         # Create trust
         self.logger.info(f"Establishing trust between {ipa.domain} and {trusted.domain}")
@@ -274,52 +287,6 @@ class IPATrustADTopologyController(ProvisionedBackupTopologyController):
 
         # Backup so we can restore to this state after each test
         super().topology_setup()
-
-    def setup_dns_forwarder(self, ipa: IPAHost, trusted: ADHost | SambaHost) -> None:
-        """
-        Configure DNS forwarder on IPA server for the trusted AD domain.
-
-        This ensures IPA can resolve the AD domain for trust establishment.
-        """
-        self.logger.info(f"Configuring DNS forwarder for {trusted.domain} on {ipa.hostname}")
-        ipa.kinit()
-
-        # Check if forwarder already exists
-        result = ipa.conn.exec(
-            ["ipa", "dnsforwardzone-show", trusted.domain],
-            raise_on_error=False,
-        )
-
-        if result.rc == 0:
-            self.logger.info(f"DNS forwarder for {trusted.domain} already exists, skipping")
-            return
-
-        # Resolve AD server hostname to IP address (forwarder requires IP)
-        # Use getattr to safely access the host attribute from the connection
-        ad_hostname = getattr(trusted.conn, "host", trusted.hostname)
-        try:
-            ad_ip = socket.gethostbyname(ad_hostname)
-        except socket.gaierror:
-            self.logger.error(
-                f"Could not resolve hostname '{ad_hostname}'. "
-                "Please ensure it is resolvable from the test controller."
-            )
-            raise
-
-        # Add DNS forward zone pointing to the AD server IP
-        ipa.conn.exec(
-            [
-                "ipa",
-                "dnsforwardzone-add",
-                trusted.domain,
-                f"--forwarder={ad_ip}",
-                "--forward-policy=only",
-            ]
-        )
-
-        # Restart named to ensure it picks up the new forwarder zone
-        ipa.conn.exec(["systemctl", "restart", "named"])
-        self.logger.info(f"DNS forwarder for {trusted.domain} configured successfully")
 
     # If this command is run on freshly started containers, it is possible the IPA is not yet
     # fully ready to create the trust. It takes a while for it to start working.
@@ -387,6 +354,13 @@ class GDMTopologyController(ProvisionedBackupTopologyController):
 
     @BackupTopologyController.restore_vanilla_on_error
     def topology_setup(self, client: ClientHost, ipa: IPAHost, keycloak: KeycloakHost) -> None:
+        short_hostname = client.conn.run("hostname").stdout.split(".")[0].strip()
+        hostname = f"{short_hostname}.{keycloak.domain}"
+
+        # Change client hostname to match the domain
+        self.logger.info(f"Changing hostname to {hostname}")
+        client.conn.run(f"hostname {hostname}")
+
         if "gdm" not in client.features or not client.features["gdm"]:
             self.logger.info(f"Topology '{self.name}' setup skipped because gdm feature not found on client")
             return
@@ -435,4 +409,5 @@ class GDMTopologyController(ProvisionedBackupTopologyController):
 
         ipa.kinit()
         ipa.conn.run("ipa idp-del keycloak")
+
         super().topology_teardown()
