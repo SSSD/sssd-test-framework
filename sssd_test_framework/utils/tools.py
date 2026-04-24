@@ -12,7 +12,6 @@ from pytest_mh.utils.fs import LinuxFileSystem
 __all__ = [
     "GetentUtils",
     "GroupEntry",
-    "IdEntry",
     "LinuxToolsUtils",
     "PasswdEntry",
     "UnixGroup",

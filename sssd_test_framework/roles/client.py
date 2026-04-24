@@ -10,7 +10,15 @@ from ..utils.adcli import AdcliUtils
 from ..utils.automount import AutomountUtils
 from ..utils.gdm import GDM
 from ..utils.ldb import LDBUtils
-from ..utils.local_users import LocalGroup, LocalSudoRule, LocalUser, LocalUsersUtils
+from ..utils.local_users import (
+    LocalGroup,
+    LocalNetgroup,
+    LocalSudoAlias,
+    LocalSudoAliasKind,
+    LocalSudoRule,
+    LocalUser,
+    LocalUsersUtils,
+)
 from ..utils.realmd import RealmUtils
 from ..utils.sbus import DBUSDestination, DBUSKnownBus
 from ..utils.smartcard import SmartCardUtils
@@ -140,9 +148,9 @@ class Client(BaseLinuxRole[ClientHost]):
         Execute sss_ssh_knownhosts.
 
         :param `*args`: Command arguments.
-        :type `*args`: str
+        :type `*args`: str.
         :return: Command result.
-        :rtype: ProcessResult
+        :rtype: ProcessResult.
         """
         return self.host.conn.exec(["sss_ssh_knownhosts", *args])
 
@@ -151,9 +159,9 @@ class Client(BaseLinuxRole[ClientHost]):
         Execute sss_ssh_authorizedkeys.
 
         :param `*args`: Command arguments.
-        :type `*args`: str
+        :type `*args`: str.
         :return: Command result.
-        :rtype: ProcessResult
+        :rtype: ProcessResult.
         """
         return self.host.conn.exec(["sss_ssh_authorizedkeys", *args], raise_on_error=False)
 
@@ -162,9 +170,9 @@ class Client(BaseLinuxRole[ClientHost]):
         Get user object.
 
         :param name: User name.
-        :type name: str
+        :type name: str.
         :return: New user object.
-        :rtype: LocalUser
+        :rtype: LocalUser.
         """
 
         return LocalUser(self.local, name)
@@ -173,20 +181,44 @@ class Client(BaseLinuxRole[ClientHost]):
         """
         Get group object.
         :param name: Group name.
-        :type name: str
+        :type name: str.
         :return: New group object.
-        :rtype: LocalGroup
+        :rtype: LocalGroup.
         """
 
         return LocalGroup(self.local, name)
+
+    def sudoalias(self, name: str, kind: LocalSudoAliasKind) -> LocalSudoAlias:
+        """
+        Get sudo alias object.
+        :param name: Sudo alias name.
+        :type name: str.
+        :param kind: Alias kind.
+        :type kind: LocalSudoAliasKind.
+        :return: New sudo alias object.
+        :rtype: LocalSudoAlias.
+        """
+
+        return self.local.sudoalias(name, kind)
+
+    def netgroup(self, name: str) -> LocalNetgroup:
+        """
+        Get netgroup object.
+        :param name: Netgroup name.
+        :type name: str.
+        :return: New netgroup object.
+        :rtype: LocalNetgroup.
+        """
+
+        return self.local.netgroup(name)
 
     def sudorule(self, name: str) -> LocalSudoRule:
         """
         Get sudo rule object.
         :param name: Sudo rule name.
-        :type name: str
+        :type name: str.
         :return: New sudo rule object.
-        :rtype: LocalSudoRule
+        :rtype: LocalSudoRule.
         """
 
-        return LocalSudoRule(self.local, name)
+        return self.local.sudorule(name)
