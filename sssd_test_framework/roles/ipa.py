@@ -438,7 +438,7 @@ class IPA(BaseLinuxRole[IPAHost]):
         :return: New host account object.
         :rtype: IPAHostAccount
         """
-        return IPAHostAccount(self, name)
+        return IPAHostAccount(self, f"{name}.{self.domain}" if self.domain not in name else name)
 
     def sudorule(self, name: str) -> IPASudoRule:
         """
@@ -2867,7 +2867,8 @@ class IPADNSZone(IPADNSServer):
         :return: IPADNSServer object.
         :rtype: IPADNSServer
         """
-        self.host.conn.run(f"ipa dnszone-add {self.zone_name} --dynamic-update=TRUE --skip-overlap-check")
+        self.host.conn.run(f"ipa dnszone-add {self.zone_name} --skip-overlap-check")
+        self.host.conn.run(f"ipa dnszone-mod {self.zone_name} --dynamic-update=TRUE --allow-sync-ptr=TRUE")
         return self
 
     def delete(self) -> None:
@@ -2891,13 +2892,16 @@ class IPADNSZone(IPADNSServer):
         :rtype: IPADNSZone
         """
         args = ""
+        if self.domain not in name:
+            name = f"{name}.{self.domain}"
+        short_name = name.split(".")[0]
 
         if isinstance(data, int):
             args = f"{str(data)} --ptr-rec={name}."
         elif isinstance(data, str) and ip_version(data) == 4:
-            args = f"{name} --a-rec={data}"
+            args = f"{short_name} --a-rec={data}"
         elif isinstance(data, str) and ip_version(data) == 6:
-            args = f"{name} --aaaa-rec={data}"
+            args = f"{short_name} --aaaa-rec={data}"
 
         self.host.conn.run(f"ipa dnsrecord-add {self.zone_name} {args}")
 
@@ -2905,12 +2909,35 @@ class IPADNSZone(IPADNSServer):
 
     def delete_record(self, name: str) -> None:
         """
-        Delete DNS record.
+        Delete DNS record, both forward and reverse records are deleted.
 
-        :param name: Name of the record.
+        :param name: Name.
         :type name: str
         """
-        self.host.conn.run(f"ipa dnsrecord-del {self.zone_name} {name}")
+        if self.domain not in name:
+            name = f"{name}.{self.domain}"
+
+        records = self.host.conn.run(f"dig +short +norecurse {name} '@{self.server}'").stdout_lines
+        records = [s.rstrip("\r") for s in records]
+
+        if not isinstance(records, list) or records is None:
+            return None
+
+        if len(records) > 1:
+            for record in records:
+                if ip_version(record) == 4:
+                    self.host.conn.run(f"ipa dnsrecord-del {self.zone_name} --a-rec={record}")
+                if ip_version(record) == 6:
+                    self.host.conn.run(f"ipa dnsrecord-del {self.zone_name} --aaaa-rec={record}")
+
+        for ptr_records in records:
+            ptr_record = self.host.conn.run(f"dig +short -x +norecurse {ptr_records} '@{self.server}'").stdout_lines
+            ptr_record = [r.rstrip("\r") for r in ptr_record]
+            if ptr_record:
+                self.host.conn.run(f"ipa dnsrecord-del {self.zone_name} --ptr-rec={record}")
+        return None
+
+        time.sleep(5)  # Wait for the record to be deleted
 
     def print(self) -> str:
         """
