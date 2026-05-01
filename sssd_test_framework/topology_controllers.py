@@ -238,6 +238,12 @@ class ADTopologyController(ProvisionedBackupTopologyController):
         self.logger.info(f"Changing hostname to {hostname}")
         client.conn.run(f"hostname {hostname}")
 
+        # Workaround, downstream CI resets resolv.conf pointing to invalid servers.
+        if isinstance(provider, SambaHost):
+            if "127.0.0.1" not in provider.fs.read("/etc/resolv.conf"):
+                provider.fs.backup("/etc/resolv.conf")
+                provider.fs.write("/etc/resolv.conf", f"search {provider.domain}\nnameserver 127.0.0.1\n\n")
+
         if self.provisioned:
             self.logger.info(f"Topology '{self.name}' is already provisioned")
             return
