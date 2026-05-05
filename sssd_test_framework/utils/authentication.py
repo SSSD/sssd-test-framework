@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from configparser import ConfigParser
 from datetime import datetime
 from enum import Enum
 from typing import Any
@@ -109,7 +110,7 @@ class AuthenticationUtils(MultihostUtility[MultihostHost]):
                 assert client.auth.sudo.run('tuser', 'Secret123', command='/bin/ls /root')
         """
 
-        self.ssh: SSHAuthenticationUtils = SSHAuthenticationUtils(host)
+        self.ssh: SSHAuthenticationUtils = SSHAuthenticationUtils(host, fs)
         """
         Test authentication and authorization via ssh.
 
@@ -209,6 +210,36 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
         super().__init__(host)
         self.fs: LinuxFileSystem = fs
 
+    def _get_idp_provider_name(self, idp_provider: str | None = None) -> str:
+        """
+        Determine IdP provider name from parameter or host configuration.
+
+        :param idp_provider: Optional explicit provider name ('keycloak' or 'entra_id')
+        :return: Provider name (defaults to 'keycloak')
+        """
+        if idp_provider:
+            return idp_provider.lower()
+
+        # Try to auto-detect from host configuration
+        # idp_type format: "keycloak:https://..." or "entra_id:https://..." or just "entra_id"
+        try:
+            # Check if this is a ClientHost with idp_type configured
+            sssd_conf = self.fs.read("/etc/sssd/sssd.conf")
+            config = ConfigParser(interpolation=None)
+            config.read_string(sssd_conf)
+            for domain in config["sssd"]["domains"].replace(" ", "").split(","):
+                if config.has_section(f"domain/{domain}") and config[f"domain/{domain}"]["idp_type"]:
+                    idp_type = config[f"domain/{domain}"]["idp_type"]
+                    if idp_type.startswith("keycloak:") or idp_type == "keycloak":
+                        return "keycloak"
+                    elif idp_type.startswith("entra_id:") or idp_type == "entra_id":
+                        return "entra_id"
+        except (AttributeError, KeyError):
+            pass
+
+        # Default to keycloak for backward compatibility
+        return "keycloak"
+
     def password_with_output(self, username: str, password: str) -> tuple[int, int, str, str]:
         """
         Call ``su - $username`` and authenticate the user with password and captures standard output and error.
@@ -230,13 +261,9 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
                 # Close spawned program, if we are in the prompt
                 catch close
 
-                # Wait for the exit code
-                lassign [wait] pid spawnid os_error_flag rc
-
                 puts ""
                 puts "expect result: $msg"
                 puts "expect exit code: $code"
-                puts "expect spawn exit code: $rc"
                 exit $code
             }}
 
@@ -293,6 +320,145 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
         rc, _, _, _ = self.password_with_output(username, password)
         return rc == 0
 
+    def password_idp(
+        self, username: str, password: str, idp_provider: str | None = None, use_fully_qualified_names: str = "true"
+    ) -> bool:
+        """
+        Call ``su - $username`` and authenticate the user with External IdP using OAuth device flow.
+
+        This method initiates SU authentication which triggers an OAuth device authorization grant flow.
+        The SU output will contain a verification URL with device code embedded. This method spawns the
+        IdP login script to complete browser-based authentication, then completes the SU login.
+
+        :param username: Username.
+        :type username: str
+        :param password: IdP user password for browser authentication.
+        :type password: str
+        :param idp_provider: Optional IdP provider name ('keycloak' or 'entra_id'). Auto-detected if not specified.
+        :type idp_provider: str | None
+        :param fully_qualified: Option to use fully qualified user names. Defaults to "true".
+        :type fully_qualified: str
+        :return: True if authentication was successful, False otherwise.
+        :rtype: bool
+        """
+        # Determine IdP provider and script
+        provider = self._get_idp_provider_name(idp_provider)
+        script_name = f"idp_login_{provider}.py"
+
+        idp_user = username
+        sut_user = username
+
+        if use_fully_qualified_names.lower() != "true":
+            sut_user = username.split("@")[0]
+
+        if provider == "keycloak":
+            idp_user = username.split("@")[0]
+
+        result = self.host.conn.expect_nobody(
+            rf"""
+            # Disable debug output
+            exp_internal 0
+
+            proc exitmsg {{ msg code }} {{
+                # Close spawned program, if we are in the prompt
+                catch close
+
+                puts ""
+                puts "expect result: $msg"
+                puts "expect exit code: $code"
+                exit $code
+            }}
+
+            # Longer timeout for device flow
+            set timeout 120
+            set prompt "\n.*\[#\$>\] $"
+            log_user 1
+            log_file /tmp/expect_idp_su.log
+
+            # Spawn SU process
+            spawn su - "{sut_user}"
+            set ID_su $spawn_id
+
+            # Capture device flow output (URL with device code embedded, wrapped in quotes)
+            # Expected format: Authenticate at "https://...?user_code=CODE".
+            expect {{
+                -i $ID_su -re {{Authenticate at "(.+)"\.}} {{}}
+                -i $ID_su -re {{Authenticate with PIN "(.+)" at "(.+)"\.}} {{}}
+                -i $ID_su timeout {{exitmsg "No device flow output received" 201}}
+                -i $ID_su eof {{exitmsg "Unexpected end of file before device flow" 202}}
+            }}
+
+            if {{ "{provider}" == "entra_id"}} {{
+                set device_code $expect_out(1,string)
+                puts "Device Code: $device_code"
+                set verification_uri $expect_out(2,string)
+                puts "Verification URI: $verification_uri"
+            }} else {{
+                set verification_uri $expect_out(1,string)
+                puts "Verification URI: $verification_uri"
+            }}
+
+            # Spawn the IdP login script (provider-specific)
+            if {{"{provider}" == "entra_id"}} {{
+                ## EntraID requires device code as separate argument
+                ## Extract device code from URI: https://...?user_code=XXXX-YYYY or /XXXX-YYYY
+                # set device_code ""
+                #if {{[regexp {{user_code=([^&\s]+)}} $verification_uri -> device_code]}} {{
+                #    # Found in query parameter
+                #}} elseif {{[regexp {{/([A-Z0-9]{{4}}-[A-Z0-9]{{4}})}} $verification_uri -> device_code]}} {{
+                #    # Found in path
+                #}} else {{
+                #    # Try to extract any code-like pattern
+                #    regexp {{([A-Z0-9]{{4}}-[A-Z0-9]{{4}})}} $verification_uri -> device_code
+                #}}
+                spawn {test_venv_bin}/{script_name} $verification_uri $device_code {idp_user} {password}
+            }} else {{
+                # Keycloak and others use 3-argument format
+                spawn {test_venv_bin}/{script_name} $verification_uri {idp_user} {password}
+            }}
+            set ID_idp $spawn_id
+
+            # Wait for IdP authentication to complete
+            expect {{
+                -i $ID_idp eof {{puts "IdP authentication complete"}}
+                -i $ID_idp timeout {{exitmsg "IdP authentication timeout" 203}}
+            }}
+
+            # Get the exit code of the IdP script
+            lassign [wait -i $ID_idp] pid spawnid os_error_flag idp_rc
+            if {{$idp_rc != 0}} {{
+                exitmsg "IdP authentication failed" 1
+            }}
+
+            # Wait for the OAuth server to process the authorization
+            # The server needs time to propagate the authorization grant
+            sleep 5
+
+            # Send Enter to continue SU after successful browser auth
+            send -i $ID_su "\n"
+
+            # Wait for SU authentication result
+            expect {{
+                -i $ID_su -re $prompt {{exitmsg "SU IdP authentication successful" 0}}
+                -i $ID_su "Authentication failure" {{exitmsg "Authentication failure" 1}}
+                -i $ID_su "su: Permission denied" {{exitmsg "Permission denied" 2}}
+                -i $ID_su timeout {{exitmsg "Unexpected output after device flow" 201}}
+                -i $ID_su eof {{exitmsg "Unexpected end of file" 202}}
+            }}
+
+            exitmsg "Unexpected code path" 203
+            """,
+            verbose=False,
+        )
+
+        if result.rc > 200:
+            raise ExpectScriptError(result.rc)
+
+        expect_data = result.stdout_lines[-3:]
+        cmdrc = int(expect_data[2].split(":")[1].strip())
+
+        return cmdrc == 0
+
     def password_expired_with_output(
         self, username: str, password: str, new_password: str
     ) -> tuple[int, int, str, str]:
@@ -318,13 +484,9 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
                 # Close spawned program, if we are in the prompt
                 catch close
 
-                # Wait for the exit code
-                lassign [wait] pid spawnid os_error_flag rc
-
                 puts ""
                 puts "expect result: $msg"
                 puts "expect exit code: $code"
-                puts "expect spawn exit code: $rc"
                 exit $code
             }}
 
@@ -531,13 +693,9 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
                 # Close spawned program, if we are in the prompt
                 catch close
 
-                # Wait for the exit code
-                lassign [wait] pid spawnid os_error_flag rc
-
                 puts ""
                 puts "expect result: $msg"
                 puts "expect exit code: $code"
-                puts "expect spawn exit code: $rc"
                 exit $code
             }}
 
@@ -728,13 +886,9 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
                 # Close spawned program, if we are in the prompt
                 catch close
 
-                # Wait for the exit code
-                lassign [wait] pid spawnid os_error_flag rc
-
                 puts ""
                 puts "expect result: $msg"
                 puts "expect exit code: $code"
-                puts "expect spawn exit code: $rc"
                 exit $code
             }}
 
@@ -979,12 +1133,17 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
     Methods for testing authentication and authorization via ssh.
     """
 
-    def __init__(self, host: MultihostHost) -> None:
+    def __init__(self, host: MultihostHost, fs: LinuxFileSystem) -> None:
         """
         :param host: Multihost host.
         :type host: MultihostHost
+        :param fs: Linux File system.
+        :type fs: LinuxFileSystem.
         """
+
         super().__init__(host)
+
+        self.fs: LinuxFileSystem = fs
 
         self.opts = "-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
         """SSH CLI options."""
@@ -993,6 +1152,36 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
         """
         Change password via SSH session using passwd command.
         """
+
+    def _get_idp_provider_name(self, idp_provider: str | None = None) -> str:
+        """
+        Determine IdP provider name from parameter or host configuration.
+
+        :param idp_provider: Optional explicit provider name ('keycloak' or 'entra_id')
+        :return: Provider name (defaults to 'keycloak')
+        """
+        if idp_provider:
+            return idp_provider.lower()
+
+        # Try to auto-detect from host configuration
+        # idp_type format: "keycloak:https://..." or "entra_id:https://..." or just "entra_id"
+        try:
+            # Check if this is a ClientHost with idp_type configured
+            sssd_conf = self.fs.read("/etc/sssd/sssd.conf")
+            config = ConfigParser(interpolation=None)
+            config.read_string(sssd_conf)
+            for domain in config["sssd"]["domains"].replace(" ", "").split(","):
+                if config.has_section(f"domain/{domain}") and config[f"domain/{domain}"]["idp_type"]:
+                    idp_type = config[f"domain/{domain}"]["idp_type"]
+                    if idp_type.startswith("keycloak:") or idp_type == "keycloak":
+                        return "keycloak"
+                    elif idp_type.startswith("entra_id:") or idp_type == "entra_id":
+                        return "entra_id"
+        except (AttributeError, KeyError):
+            pass
+
+        # Default to keycloak for backward compatibility
+        return "keycloak"
 
     def password_with_output(
         self, username: str, password: str, hostname: str = "localhost"
@@ -1019,13 +1208,9 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
                 # Close spawned program, if we are in the prompt
                 catch close
 
-                # Wait for the exit code
-                lassign [wait] pid spawnid os_error_flag rc
-
                 puts ""
                 puts "expect result: $msg"
                 puts "expect exit code: $code"
-                puts "expect spawn exit code: $rc"
                 exit $code
             }}
 
@@ -1089,6 +1274,154 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
         rc, _, _, _ = self.password_with_output(username, password, hostname)
         return rc == 0
 
+    def password_idp(
+        self,
+        username: str,
+        password: str,
+        hostname: str = "localhost",
+        idp_provider: str | None = None,
+        use_fully_qualified_names: str = "true",
+    ) -> bool:
+        """
+        SSH to the remote host and authenticate the user with External IdP using OAuth device flow.
+
+        This method initiates SSH authentication which triggers an OAuth device authorization grant flow.
+        The SSH output will contain a verification URL with device code embedded. This method spawns the
+        IdP login script to complete browser-based authentication, then completes the SSH login.
+
+        :param username: Username.
+        :type username: str
+        :param password: IdP user password for browser authentication.
+        :type password: str
+        :param hostname: The hostname to connect to.
+        :type hostname: str
+        :param idp_provider: Optional IdP provider name ('keycloak' or 'entra_id'). Auto-detected if not specified.
+        :type idp_provider: str | None
+        :param fully_qualified: Option to use fully qualified user names. Defaults to True.
+        :type fully_qualified: str
+        :return: True if authentication was successful, False otherwise.
+        :rtype: bool
+        """
+        # Determine IdP provider and script
+        provider = self._get_idp_provider_name(idp_provider)
+        script_name = f"idp_login_{provider}.py"
+
+        idp_user = username
+        sut_user = username
+
+        if use_fully_qualified_names.lower() != "true":
+            sut_user = username.split("@")[0]
+
+        if provider == "keycloak":
+            idp_user = username.split("@")[0]
+
+        result = self.host.conn.expect_nobody(
+            rf"""
+            # Disable debug output
+            exp_internal 0
+
+            proc exitmsg {{ msg code }} {{
+                # Close spawned program, if we are in the prompt
+                catch close
+
+                puts ""
+                puts "expect result: $msg"
+                puts "expect exit code: $code"
+                exit $code
+            }}
+
+            # Longer timeout for device flow
+            set timeout 120
+            set prompt "\n.*\[#\$>\] $"
+            log_user 1
+            log_file /tmp/expect_idp_ssh.log
+
+            # Spawn SSH process
+            # Do not specify PreferredAuthentications to allow IdP device flow
+            spawn ssh {self.opts} \
+                -l "{sut_user}" "{hostname}"
+            set ID_ssh $spawn_id
+
+            # Capture device flow output (URL with device code embedded, wrapped in quotes)
+            # Expected format: Authenticate at "https://...?user_code=CODE".
+            expect {{
+                -i $ID_ssh -re {{Authenticate at "(.+)"\.}} {{}}
+                -i $ID_ssh -re {{Authenticate with PIN "(.+)" at "(.+)"\.}} {{}}
+                -i $ID_ssh timeout {{exitmsg "No device flow output received" 201}}
+                -i $ID_ssh eof {{exitmsg "Unexpected end of file before device flow" 202}}
+            }}
+
+            if {{ "{provider}" == "entra_id"}} {{
+                set device_code $expect_out(1,string)
+                puts "Device Code: $device_code"
+                set verification_uri $expect_out(2,string)
+                puts "Verification URI: $verification_uri"
+            }} else {{
+                set verification_uri $expect_out(1,string)
+                puts "Verification URI: $verification_uri"
+            }}
+
+            # Spawn the IdP login script (provider-specific)
+            if {{"{provider}" == "entra_id"}} {{
+                ## EntraID requires device code as separate argument
+                ## Extract device code from URI: https://...?user_code=XXXX-YYYY or /XXXX-YYYY
+                #set device_code ""
+                #if {{[regexp {{user_code=([^&\s]+)}} $verification_uri -> device_code]}} {{
+                #    # Found in query parameter
+                #}} elseif {{[regexp {{/([A-Z0-9]{{4}}-[A-Z0-9]{{4}})}} $verification_uri -> device_code]}} {{
+                #    # Found in path
+                #}} else {{
+                #    # Try to extract any code-like pattern
+                #    regexp {{([A-Z0-9]{{4}}-[A-Z0-9]{{4}})}} $verification_uri -> device_code
+                #}}
+                spawn {test_venv_bin}/{script_name} $verification_uri $device_code {idp_user} {password}
+            }} else {{
+                # Keycloak and others use 3-argument format
+                spawn {test_venv_bin}/{script_name} $verification_uri {idp_user} {password}
+            }}
+            set ID_idp $spawn_id
+
+            # Wait for IdP authentication to complete
+            expect {{
+                -i $ID_idp eof {{puts "IdP authentication complete"}}
+                -i $ID_idp timeout {{exitmsg "IdP authentication timeout" 203}}
+            }}
+
+            # Get the exit code of the IdP script
+            lassign [wait -i $ID_idp] pid spawnid os_error_flag idp_rc
+            if {{$idp_rc != 0}} {{
+                exitmsg "IdP authentication failed" 1
+            }}
+
+            # Wait for the OAuth server to process the authorization
+            # The server needs time to propagate the authorization grant
+            sleep 5
+
+            # Send Enter to continue SSH after successful browser auth
+            send -i $ID_ssh "\n"
+
+            # Wait for SSH authentication result
+            expect {{
+                -i $ID_ssh -re $prompt {{exitmsg "SSH IdP authentication successful" 0}}
+                -i $ID_ssh "Permission denied" {{exitmsg "Authentication failure" 1}}
+                -i $ID_ssh "Connection closed" {{exitmsg "Connection closed" 2}}
+                -i $ID_ssh timeout {{exitmsg "Unexpected output after device flow" 201}}
+                -i $ID_ssh eof {{exitmsg "Unexpected end of file" 202}}
+            }}
+
+            exitmsg "Unexpected code path" 203
+            """,
+            verbose=False,
+        )
+
+        if result.rc > 200:
+            raise ExpectScriptError(result.rc)
+
+        expect_data = result.stdout_lines[-3:]
+        cmdrc = int(expect_data[2].split(":")[1].strip())
+
+        return cmdrc == 0
+
     def password_expired_with_output(
         self, username: str, password: str, new_password: str, hostname: str = "localhost"
     ) -> tuple[int, int, str, str]:
@@ -1116,13 +1449,9 @@ class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
                 # Close spawned program, if we are in the prompt
                 catch close
 
-                # Wait for the exit code
-                lassign [wait] pid spawnid os_error_flag rc
-
                 puts ""
                 puts "expect result: $msg"
                 puts "expect exit code: $code"
-                puts "expect spawn exit code: $rc"
                 exit $code
             }}
 
