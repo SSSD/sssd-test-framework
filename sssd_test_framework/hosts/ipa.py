@@ -86,7 +86,7 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
             set -ex
 
             [ -f "/usr/libexec/sssd/passkey_child" ] && \
-                ipa help user | grep user-add-passkey 1> /dev/null && \
+                ipa user-add-passkey --help >/dev/null 2>&1 && \
                 echo "passkey" || :
             """,
             log_level=ProcessLogLevel.Error,
