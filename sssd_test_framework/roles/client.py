@@ -9,6 +9,7 @@ from ..topology import SSSDTopologyMark
 from ..utils.adcli import AdcliUtils
 from ..utils.automount import AutomountUtils
 from ..utils.gdm import GDM
+from ..utils.idp import IdpConfigUtils
 from ..utils.ldb import LDBUtils
 from ..utils.local_users import (
     LocalGroup,
@@ -122,6 +123,11 @@ class Client(BaseLinuxRole[ClientHost]):
         self.ssl: OpenSSLUtils = OpenSSLUtils(self.host, self.fs)
         """
         Managing CA certificates and TLS configuration on the client.
+        """
+
+        self.idp: IdpConfigUtils = IdpConfigUtils(self.host, self.fs)
+        """
+        Managing Generic IdP Configurations
         """
 
     def setup(self) -> None:
