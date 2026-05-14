@@ -61,7 +61,7 @@ class ClientHost(BaseHost, BaseLinuxHost):
             echo "limited_enumeration" || :
             [ -f "/usr/bin/vicc" ] && echo "virtualsmartcard" || :
             [ -f "/usr/bin/umockdev-run" ] && echo "umockdev" || :
-            [ -f "/opt/test_venv/bin/vfido.py" ] && echo "vfido" || :
+            lsmod | grep -q "vhci_hcd" && [ -f "/opt/test_venv/bin/vfido.py" ] && echo "vfido" || :
             """,
             log_level=ProcessLogLevel.Error,
         )
@@ -78,6 +78,7 @@ class ClientHost(BaseHost, BaseLinuxHost):
             "gdm": False,
             "virtualsmartcard": False,
             "umockdev": False,
+            "vfido": False,
         }
 
         self._features.update({k: True for k in result.stdout_lines})
