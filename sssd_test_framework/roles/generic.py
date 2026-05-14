@@ -25,6 +25,11 @@ __all__ = [
     "GenericNetgroup",
     "GenericNetgroupMember",
     "GenericSudoRule",
+    "SudoRuleUserField",
+    "SudoRuleHostField",
+    "SudoRuleCommandField",
+    "SudoRuleRunAsUserField",
+    "SudoRuleRunAsGroupField",
     "GenericAutomount",
     "GenericAutomountMap",
     "GenericAutomountKey",
@@ -1009,15 +1014,19 @@ class GenericNetgroupMember(object):
     """
 
     def __init__(
-        self, *, host: str | None = None, user: ProtocolName | str | None = None, ng: ProtocolName | str | None = None
+        self,
+        *,
+        host: str | None = None,
+        user: GenericUser | ProtocolName | str | None = None,
+        ng: GenericNetgroup | ProtocolName | str | None = None,
     ) -> None:
         """
         :param host: Host, defaults to None
         :type host: str | None, optional
         :param user: User, defaults to None
-        :type user: ProtocolName | str | None, optional
+        :type user: GenericUser | ProtocolName | str | None, optional
         :param ng: Netgroup, defaults to None
-        :type ng: ProtocolName | str | None, optional
+        :type ng: GenericNetgroup | ProtocolName | str | None, optional
         """
         self.host: str | None = host
         """Member host."""
@@ -1028,7 +1037,7 @@ class GenericNetgroupMember(object):
         self.netgroup: str | None = self._get_name(ng)
         """Member netgroup."""
 
-    def _get_name(self, item: ProtocolName | str | None = None) -> str | None:
+    def _get_name(self, item: GenericUser | GenericNetgroup | ProtocolName | str | None = None) -> str | None:
         if item is None:
             return None
 
@@ -1036,6 +1045,17 @@ class GenericNetgroupMember(object):
             return item.name
 
         return item
+
+
+SudoRuleUserField = (
+    str | GenericUser | GenericGroup | ProtocolName | list[str | GenericUser | GenericGroup | ProtocolName] | None
+)
+SudoRuleHostField = str | ProtocolName | list[str | ProtocolName] | None
+SudoRuleCommandField = str | ProtocolName | list[str | ProtocolName] | None
+SudoRuleRunAsUserField = (
+    str | GenericUser | GenericGroup | ProtocolName | list[str | GenericUser | GenericGroup | ProtocolName] | None
+)
+SudoRuleRunAsGroupField = str | GenericGroup | ProtocolName | list[str | GenericGroup | ProtocolName] | None
 
 
 class GenericSudoRule(ABC, BaseObject):
@@ -1055,12 +1075,12 @@ class GenericSudoRule(ABC, BaseObject):
     def add(
         self,
         *,
-        user: str | GenericUser | GenericGroup | list[str | GenericUser | GenericGroup] | None = None,
-        host: str | list[str] | None = None,
-        command: str | list[str] | None = None,
+        user: SudoRuleUserField = None,
+        host: SudoRuleHostField = None,
+        command: SudoRuleCommandField = None,
         option: str | list[str] | None = None,
-        runasuser: str | GenericUser | GenericGroup | list[str | GenericUser | GenericGroup] | None = None,
-        runasgroup: str | GenericGroup | list[str | GenericGroup] | None = None,
+        runasuser: SudoRuleRunAsUserField = None,
+        runasgroup: SudoRuleRunAsGroupField = None,
         order: int | None = None,
         nopasswd: bool | None = None,
     ) -> GenericSudoRule:
@@ -1068,17 +1088,17 @@ class GenericSudoRule(ABC, BaseObject):
         Create new sudo rule.
 
         :param user: sudoUser attribute, defaults to None
-        :type user: str | GenericUser | GenericGroup | list[str  |  GenericUser  |  GenericGroup] | None, optional
+        :type user: SudoRuleUserField, optional
         :param host: sudoHost attribute, defaults to None
-        :type host: str | list[str] | None, optional
+        :type host: SudoRuleHostField, optional
         :param command: sudoCommand attribute, defaults to None
-        :type command: str | list[str] | None, optional
+        :type command: SudoRuleCommandField, optional
         :param option: sudoOption attribute, defaults to None
         :type option: str | list[str] | None, optional
         :param runasuser: sudoRunAsUser attribute, defaults to None
-        :type runasuser: str | GenericUser | GenericGroup | list[str  |  GenericUser  |  GenericGroup] | None, optional
+        :type runasuser: SudoRuleRunAsUserField, optional
         :param runasgroup: sudoRunAsGroup attribute, defaults to None
-        :type runasgroup: str | GenericGroup | list[str  |  GenericGroup] | None, optional
+        :type runasgroup: SudoRuleRunAsGroupField, optional
         :param order: sudoOrder attribute, defaults to None
         :type order: int | None, optional
         :param nopasswd: If true, no authentication is required (NOPASSWD), defaults to None (no change)
@@ -1092,12 +1112,12 @@ class GenericSudoRule(ABC, BaseObject):
     def modify(
         self,
         *,
-        user: str | GenericUser | GenericGroup | list[str | GenericUser | GenericGroup] | None = None,
-        host: str | list[str] | None = None,
-        command: str | list[str] | None = None,
+        user: SudoRuleUserField = None,
+        host: SudoRuleHostField = None,
+        command: SudoRuleCommandField = None,
         option: str | list[str] | None = None,
-        runasuser: str | GenericUser | GenericGroup | list[str | GenericUser | GenericGroup] | None = None,
-        runasgroup: str | GenericGroup | list[str | GenericGroup] | None = None,
+        runasuser: SudoRuleRunAsUserField = None,
+        runasgroup: SudoRuleRunAsGroupField = None,
         order: int | None = None,
         nopasswd: bool | None = None,
     ) -> GenericSudoRule:
@@ -1105,17 +1125,17 @@ class GenericSudoRule(ABC, BaseObject):
         Create new sudo rule.
 
         :param user: sudoUser attribute, defaults to None
-        :type user: str | GenericUser | GenericGroup | list[str  |  GenericUser  |  GenericGroup] | None, optional
+        :type user: SudoRuleUserField, optional
         :param host: sudoHost attribute, defaults to None
-        :type host: str | list[str] | None, optional
+        :type host: SudoRuleHostField, optional
         :param command: sudoCommand attribute, defaults to None
-        :type command: str | list[str] | None, optional
+        :type command: SudoRuleCommandField, optional
         :param option: sudoOption attribute, defaults to None
         :type option: str | list[str] | None, optional
         :param runasuser: sudoRunAsUser attribute, defaults to None
-        :type runasuser: str | GenericUser | GenericGroup | list[str  |  GenericUser  |  GenericGroup] | None, optional
+        :type runasuser: SudoRuleRunAsUserField, optional
         :param runasgroup: sudoRunAsGroup attribute, defaults to None
-        :type runasgroup: str | GenericGroup | list[str  |  GenericGroup] | None, optional
+        :type runasgroup: SudoRuleRunAsGroupField, optional
         :param order: sudoOrder attribute, defaults to None
         :type order: int | None, optional
         :param nopasswd: If true, no authentication is required (NOPASSWD), defaults to None (no change)
