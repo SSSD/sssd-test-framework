@@ -10,6 +10,7 @@ from pytest_mh.conn import Process, ProcessResult
 from pytest_mh.utils.fs import LinuxFileSystem
 
 __all__ = [
+    "AHostSv4Entry",
     "GetentUtils",
     "GroupEntry",
     "LinuxToolsUtils",
@@ -601,6 +602,32 @@ class HostsEntry(object):
         return cls.FromList(result)
 
 
+class AHostSv4Entry(object):
+    """
+    Result of ``getent ahostsv4`` — first IPv4 from the first data line.
+
+    Same style as :class:`HostsEntry` (use the ``.ip`` field).
+    """
+
+    def __init__(self, ip: str | None) -> None:
+        self.ip: str | None = ip
+        """IPv4 dotted-quad (first column of ``getent ahostsv4`` output)."""
+
+    def __str__(self) -> str:
+        return f"({self.ip})"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+    @classmethod
+    def FromOutput(cls, stdout: str) -> AHostSv4Entry | None:
+        for line in stdout.splitlines():
+            parts = line.split()
+            if parts:
+                return cls(ip=parts[0])
+        return None
+
+
 class NetworksEntry(object):
     """
     Result of ``getent networks``
@@ -1057,6 +1084,31 @@ class GetentUtils(MultihostUtility[MultihostHost]):
         :rtype: HostsEntry | None
         """
         return self.__exec(HostsEntry, "hosts", name, service)
+
+    def ahostsv4(self, name: str, *, service: str | None = None) -> AHostSv4Entry | None:
+        """
+        Call ``getent ahostsv4`` and return the first IPv4 address from output.
+
+        For DNS lookups using ``dig`` (A, SRV, etc.), use
+        :meth:`NetworkUtils.dig <sssd_test_framework.utils.network.NetworkUtils.dig>`
+        on ``client.net`` instead of ad hoc shell commands in tests.
+
+        :param name: Host name or address to resolve.
+        :type name: str
+        :param service: Optional NSS service name (``getent -s``).
+        :type service: str | None, optional
+        :return: Parsed entry or ``None`` if lookup failed or produced no address.
+        :rtype: AHostSv4Entry | None
+        """
+        args: list[str] = []
+        if service is not None:
+            args = ["-s", service]
+
+        command = self.host.conn.exec(["getent", *args, "ahostsv4", str(name)], raise_on_error=False)
+        if command.rc != 0:
+            return None
+
+        return AHostSv4Entry.FromOutput(command.stdout)
 
     def networks(self, name: str, *, service: str | None = None) -> NetworksEntry:
         """
