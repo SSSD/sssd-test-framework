@@ -26,6 +26,40 @@ That is enough for LDAP GSSAPI (``ldap_sasl_mech = gssapi``) without each test
 running ``ktadd``/upload itself. Tests still call
 ``client.sssd.common.krb5_auth(kdc)`` and configure the SSSD domain as usual.
 
+Reusable client utilities
+-------------------------
+
+LDAP/Kerberos system tests can share the following helpers (no per-test ``named``
+or ``getent`` boilerplate):
+
+* :class:`~sssd_test_framework.utils.tools.AHostSv4Entry` /
+  :meth:`~sssd_test_framework.utils.tools.GetentUtils.ahostsv4` —
+  first IPv4 from ``getent ahostsv4`` on the client (NSS, not ``dig``).
+
+* :meth:`~sssd_test_framework.utils.tools.GetentUtils.resolve_ipv4` —
+  ``client.tools.getent.resolve_ipv4(hostname, host=role.host)`` uses topology
+  ``host.ip`` when set, otherwise ``getent ahostsv4``.
+
+* :meth:`~sssd_test_framework.utils.network.NetworkUtils.dig` —
+  ``client.net.dig(name, server)`` for A/PTR/SRV checks (prefer over shell ``dig``).
+
+* :meth:`~sssd_test_framework.utils.network.NetworkUtils.prepare_ldap_krb5_srv_discovery` —
+  ensures ``_ldap._tcp`` and ``_kerberos._udp`` SRV for the discovery domain (lab DNS,
+  ``dns.test``, or local ``named`` on the client).
+
+* :meth:`~sssd_test_framework.utils.network.NetworkUtils.setup_sasl_canonicalize_bogus_ptr` —
+  local ``named`` + ``/etc/hosts`` setup for BZ 732935 (bogus PTR for the LDAP
+  server IP, forward A for the LDAP FQDN, ``resolv.conf`` → ``127.0.0.1``).
+  Files are backed up via ``client.fs`` and restored after the test.
+
+* :func:`~sssd_test_framework.misc.ip_to_ptr` — reverse zone name for an IPv4
+  address (also used inside the bogus-PTR helper).
+
+Kerberos templates from :meth:`~sssd_test_framework.roles.kdc.KDC.config` include
+``rdns = false`` in ``[libdefaults]`` so tests that call
+``client.sssd.common.krb5_auth(kdc)`` do not need to edit ``/etc/krb5.conf`` for
+that option.
+
 .. seealso::
 
     * :class:`sssd_test_framework.roles.kdc.KDC`

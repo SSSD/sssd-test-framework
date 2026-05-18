@@ -131,6 +131,7 @@ class KDC(BaseLinuxRole[KDCHost]):
             ticket_lifetime = 24h
             renew_lifetime = 7d
             forwardable = yes
+            rdns = false
 
             [realms]
             {self.host.realm} = {{
