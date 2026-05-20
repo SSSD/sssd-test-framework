@@ -161,6 +161,7 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
         key_path: str = "/tmp/selfsigned.key",
         cert_path: str = "/tmp/selfsigned.crt",
         subj: str = "/CN=Test Cert",
+        key_type: str = "RSA",
     ) -> tuple[str, str]:
         """
         Generates a self-signed certificate and private key.
@@ -171,16 +172,34 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
         :type cert_path: str, optional
         :param subj: Subject for the certificate, defaults to "/CN=Test Cert"
         :type subj: str, optional
+        :param key_type: key type (RSA or EC) of the public-private key pair, defaults to "RSA"
+        :type key_type: str, optional
         :return: Tuple of (key_path, cert_path)
         :rtype: tuple
         """
+
+        key_args: CLIBuilderArgs
+        if key_type == "EC":
+            key_args = {
+                "algorithm": (self.cli.option.VALUE, "EC"),
+                "out": (self.cli.option.VALUE, key_path),
+                "pkeyopt": (self.cli.option.VALUE, ["ec_paramgen_curve:P-384", "ec_param_enc:named_curve"]),
+            }
+        elif key_type == "RSA":
+            key_args = {
+                "algorithm": (self.cli.option.VALUE, "RSA"),
+                "out": (self.cli.option.VALUE, key_path),
+                "pkeyopt": (self.cli.option.VALUE, "rsa_keygen_bits:2048"),
+            }
+        else:
+            raise ValueError(f"Unsupported key_type: '{key_type}'")
+        self.host.conn.run(self.cli.command("openssl genpkey", key_args))
+
         args: CLIBuilderArgs = {
             "x509": (self.cli.option.SWITCH, True),
             "nodes": (self.cli.option.SWITCH, True),
-            "sha256": (self.cli.option.SWITCH, True),
             "days": (self.cli.option.VALUE, "365"),
-            "newkey": (self.cli.option.VALUE, "rsa:2048"),
-            "keyout": (self.cli.option.VALUE, key_path),
+            "key": (self.cli.option.VALUE, key_path),
             "out": (self.cli.option.VALUE, cert_path),
             "subj": (self.cli.option.VALUE, subj),
         }
