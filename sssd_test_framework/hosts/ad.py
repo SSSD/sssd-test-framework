@@ -100,6 +100,48 @@ class ADHost(BaseDomainHost):
 
         return self.__naming_context
 
+    def export_root_ca_certificate(self) -> str:
+        """
+        Export the AD LDAPS certificate in PEM format.
+
+        This method retrieves the LDAPS server certificate from the AD domain
+        controller's local machine personal certificate store (My) and exports it
+        in PEM format. The certificate has both Server Authentication capability
+        and CA:TRUE flag, making it suitable for both TLS and trust verification.
+
+        :return: PEM-formatted LDAPS certificate content.
+        :rtype: str
+        :raises RuntimeError: If certificate cannot be exported.
+        """
+        result = self.conn.run(
+            """
+            $fqdn = [System.Net.Dns]::GetHostEntry($env:COMPUTERNAME).HostName
+
+            # Get the LDAPS certificate from My store (server certificate with ServerAuth EKU)
+            # Use regex to match CN component within Subject (handles additional RDNs like OU, DC)
+            $cert = Get-ChildItem Cert:\\LocalMachine\\My | Where-Object {
+                $_.Subject -match "CN=$([regex]::Escape($fqdn))(,|$)" -and
+                $_.EnhancedKeyUsageList.ObjectId -contains "1.3.6.1.5.5.7.3.1"
+            } | Sort-Object NotBefore -Descending | Select-Object -First 1
+
+            if (-not $cert) {
+                throw "No LDAPS certificate found in My store"
+            }
+
+            $pem = "-----BEGIN CERTIFICATE-----`r`n" +
+                   [Convert]::ToBase64String($cert.RawData, "InsertLineBreaks") +
+                   "`r`n-----END CERTIFICATE-----"
+
+            Write-Output $pem
+            """,
+            raise_on_error=False,
+        )
+
+        if result.rc != 0:
+            raise RuntimeError(f"Failed to export LDAPS certificate: {result.stderr}")
+
+        return result.stdout.strip()
+
     def disconnect(self) -> None:
         return
 
