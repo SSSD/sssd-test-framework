@@ -117,11 +117,19 @@ class GDM(MultihostUtility[MultihostHost]):
         :param client: Client role object to read log
         :type client: Client role
         """
-        result = client.journald.journalctl(
-            grep="Opening and taking control of.*card", unit=None, since="5 seconds ago"
-        )
-        if result.rc != 0:
+        result = client.journald.journalctl(grep=None, unit=None, since="5 seconds ago")
+
+        rc = 0
+        checks = ["Opening and taking control of.*card", "Adding device.*card"]
+        for check in checks:
+            if not re.search(check, result.stdout):
+                rc += 1
+
+        if rc >= len(checks):
             raise AssertionError("Unable to see gnome-shell take control of video card")
+        import time
+
+        time.sleep(2)
 
     def check_home_screen(self) -> bool:
         """
