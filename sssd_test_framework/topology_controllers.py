@@ -95,9 +95,21 @@ class ProvisionedBackupTopologyController(BackupTopologyController[SSSDMultihost
             self.logger.info(f"Running realm join failed with:\n{result.stdout}\n{result.stderr}")
             self.logger.info("Trying uninstall and join again.")
             if isinstance(provider, (IPAHost)):
-                client.conn.exec(["ipa-client-install", "--uninstall", "-U"])
+                result = client.conn.exec(["ipa-client-install", "--uninstall", "-U"], raise_on_error=False)
+                if result.rc != 0:
+                    self.logger.info(
+                        f"Running ipa-client-install --uninstall failed with:\n{result.stdout}\n{result.stderr}"
+                    )
+                    self.logger.info("Trying to remove sssd.conf now")
+                    client.fs.rm("/etc/sssd/sssd.conf")
             else:
-                client.conn.exec(["realm", "leave", "--unattended", provider.domain], input=provider.adminpw)
+                result = client.conn.exec(
+                    ["realm", "leave", "--unattended", provider.domain], input=provider.adminpw, raise_on_error=False
+                )
+                if result.rc != 0:
+                    self.logger.info(f"Running realm leave failed with:\n{result.stdout}\n{result.stderr}")
+                    self.logger.info("Trying to remove sssd.conf now")
+                    client.fs.rm("/etc/sssd/sssd.conf")
             client.conn.exec(["realm", "join", provider.domain], input=provider.adminpw)
 
 
@@ -361,7 +373,11 @@ class GDMTopologyController(ProvisionedBackupTopologyController):
     @BackupTopologyController.restore_vanilla_on_error
     def topology_setup(self, client: ClientHost, ipa: IPAHost, keycloak: KeycloakHost) -> None:
         short_hostname = client.conn.run("hostname").stdout.split(".")[0].strip()
-        hostname = f"{short_hostname}.{keycloak.domain}"
+        hostname = f"{short_hostname}.{ipa.domain}"
+        client.fs.backup("/etc/hostname")
+        client.fs.backup("/etc/hosts")
+        client.conn.run(f"echo {hostname} > /etc/hostname")
+        client.fs.write("/etc/hosts", client.fs.read("/etc/hosts").replace("client.test", hostname))
 
         # Change client hostname to match the domain
         self.logger.info(f"Changing hostname to {hostname}")
@@ -382,6 +398,16 @@ class GDMTopologyController(ProvisionedBackupTopologyController):
 
         # Create an IdP client
         keycloak.kclogin()
+
+        # First delete client if it exists
+        result = keycloak.conn.run(
+            "/opt/keycloak/bin/kcadm.sh get clients -q clientId=ipa_oidc_client " "--fields=id|jq -r '.[0].id'",
+            raise_on_error=False,
+        )
+        if result.rc == 0 and "null" not in result.stdout:
+            client_id = result.stdout.strip()
+            keycloak.conn.run(f"/opt/keycloak/bin/kcadm.sh delete clients/{client_id}")
+
         keycloak.conn.run(
             "/opt/keycloak/bin/kcadm.sh create clients -r master "
             '-b \'{"clientId": "ipa_oidc_client", "clientAuthenticatorType": "client-secret", '
@@ -392,7 +418,14 @@ class GDMTopologyController(ProvisionedBackupTopologyController):
         )
 
         ipa.kinit()
-        ipa.conn.run(
+
+        # Check if IPA entry for Keycloak already exists and delete
+        result = ipa.conn.run("ipa idp-show keycloak", raise_on_error=False)
+        if "ipa_oidc_client" in result.stdout:
+            self.logger.info(f"IPA already enrolled in keycloak.  Removing.")
+            ipa.conn.run("ipa idp-del keycloak")
+
+        result = ipa.conn.run(
             f"ipa idp-add keycloak --provider keycloak --base-url {keycloak.hostname}:8443/auth "
             "--org master --client-id ipa_oidc_client --secret",
             input="IPA_Secret123",
