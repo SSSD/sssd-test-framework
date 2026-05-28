@@ -32,7 +32,26 @@ from ..roles.client import Client
 from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
 from .base import BaseLinuxRole, BaseObject
-from .generic import GenericCertificateAuthority, GenericNetgroupMember, GenericPasswordPolicy
+from .generic import (
+    GenericAutomount,
+    GenericAutomountKey,
+    GenericAutomountMap,
+    GenericCertificateAuthority,
+    GenericDNSServer,
+    GenericDNSZone,
+    GenericGroup,
+    GenericNetgroup,
+    GenericNetgroupMember,
+    GenericPasswordPolicy,
+    GenericSudoRule,
+    GenericUser,
+    GroupMemberField,
+    SudoRuleCommandField,
+    SudoRuleHostField,
+    SudoRuleRunAsGroupField,
+    SudoRuleRunAsUserField,
+    SudoRuleUserField,
+)
 from .nfs import NFSExport
 
 __all__ = [
@@ -765,8 +784,12 @@ class IPAObject(BaseObject[IPAHost, IPA]):
         self.command_group: str = command_group
         """IPA cli command group."""
 
-        self.name: str = name
+        self._name: str = name
         """Object name."""
+
+    @property
+    def name(self) -> str:
+        return self._name
 
     def _exec(
         self, op: str, args: list[str] | None = None, ipaargs: list[str] | None = None, **kwargs
@@ -827,15 +850,18 @@ class IPAObject(BaseObject[IPAHost, IPA]):
         """
         self._exec("del")
 
-    def get(self, attrs: list[str] | None = None) -> dict[str, list[str]] | None:
+    def get(self, attrs: list[str] | None = None, *, opattrs: bool = False) -> dict[str, list[str]] | None:
         """
         Get IPA object attributes.
 
         :param attrs: If set, only requested attributes are returned, defaults to None
         :type attrs: list[str] | None, optional
+        :param opattrs: Ignored (LDAP-only); present for generic entity API compatibility.
+        :type opattrs: bool, optional
         :return: Dictionary with attribute name as a key or None if no such attribute is found.
         :rtype: dict[str, list[str]] | None
         """
+        _ = opattrs
         cmd = self._exec("show", ["--all", "--raw"], raise_on_error=False)
 
         # ipa output starts with space
@@ -848,9 +874,12 @@ class IPAObject(BaseObject[IPAHost, IPA]):
         return attrs_parse(lines[1:], attrs)
 
 
-class IPAUser(IPAObject):
+class IPAUser(IPAObject, GenericUser):
     """
     IPA user management.
+
+    :class:`IPAUser` implements :class:`GenericUser` for static typing and provider-agnostic tests.
+    IPA-specific keyword arguments on :meth:`add` and :meth:`modify` are in addition to the generic API.
     """
 
     def __init__(self, role: IPA, name: str) -> None:
@@ -867,7 +896,7 @@ class IPAUser(IPAObject):
         *,
         uid: int | None = None,
         gid: int | None = None,
-        password: str | None = "Secret123",
+        password: str = "Secret123",
         home: str | None = None,
         gecos: str | None = None,
         shell: str | None = None,
@@ -885,8 +914,8 @@ class IPAUser(IPAObject):
         :type uid: int | None, optional
         :param gid: Primary group id, defaults to None
         :type gid: int | None, optional
-        :param password: Password, defaults to 'Secret123'
-        :type password: str | None, optional
+        :param password: Password, defaults to 'Secret123' (use empty string to skip setting a password)
+        :type password: str, optional
         :param home: Home directory, defaults to None
         :type home: str | None, optional
         :param gecos: GECOS, defaults to None
@@ -913,7 +942,7 @@ class IPAUser(IPAObject):
             "homedir": (self.cli.option.VALUE, home),
             "gecos": (self.cli.option.VALUE, gecos),
             "shell": (self.cli.option.VALUE, shell),
-            "password": (self.cli.option.SWITCH, True) if password is not None else None,
+            "password": (self.cli.option.SWITCH, True) if password else None,
             "user-auth-type": (self.cli.option.VALUE, user_auth_type),
             "sshpubkey": (self.cli.option.VALUE, sshpubkey),
             "email": (self.cli.option.VALUE, email),
@@ -922,7 +951,7 @@ class IPAUser(IPAObject):
         if not require_password_reset:
             attrs["password-expiration"] = (self.cli.option.VALUE, "20380101120000Z")
 
-        self._add(attrs, input=password)
+        self._add(attrs, input=password or None)
         return self
 
     def modify(
@@ -996,6 +1025,20 @@ class IPAUser(IPAObject):
 
         self._modify(attrs, input=password)
         return self
+
+    def get(self, attrs: list[str] | None = None, *, opattrs: bool = False) -> dict[str, list[str]] | None:
+        """
+        Get user attributes.
+
+        :param attrs: If set, only requested attributes are returned, defaults to None
+        :type attrs: list[str] | None, optional
+        :param opattrs: Ignored (LDAP-only); present for :class:`GenericUser` API compatibility.
+        :type opattrs: bool, optional
+        :return: Dictionary with attribute name as a key (empty if the user does not exist).
+        :rtype: dict[str, list[str]] | None
+        """
+        result = super().get(attrs, opattrs=opattrs)
+        return result if result is not None else {}
 
     def reset(self, password: str | None = "Secret123") -> IPAUser:
         """
@@ -1122,12 +1165,14 @@ class IPAUser(IPAObject):
 
     def passkey_remove(self, passkey_mapping: str) -> IPAUser:
         """
-        Add passkey mapping from the user.
+        Remove passkey mapping from the user.
+
+        Implements :meth:`GenericUser.passkey_remove`.
 
         :param passkey_mapping: Passkey mapping generated by ``sssctl passkey-register``
         :type passkey_mapping: str
         :return: Self.
-        :rtype: IPAUser.
+        :rtype: IPAUser
         """
         self._exec("remove-passkey", [passkey_mapping])
         return self
@@ -1245,7 +1290,6 @@ class IDUserOverride(IPAUser):
         :type user: IPAUser
         """
         super().__init__(user.role, user.name)
-        self.name = user.name
 
     def add_override(
         self,
@@ -1485,9 +1529,13 @@ class IPASubID(BaseObject[IPAHost, IPA]):
         return self
 
 
-class IPAGroup(IPAObject):
+class IPAGroup(IPAObject, GenericGroup):
     """
     IPA group management.
+
+    :class:`IPAGroup` implements :class:`GenericGroup` for static typing and provider-agnostic tests.
+    IPA-specific keyword arguments on :meth:`add` and external members (``str``) on membership
+    methods are in addition to the generic API.
     """
 
     def __init__(self, role: IPA, name: str) -> None:
@@ -1559,67 +1607,78 @@ class IPAGroup(IPAObject):
         self._modify(attrs)
         return self
 
-    def add_member(self, member: IPAUser | IPAGroup | str) -> IPAGroup:
+    def get(self, attrs: list[str] | None = None, *, opattrs: bool = False) -> dict[str, list[str]] | None:
+        """
+        Get group attributes.
+
+        :param attrs: If set, only requested attributes are returned, defaults to None
+        :type attrs: list[str] | None, optional
+        :param opattrs: Ignored (LDAP-only); present for :class:`GenericGroup` API compatibility.
+        :type opattrs: bool, optional
+        :return: Dictionary with attribute name as a key (empty if the group does not exist).
+        :rtype: dict[str, list[str]] | None
+        """
+        result = super().get(attrs, opattrs=opattrs)
+        return result if result is not None else {}
+
+    def add_member(self, member: GroupMemberField) -> IPAGroup:
         """
         Add group member.
 
-        Member can be either IPAUser, IPAGroup or a string in which case it
+        Member can be a :class:`GenericUser`, :class:`GenericGroup`, or a string in which case it
         is added as an external member.
 
         :param member: User or group to add as a member.
-        :type member: IPAUser | IPAGroup | str
+        :type member: GroupMemberField
         :return: Self.
         :rtype: IPAGroup
         """
         return self.add_members([member])
 
-    def add_members(self, members: list[IPAUser | IPAGroup | str]) -> IPAGroup:
+    def add_members(self, members: list[GroupMemberField]) -> IPAGroup:
         """
         Add multiple group members.
 
-        Member can be either IPAUser, IPAGroup or a string in which case it
-        is added as an external member.
+        Members can be :class:`GenericUser`, :class:`GenericGroup`, or strings (external members).
 
         :param members: List of users or groups to add as members.
-        :type members: list[IPAUser | IPAGroup | str]
+        :type members: list[GroupMemberField]
         :return: Self.
         :rtype: IPAGroup
         """
         self._exec("add-member", ipaargs=["--no-prompt"], args=self.__get_member_args(members))
         return self
 
-    def remove_member(self, member: IPAUser | IPAGroup | str) -> IPAGroup:
+    def remove_member(self, member: GroupMemberField) -> IPAGroup:
         """
         Remove group member.
 
-        Member can be either IPAUser, IPAGroup or a string in which case
-        an external member is removed.
+        Member can be a :class:`GenericUser`, :class:`GenericGroup`, or a string (external member).
 
         :param member: User or group to remove from the group.
-        :type member: IPAUser | IPAGroup | str
+        :type member: GroupMemberField
         :return: Self.
         :rtype: IPAGroup
         """
         return self.remove_members([member])
 
-    def remove_members(self, members: list[IPAUser | IPAGroup | str]) -> IPAGroup:
+    def remove_members(self, members: list[GroupMemberField]) -> IPAGroup:
         """
         Remove multiple group members.
 
-        Member can be either IPAUser, IPAGroup or a string in which case
-        an external member is removed.
+        Members can be :class:`GenericUser`, :class:`GenericGroup`, or strings (external members).
 
         :param members: List of users or groups to remove from the group.
-        :type members: list[IPAUser | IPAGroup | str]
+        :type members: list[GroupMemberField]
         :return: Self.
         :rtype: IPAGroup
         """
         self._exec("remove-member", ipaargs=["--no-prompt"], args=self.__get_member_args(members))
         return self
 
-    def __get_member_args(self, members: list[IPAUser | IPAGroup | str]) -> list[str]:
-        users = [x for item in members if isinstance(item, IPAUser) for x in ("--users", item.name)]
-        groups = [x for item in members if isinstance(item, IPAGroup) for x in ("--groups", item.name)]
+    def __get_member_args(self, members: list[GroupMemberField]) -> list[str]:
+        users = [x for item in members if isinstance(item, GenericUser) for x in ("--users", item.name)]
+        groups = [x for item in members if isinstance(item, GenericGroup) for x in ("--groups", item.name)]
         external = [x for item in members if isinstance(item, str) for x in ("--external", item)]
         return [*users, *groups, *external]
 
@@ -1656,7 +1715,6 @@ class IDGroupOverride(IPAGroup):
         :type user: IPAGroup
         """
         super().__init__(group.role, group.name)
-        self.name = group.name
 
     def add_override(
         self,
@@ -1766,9 +1824,13 @@ class IDGroupOverride(IPAGroup):
         return attrs_parse(lines)
 
 
-class IPANetgroup(IPAObject):
+class IPANetgroup(IPAObject, GenericNetgroup):
     """
     IPA netgroup management.
+
+    :class:`IPANetgroup` implements :class:`GenericNetgroup` for static typing and
+    provider-agnostic tests. IPA-specific ``group`` and ``hostgroup`` members on
+    :meth:`add_member` are in addition to the generic API.
     """
 
     def __init__(self, role: IPA, name: str) -> None:
@@ -1790,14 +1852,28 @@ class IPANetgroup(IPAObject):
         self._add()
         return self
 
+    def get(self, attrs: list[str] | None = None, *, opattrs: bool = False) -> dict[str, list[str]] | None:
+        """
+        Get netgroup attributes.
+
+        :param attrs: If set, only requested attributes are returned, defaults to None
+        :type attrs: list[str] | None, optional
+        :param opattrs: Ignored (LDAP-only); present for :class:`GenericNetgroup` API compatibility.
+        :type opattrs: bool, optional
+        :return: Dictionary with attribute name as a key (empty if the netgroup does not exist).
+        :rtype: dict[str, list[str]] | None
+        """
+        result = super().get(attrs, opattrs=opattrs)
+        return result if result is not None else {}
+
     def add_member(
         self,
         *,
         host: str | None = None,
-        user: IPAUser | str | None = None,
-        group: IPAGroup | str | None = None,
+        user: GenericUser | str | None = None,
+        group: GenericGroup | str | None = None,
         hostgroup: str | None = None,
-        ng: IPANetgroup | str | None = None,
+        ng: GenericNetgroup | str | None = None,
     ) -> IPANetgroup:
         """
         Add netgroup member.
@@ -1805,24 +1881,24 @@ class IPANetgroup(IPAObject):
         :param host: Host, defaults to None
         :type host: str | None, optional
         :param user: User, defaults to None
-        :type user: IPAUser | str | None, optional
-        :param group: Group, defaults to None
-        :type group: IPAGroup | str | None, optional
-        :param hostgroup: Hostgroup, defaults to None
+        :type user: GenericUser | str | None, optional
+        :param group: Group (IPA only), defaults to None
+        :type group: GenericGroup | str | None, optional
+        :param hostgroup: Hostgroup (IPA only), defaults to None
         :type hostgroup: str | None, optional
         :param ng: Netgroup, defaults to None
-        :type ng: IPANetgroup | str | None, optional
+        :type ng: GenericNetgroup | str | None, optional
         :return: Self.
         :rtype: IPANetgroup
         """
         return self.add_members([IPANetgroupMember(host=host, user=user, group=group, hostgroup=hostgroup, ng=ng)])
 
-    def add_members(self, members: list[IPANetgroupMember]) -> IPANetgroup:
+    def add_members(self, members: list[GenericNetgroupMember]) -> IPANetgroup:
         """
         Add multiple netgroup members.
 
-        :param members: Netgroup members.
-        :type members: list[IPANetgroupMember]
+        :param members: Netgroup members (use :class:`IPANetgroupMember` for IPA group/hostgroup members).
+        :type members: list[GenericNetgroupMember]
         :return: Self.
         :rtype: IPANetgroup
         """
@@ -1833,10 +1909,10 @@ class IPANetgroup(IPAObject):
         self,
         *,
         host: str | None = None,
-        user: IPAUser | str | None = None,
-        group: IPAGroup | str | None = None,
+        user: GenericUser | str | None = None,
+        group: GenericGroup | str | None = None,
         hostgroup: str | None = None,
-        ng: IPANetgroup | str | None = None,
+        ng: GenericNetgroup | str | None = None,
     ) -> IPANetgroup:
         """
         Remove netgroup member.
@@ -1844,35 +1920,45 @@ class IPANetgroup(IPAObject):
         :param host: Host, defaults to None
         :type host: str | None, optional
         :param user: User, defaults to None
-        :type user: IPAUser | str | None, optional
-        :param group: Group, defaults to None
-        :type group: IPAGroup | str | None, optional
-        :param hostgroup: Hostgroup, defaults to None
+        :type user: GenericUser | str | None, optional
+        :param group: Group (IPA only), defaults to None
+        :type group: GenericGroup | str | None, optional
+        :param hostgroup: Hostgroup (IPA only), defaults to None
         :type hostgroup: str | None, optional
         :param ng: Netgroup, defaults to None
-        :type ng: IPANetgroup | str | None, optional
+        :type ng: GenericNetgroup | str | None, optional
         :return: Self.
         :rtype: IPANetgroup
         """
         return self.remove_members([IPANetgroupMember(host=host, user=user, group=group, hostgroup=hostgroup, ng=ng)])
 
-    def remove_members(self, members: list[IPANetgroupMember]) -> IPANetgroup:
+    def remove_members(self, members: list[GenericNetgroupMember]) -> IPANetgroup:
         """
         Remove multiple netgroup members.
 
-        :param members: Netgroup members.
-        :type members: list[IPANetgroupMember]
+        :param members: Netgroup members (use :class:`IPANetgroupMember` for IPA group/hostgroup members).
+        :type members: list[GenericNetgroupMember]
         :return: Self.
         :rtype: IPANetgroup
         """
         self._exec("remove-member", self.__get_member_args(members))
         return self
 
-    def __get_member_args(self, members: list[IPANetgroupMember]) -> list[str]:
+    def __get_member_args(self, members: list[GenericNetgroupMember]) -> list[str]:
         users = [x for item in members if item.user is not None for x in ("--users", item.user)]
-        groups = [x for item in members if item.group is not None for x in ("--groups", item.group)]
+        groups = [
+            x
+            for item in members
+            if getattr(item, "group", None) is not None
+            for x in ("--groups", getattr(item, "group"))
+        ]
         hosts = [x for item in members if item.host is not None for x in ("--hosts", item.host)]
-        hostgroups = [x for item in members if item.hostgroup is not None for x in ("--hostgroups", item.hostgroup)]
+        hostgroups = [
+            x
+            for item in members
+            if getattr(item, "hostgroup", None) is not None
+            for x in ("--hostgroups", getattr(item, "hostgroup"))
+        ]
         netgroups = [x for item in members if item.netgroup is not None for x in ("--netgroups", item.netgroup)]
 
         return [*users, *groups, *hosts, *hostgroups, *netgroups]
@@ -1887,22 +1973,22 @@ class IPANetgroupMember(GenericNetgroupMember):
         self,
         *,
         host: str | None = None,
-        user: IPAUser | str | None = None,
-        group: IPAGroup | str | None = None,
+        user: GenericUser | str | None = None,
+        group: GenericGroup | str | None = None,
         hostgroup: str | None = None,
-        ng: IPANetgroup | str | None = None,
+        ng: GenericNetgroup | str | None = None,
     ) -> None:
         """
         :param host: Host, defaults to None
         :type host: str | None, optional
         :param user: User, defaults to None
-        :type user: IPAUser | str | None, optional
+        :type user: GenericUser | str | None, optional
         :param group: Group, defaults to None
-        :type group: IPAGroup | str | None, optional
+        :type group: GenericGroup | str | None, optional
         :param hostgroup: Hostgroup, defaults to None
         :type hostgroup: str | None, optional
         :param ng: Netgroup, defaults to None
-        :type ng: IPANetgroup | str | None, optional
+        :type ng: GenericNetgroup | str | None, optional
         """
         super().__init__(host=host, user=user, ng=ng)
 
@@ -1990,9 +2076,12 @@ class IPAHostAccount(IPAObject):
         return self
 
 
-class IPASudoRule(IPAObject):
+class IPASudoRule(IPAObject, GenericSudoRule):
     """
     IPA sudo rule management.
+
+    :class:`IPASudoRule` implements :class:`GenericSudoRule` for static typing and
+    provider-agnostic tests.
     """
 
     def __init__(self, role: IPA, name: str) -> None:
@@ -2008,12 +2097,12 @@ class IPASudoRule(IPAObject):
     def add(
         self,
         *,
-        user: str | IPAUser | IPAGroup | list[str | IPAUser | IPAGroup] | None = None,
-        host: str | list[str] | None = None,
-        command: str | list[str] | None = None,
+        user: SudoRuleUserField = None,
+        host: SudoRuleHostField = None,
+        command: SudoRuleCommandField = None,
         option: str | list[str] | None = None,
-        runasuser: str | IPAUser | IPAGroup | list[str | IPAUser | IPAGroup] | None = None,
-        runasgroup: str | IPAGroup | list[str | IPAGroup] | None = None,
+        runasuser: SudoRuleRunAsUserField = None,
+        runasgroup: SudoRuleRunAsGroupField = None,
         order: int | None = None,
         nopasswd: bool | None = None,
     ) -> IPASudoRule:
@@ -2021,22 +2110,22 @@ class IPASudoRule(IPAObject):
         Create new sudo rule.
 
         :param user: sudoUser attribute, defaults to None
-        :type user: str | IPAUser | IPAGroup | list[str  |  IPAUser  |  IPAGroup] | None, optional
+        :type user: SudoRuleUserField, optional
         :param host: sudoHost attribute, defaults to None
-        :type host: str | list[str] | None, optional
+        :type host: SudoRuleHostField, optional
         :param command: sudoCommand attribute, defaults to None
-        :type command: str | list[str] | None, optional
+        :type command: SudoRuleCommandField, optional
         :param option: sudoOption attribute, defaults to None
         :type option: str | list[str] | None, optional
         :param runasuser: sudoRunAsUser attribute, defaults to None
-        :type runasuser: str | IPAUser | IPAGroup | list[str  |  IPAUser  |  IPAGroup] | None, optional
+        :type runasuser: SudoRuleRunAsUserField, optional
         :param runasgroup: sudoRunAsGroup attribute, defaults to None
-        :type runasgroup: str | IPAGroup | list[str  |  IPAGroup] | None, optional
+        :type runasgroup: SudoRuleRunAsGroupField, optional
         :param order: sudoOrder attribute, defaults to None
         :type order: int | None, optional
         :param nopasswd: If true, no authentication is required (NOPASSWD), defaults to None (no change)
         :type nopasswd: bool | None, optional
-        :return: _description_
+        :return: Self.
         :rtype: IPASudoRule
         """
         # Remember arguments so we can use them in modify if needed
@@ -2117,12 +2206,12 @@ class IPASudoRule(IPAObject):
     def modify(
         self,
         *,
-        user: str | IPAUser | IPAGroup | list[str | IPAUser | IPAGroup] | None = None,
-        host: str | list[str] | None = None,
-        command: str | list[str] | None = None,
+        user: SudoRuleUserField = None,
+        host: SudoRuleHostField = None,
+        command: SudoRuleCommandField = None,
         option: str | list[str] | None = None,
-        runasuser: str | IPAUser | IPAGroup | list[str | IPAUser | IPAGroup] | None = None,
-        runasgroup: str | IPAGroup | list[str | IPAGroup] | None = None,
+        runasuser: SudoRuleRunAsUserField = None,
+        runasgroup: SudoRuleRunAsGroupField = None,
         order: int | None = None,
         nopasswd: bool | None = None,
     ) -> IPASudoRule:
@@ -2130,22 +2219,22 @@ class IPASudoRule(IPAObject):
         Modify existing IPA sudo rule.
 
         :param user: sudoUser attribute, defaults to None
-        :type user: str | IPAUser | IPAGroup | list[str  |  IPAUser  |  IPAGroup] | None, optional
+        :type user: SudoRuleUserField, optional
         :param host: sudoHost attribute, defaults to None
-        :type host: str | list[str] | None, optional
+        :type host: SudoRuleHostField, optional
         :param command: sudoCommand attribute, defaults to None
-        :type command: str | list[str] | None, optional
+        :type command: SudoRuleCommandField, optional
         :param option: sudoOption attribute, defaults to None
         :type option: str | list[str] | None, optional
         :param runasuser: sudoRunAsUser attribute, defaults to None
-        :type runasuser: str | IPAUser | IPAGroup | list[str  |  IPAUser  |  IPAGroup] | None, optional
+        :type runasuser: SudoRuleRunAsUserField, optional
         :param runasgroup: sudoRunAsGroup attribute, defaults to None
-        :type runasgroup: str | IPAGroup | list[str  |  IPAGroup] | None, optional
+        :type runasgroup: SudoRuleRunAsGroupField, optional
         :param order: sudoOrder attribute, defaults to None
         :type order: int | None, optional
         :param nopasswd: If true, no authentication is required (NOPASSWD), defaults to None (no change)
         :type nopasswd: bool | None, optional
-        :return: _description_
+        :return: Self.
         :rtype: IPASudoRule
         """
         self.delete()
@@ -2162,6 +2251,20 @@ class IPASudoRule(IPAObject):
 
         return self
 
+    def get(self, attrs: list[str] | None = None, *, opattrs: bool = False) -> dict[str, list[str]] | None:
+        """
+        Get sudo rule attributes.
+
+        :param attrs: If set, only requested attributes are returned, defaults to None
+        :type attrs: list[str] | None, optional
+        :param opattrs: Ignored (LDAP-only); present for :class:`GenericSudoRule` API compatibility.
+        :type opattrs: bool, optional
+        :return: Dictionary with attribute name as a key (empty if the rule does not exist).
+        :rtype: dict[str, list[str]] | None
+        """
+        result = super().get(attrs, opattrs=opattrs)
+        return result if result is not None else {}
+
     def delete(self) -> None:
         """
         Delete sudo rule from IPA.
@@ -2170,7 +2273,7 @@ class IPASudoRule(IPAObject):
         self.role.host.conn.run(f'ipa sudocmdgroup-del "{self.name}_allow"')
         self.role.host.conn.run(f'ipa sudocmdgroup-del "{self.name}_deny"')
 
-    def __get_commands(self, value: str | list[str] | None) -> tuple[list[str], list[str], str]:
+    def __get_commands(self, value: SudoRuleCommandField) -> tuple[list[str], list[str], str]:
         allow_commands = []
         deny_commands = []
         category = ""
@@ -2187,7 +2290,7 @@ class IPASudoRule(IPAObject):
 
         return allow_commands, deny_commands, category
 
-    def __get_hosts(self, value: str | list[str] | None) -> tuple[list[str], str]:
+    def __get_hosts(self, value: SudoRuleHostField) -> tuple[list[str], str]:
         hosts = []
         category = ""
         for host in to_list_of_strings(value):
@@ -2200,7 +2303,7 @@ class IPASudoRule(IPAObject):
         return hosts, category
 
     def __get_users_and_groups(
-        self, value: str | IPAUser | IPAGroup | list[str | IPAUser | IPAGroup] | None
+        self, value: SudoRuleUserField | SudoRuleRunAsUserField
     ) -> tuple[list[str], list[str], str]:
         users = []
         groups = []
@@ -2210,7 +2313,7 @@ class IPASudoRule(IPAObject):
                 category = "--usercat=all"
                 continue
 
-            if isinstance(item, IPAGroup):
+            if isinstance(item, GenericGroup):
                 groups.append(item.name)
                 continue
 
@@ -2218,7 +2321,7 @@ class IPASudoRule(IPAObject):
                 groups.append(item[1:])
                 continue
 
-            if isinstance(item, IPAUser):
+            if isinstance(item, GenericUser):
                 users.append(item.name)
                 continue
 
@@ -2226,20 +2329,22 @@ class IPASudoRule(IPAObject):
                 users.append(item)
                 continue
 
+            if hasattr(item, "name"):
+                users.append(item.name)
+                continue
+
             raise ValueError(f"Unsupported type: {type(item)}")
 
         return users, groups, category
 
-    def __get_run_as_user(
-        self, value: str | IPAUser | IPAGroup | list[str | IPAUser | IPAGroup] | None
-    ) -> tuple[list[str], list[str], str]:
+    def __get_run_as_user(self, value: SudoRuleRunAsUserField) -> tuple[list[str], list[str], str]:
         users, groups, category = self.__get_users_and_groups(value)
         if category:
             category = "--runasusercat=all"
 
         return users, groups, category
 
-    def __get_run_as_group(self, value: str | IPAGroup | list[str | IPAGroup] | None) -> tuple[list[str], str]:
+    def __get_run_as_group(self, value: SudoRuleRunAsGroupField) -> tuple[list[str], str]:
         groups = []
         category = ""
         for item in to_list(value):
@@ -2247,12 +2352,16 @@ class IPASudoRule(IPAObject):
                 category = "--runasgroupcat=all"
                 continue
 
-            if isinstance(item, IPAGroup):
+            if isinstance(item, GenericGroup):
                 groups.append(item.name)
                 continue
 
             if isinstance(item, str):
                 groups.append(item)
+                continue
+
+            if hasattr(item, "name"):
+                groups.append(item.name)
                 continue
 
             raise ValueError(f"Unsupported type: {type(item)}")
@@ -2274,9 +2383,13 @@ class IPASudoRule(IPAObject):
             self.role.host.conn.run(f'ipa {cmd} "{name}" {args}')
 
 
-class IPAAutomount(object):
+class IPAAutomount(GenericAutomount):
     """
     IPA automount management.
+
+    :class:`IPAAutomount` implements :class:`GenericAutomount` for static typing and
+    provider-agnostic tests. The optional ``location`` argument on :meth:`map` is
+    IPA-specific; :meth:`location` is not part of the generic API.
     """
 
     def __init__(self, role: IPA) -> None:
@@ -2301,6 +2414,9 @@ class IPAAutomount(object):
         """
         Get automount map object.
 
+        Implements :meth:`GenericAutomount.map`; ``location`` selects the IPA automount
+        location (defaults to ``default``).
+
         :param name: Automount map name.
         :type name: str
         :param location: Automount map location, defaults to ``default``
@@ -2310,17 +2426,21 @@ class IPAAutomount(object):
         """
         return IPAAutomountMap(self.__role, name, location)
 
-    def key(self, name: str, map: IPAAutomountMap) -> IPAAutomountKey:
+    def key(self, name: str, map: GenericAutomountMap) -> IPAAutomountKey:
         """
         Get automount key object.
+
+        Implements :meth:`GenericAutomount.key`.
 
         :param name: Automount key name.
         :type name: str
         :param map: Automount map that is a parent to this key.
-        :type map: IPAAutomountMap
+        :type map: GenericAutomountMap
         :return: New automount key object.
         :rtype: IPAAutomountKey
         """
+        if not isinstance(map, IPAAutomountMap):
+            raise TypeError("IPA automount keys require an IPAAutomountMap parent map.")
         return IPAAutomountKey(self.__role, name, map)
 
 
@@ -2373,9 +2493,12 @@ class IPAAutomountLocation(IPAObject):
         return IPAAutomountMap(self.role, name, self)
 
 
-class IPAAutomountMap(IPAObject):
+class IPAAutomountMap(IPAObject, GenericAutomountMap):
     """
     IPA automount map management.
+
+    :class:`IPAAutomountMap` implements :class:`GenericAutomountMap` for static typing
+    and provider-agnostic tests.
     """
 
     def __init__(self, role: IPA, name: str, location: IPAAutomountLocation | str = "default") -> None:
@@ -2444,6 +2567,20 @@ class IPAAutomountMap(IPAObject):
         self._add()
         return self
 
+    def get(self, attrs: list[str] | None = None, *, opattrs: bool = False) -> dict[str, list[str]] | None:
+        """
+        Get automount map attributes.
+
+        :param attrs: If set, only requested attributes are returned, defaults to None
+        :type attrs: list[str] | None, optional
+        :param opattrs: Ignored (LDAP-only); present for :class:`GenericAutomountMap` API compatibility.
+        :type opattrs: bool, optional
+        :return: Dictionary with attribute name as a key (empty if the map does not exist).
+        :rtype: dict[str, list[str]] | None
+        """
+        result = super().get(attrs, opattrs=opattrs)
+        return result if result is not None else {}
+
     def key(self, name: str) -> IPAAutomountKey:
         """
         Get automount key object for this map.
@@ -2456,9 +2593,12 @@ class IPAAutomountMap(IPAObject):
         return IPAAutomountKey(self.role, name, self)
 
 
-class IPAAutomountKey(IPAObject):
+class IPAAutomountKey(IPAObject, GenericAutomountKey):
     """
     IPA automount key management.
+
+    :class:`IPAAutomountKey` implements :class:`GenericAutomountKey` for static typing
+    and provider-agnostic tests.
     """
 
     def __init__(
@@ -2512,12 +2652,26 @@ class IPAAutomountKey(IPAObject):
         )
         return self.role.host.conn.exec(["ipa", *ipaargs, f"{self.command_group}-{op}", *defargs, *args], **kwargs)
 
-    def add(self, *, info: str | NFSExport | IPAAutomountMap) -> IPAAutomountKey:
+    def get(self, attrs: list[str] | None = None, *, opattrs: bool = False) -> dict[str, list[str]] | None:
+        """
+        Get automount key attributes.
+
+        :param attrs: If set, only requested attributes are returned, defaults to None
+        :type attrs: list[str] | None, optional
+        :param opattrs: Ignored (LDAP-only); present for :class:`GenericAutomountKey` API compatibility.
+        :type opattrs: bool, optional
+        :return: Dictionary with attribute name as a key (empty if the key does not exist).
+        :rtype: dict[str, list[str]] | None
+        """
+        result = super().get(attrs, opattrs=opattrs)
+        return result if result is not None else {}
+
+    def add(self, *, info: str | NFSExport | GenericAutomountMap) -> IPAAutomountKey:
         """
         Create new IPA automount key.
 
         :param info: Automount information
-        :type info: str | NFSExport | IPAAutomountMap
+        :type info: str | NFSExport | GenericAutomountMap
         :return: Self.
         :rtype: IPAAutomountKey
         """
@@ -2531,13 +2685,13 @@ class IPAAutomountKey(IPAObject):
     def modify(
         self,
         *,
-        info: str | NFSExport | IPAAutomountMap | None = None,
+        info: str | NFSExport | GenericAutomountMap | None = None,
     ) -> IPAAutomountKey:
         """
         Modify existing IPA automount key.
 
         :param info: Automount information, defaults to ``None``
-        :type info: str | NFSExport | IPAAutomountMap | None
+        :type info: str | NFSExport | GenericAutomountMap | None
         :return: Self.
         :rtype: IPAAutomountKey
         """
@@ -2574,11 +2728,11 @@ class IPAAutomountKey(IPAObject):
         """
         return self.dump()
 
-    def __get_info(self, info: str | NFSExport | IPAAutomountMap | None) -> str | None:
+    def __get_info(self, info: str | NFSExport | GenericAutomountMap | None) -> str | None:
         if isinstance(info, NFSExport):
             return info.get()
 
-        if isinstance(info, IPAAutomountMap):
+        if isinstance(info, GenericAutomountMap):
             return info.name
 
         return info
@@ -2586,17 +2740,26 @@ class IPAAutomountKey(IPAObject):
 
 class IPAPasswordPolicy(IPAObject, GenericPasswordPolicy):
     """
-    Password policy management.
+    IPA password policy management.
+
+    :class:`IPAPasswordPolicy` implements :class:`GenericPasswordPolicy` for static typing
+    and provider-agnostic tests.
     """
 
-    def __init__(self, role: IPA, name: str = "ipausers"):
+    def __init__(self, role: IPA, name: str = "ipausers") -> None:
         """
-        :param role: IPA host object.
-        :type role: IPAHost
+        :param role: IPA role object.
+        :type role: IPA
         :param name: Name of target object, defaults to 'ipausers'.
         :type name: str
         """
         super().__init__(role, name, command_group="pwpolicy")
+
+    def _apply_attrs(self, attrs: CLIBuilderArgs) -> None:
+        if self.get() is None:
+            self._add(attrs)
+        else:
+            self._modify(attrs)
 
     def complexity(self, enable: bool) -> IPAPasswordPolicy:
         """
@@ -2604,13 +2767,11 @@ class IPAPasswordPolicy(IPAObject, GenericPasswordPolicy):
 
         :param enable: Enable or disable password complexity.
         :type enable: bool
-        :return: IPAPasswordPolicy object.
+        :return: Self.
         :rtype: IPAPasswordPolicy
         """
-        attrs: CLIBuilderArgs
-
         if enable:
-            attrs = {
+            attrs: CLIBuilderArgs = {
                 "dictcheck": (self.cli.option.VALUE, "True"),
                 "usercheck": (self.cli.option.VALUE, "True"),
                 "minlength": (self.cli.option.VALUE, 8),
@@ -2626,11 +2787,7 @@ class IPAPasswordPolicy(IPAObject, GenericPasswordPolicy):
                 "priority": (self.cli.option.VALUE, 1),
             }
 
-        if self.get() is None:
-            self._add(attrs)
-        else:
-            self._modify(attrs)
-
+        self._apply_attrs(attrs)
         return self
 
     def lockout(self, duration: int, attempts: int) -> IPAPasswordPolicy:
@@ -2641,15 +2798,14 @@ class IPAPasswordPolicy(IPAObject, GenericPasswordPolicy):
         :type duration: int
         :param attempts: Number of login attempts.
         :type attempts: int
-        :return: IPAPasswordPolicy object.
+        :return: Self.
         :rtype: IPAPasswordPolicy
         """
         attrs: CLIBuilderArgs = {
             "lockouttime": (self.cli.option.VALUE, str(duration)),
             "maxfail": (self.cli.option.VALUE, str(attempts)),
         }
-        self._add(attrs)
-
+        self._apply_attrs(attrs)
         return self
 
 
@@ -2743,15 +2899,18 @@ class IPAIDView(IPAObject):
         self._exec("del", ["--continue"])
 
 
-class IPADNSServer(BaseObject[IPAHost, IPA]):
+class IPADNSServer(GenericDNSServer):
     """
-    DNS management utilities.
+    IPA DNS server management.
+
+    :class:`IPADNSServer` implements :class:`GenericDNSServer` for static typing and
+    provider-agnostic tests.
     """
 
-    def __init__(self, role: IPA):
+    def __init__(self, role: IPA) -> None:
         """
-        :param role: IPA host object.
-        :type role: ADHost
+        :param role: IPA role object.
+        :type role: IPA
         """
         super().__init__(role)
 
@@ -2763,29 +2922,35 @@ class IPADNSServer(BaseObject[IPAHost, IPA]):
 
     def zone(self, name: str) -> IPADNSZone:
         """
-        Get IPADNSZone object.
+        Get DNS zone object.
+
+        Implements :meth:`GenericDNSServer.zone`.
 
         :param name: Zone name.
         :type name: str
-        :return: IPADNSZone object.
+        :return: DNS zone object.
         :rtype: IPADNSZone
         """
         return IPADNSZone(self.role, name)
 
-    def get_forwarders(self) -> list[str] | None:
+    def get_forwarders(self) -> list[str]:
         """
         Get DNS global forwarders.
 
-        :return: DNS global forwarders.:
-        :rtype: list[str] | None
+        Implements :meth:`GenericDNSServer.get_forwarders`.
+
+        :return: List of forwarder IP addresses (empty if none are configured).
+        :rtype: list[str]
         """
         result = self.host.conn.run("ipa dnsconfig-show --raw").stdout_lines
         result = [line.strip() for line in result if line.startswith(" ")]
         if result is not None and isinstance(result, list):
             forwarders = attrs_parse(result, ["idnsforwarders"])
             if forwarders is not None and isinstance(forwarders, dict):
-                return forwarders.get("idnsforwarders")
-        return None
+                value = forwarders.get("idnsforwarders")
+                if value is not None:
+                    return to_list_of_strings(value)
+        return []
 
     def add_forwarder(self, ip_address: str) -> IPADNSServer:
         """
@@ -2801,7 +2966,7 @@ class IPADNSServer(BaseObject[IPAHost, IPA]):
 
     def remove_forwarder(self, ip_address: str) -> None:
         """
-        Remove DNS server forwarders.
+        Remove a DNS server forwarder.
 
         :param ip_address: IP address.
         :type ip_address: str
@@ -2809,7 +2974,7 @@ class IPADNSServer(BaseObject[IPAHost, IPA]):
         forwarders = self.get_forwarders()
         if forwarders and ip_address in forwarders:
             forwarders = [fwd for fwd in forwarders if fwd != ip_address]
-            self.host.conn.run(f"ipa dnsconfig-mod --forwarder \"{' '.join(forwarders)}\"")
+            self.host.conn.run(f'ipa dnsconfig-mod --forwarder "{" ".join(forwarders)}"')
 
     def clear_forwarders(self) -> None:
         """
@@ -2823,35 +2988,40 @@ class IPADNSServer(BaseObject[IPAHost, IPA]):
             for forwarder in forwarders:
                 self.remove_forwarder(forwarder)
 
-    def list_zones(self) -> list[str] | None:
+    def list_zones(self) -> list[str]:
         """
         List zones.
-        :return: List of zones.
-        :rtype: dict[str, list[str]] | None"
+
+        Implements :meth:`GenericDNSServer.list_zones`.
+
+        :return: List of zone names (empty if none are found).
+        :rtype: list[str]
         """
         result = self.host.conn.run("ipa dnszone-find --raw").stdout_lines
         result = [line.strip() for line in result if line.startswith(" ")]
         if result is None:
-            raise ValueError("No zones found.")
-        else:
-            zones = [line.rstrip(".") for line in result]
-            parsed_result = attrs_parse(zones, ["idnsname"])
-            if isinstance(parsed_result, dict):
-                if isinstance(parsed_result["idnsname"], list):
-                    return parsed_result.get("idnsname")
-            else:
-                return None
+            return []
+        zones = [line.rstrip(".") for line in result]
+        parsed_result = attrs_parse(zones, ["idnsname"])
+        if isinstance(parsed_result, dict):
+            idnsname = parsed_result.get("idnsname")
+            if isinstance(idnsname, list):
+                return idnsname
+        return []
 
 
-class IPADNSZone(IPADNSServer):
+class IPADNSZone(IPADNSServer, GenericDNSZone):
     """
-    DNS zone management.
+    IPA DNS zone management.
+
+    :class:`IPADNSZone` implements :class:`GenericDNSZone` for static typing and
+    provider-agnostic tests.
     """
 
-    def __init__(self, role: IPA, name: str):
+    def __init__(self, role: IPA, name: str) -> None:
         """
-        :param role: IPA host object.
-        :type role: IPAHost
+        :param role: IPA role object.
+        :type role: IPA
         :param name: DNS zone name.
         :type name: str
         """
@@ -2864,8 +3034,10 @@ class IPADNSZone(IPADNSServer):
         """
         Create new zone.
 
-        :return: IPADNSServer object.
-        :rtype: IPADNSServer
+        Implements :meth:`GenericDNSZone.create`.
+
+        :return: Self.
+        :rtype: IPADNSZone
         """
         self.host.conn.run(f"ipa dnszone-add {self.zone_name} --skip-overlap-check")
         self.host.conn.run(f"ipa dnszone-mod {self.zone_name} --dynamic-update=TRUE --allow-sync-ptr=TRUE")
@@ -2874,12 +3046,16 @@ class IPADNSZone(IPADNSServer):
     def delete(self) -> None:
         """
         Delete zone.
+
+        Implements :meth:`GenericDNSZone.delete`.
         """
         self.host.conn.run(f"dnszone-del {self.zone_name}")
 
     def add_record(self, name: str, data: str | int) -> IPADNSZone:
         """
         Add DNS record.
+
+        Implements :meth:`GenericDNSZone.add_record`.
 
         If ``data`` is a str, a forward record will be added.
         If an integer a reverse record will be added.
@@ -2888,7 +3064,7 @@ class IPADNSZone(IPADNSServer):
         :type name: str
         :param data: Record data.
         :type data: str | int
-        :return: IPADNSZone object.
+        :return: Self.
         :rtype: IPADNSZone
         """
         args = ""
@@ -2911,7 +3087,9 @@ class IPADNSZone(IPADNSServer):
         """
         Delete DNS record, both forward and reverse records are deleted.
 
-        :param name: Name.
+        Implements :meth:`GenericDNSZone.delete_record`.
+
+        :param name: Name of the record.
         :type name: str
         """
         if self.domain not in name:
@@ -2941,9 +3119,11 @@ class IPADNSZone(IPADNSServer):
 
     def print(self) -> str:
         """
-        Prints all dns records in a zone as text.
+        Print all DNS records in a zone as text.
 
-        :return: Print zone data.
+        Implements :meth:`GenericDNSZone.print`.
+
+        :return: Zone data as text.
         :rtype: str
         """
         result = self.host.conn.run(f"ipa dnszone-show {self.zone_name}").stdout
@@ -2952,10 +3132,12 @@ class IPADNSZone(IPADNSServer):
 
 class IPACertificateAuthority(GenericCertificateAuthority):
     """
-    Provides helper methods for FreeIPA Certificate Authority operations.
+    FreeIPA Certificate Authority operations.
 
-    This class allows requesting, revoking, placing/removing certificate holds,
-    and retrieving certificate information via the ipa CLI.
+    :class:`IPACertificateAuthority` implements :class:`GenericCertificateAuthority` for
+    static typing and provider-agnostic tests. It requests, revokes, places/removes
+    certificate holds, and retrieves certificate information via the ``ipa`` CLI.
+    :meth:`request` accepts IPA-specific keyword arguments in addition to the generic API.
 
     .. code-block:: python
        :caption: Example usage
@@ -3020,9 +3202,13 @@ class IPACertificateAuthority(GenericCertificateAuthority):
         subject: Optional[str] = None,
         add_service: bool = False,
         key_size: int = 2048,
+        **kwargs: Any,
     ) -> tuple[str, str, str]:
         """
         Request a certificate from the IPA CA.
+
+        Implements :meth:`GenericCertificateAuthority.request`; ``principal`` is passed
+        positionally or as the first argument. Extra ``**kwargs`` are ignored.
 
         :param principal: The principal (user or service) name.
         :type principal: str
@@ -3037,6 +3223,7 @@ class IPACertificateAuthority(GenericCertificateAuthority):
         :raises ValueError: If subject cannot be derived from principal.
         :raises RuntimeError: If CSR generation fails.
         """
+        del kwargs
         base = re.sub(r"[^a-zA-Z0-9.\_-]", "_", principal)
         key_path = os.path.join(self.temp_dir, f"{base}.key")
         csr_path = os.path.join(self.temp_dir, f"{base}.csr")
@@ -3069,6 +3256,8 @@ class IPACertificateAuthority(GenericCertificateAuthority):
         """
         Revoke a certificate in IPA.
 
+        Implements :meth:`GenericCertificateAuthority.revoke`.
+
         :param cert_path: Path to the certificate file.
         :type cert_path: str
         :param reason: Reason for revocation.
@@ -3089,6 +3278,8 @@ class IPACertificateAuthority(GenericCertificateAuthority):
         """
         Place a certificate on hold.
 
+        Implements :meth:`GenericCertificateAuthority.revoke_hold`.
+
         :param cert_path: Path to the certificate file.
         :type cert_path: str
         """
@@ -3097,6 +3288,8 @@ class IPACertificateAuthority(GenericCertificateAuthority):
     def revoke_hold_remove(self, cert_path: str) -> None:
         """
         Remove hold from a certificate.
+
+        Implements :meth:`GenericCertificateAuthority.revoke_hold_remove`.
 
         :param cert_path: Path to the certificate file.
         :type cert_path: str
@@ -3111,6 +3304,9 @@ class IPACertificateAuthority(GenericCertificateAuthority):
     def get(self, cert_path: str) -> dict[str, list[str]]:
         """
         Retrieve certificate details from IPA.
+
+        Implements :meth:`GenericCertificateAuthority.get`.
+
         :param cert_path: Path to the certificate file.
         :type cert_path: str
         :returns: A dictionary of certificate attributes.
