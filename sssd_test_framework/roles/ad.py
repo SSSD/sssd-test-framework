@@ -6,9 +6,8 @@ import os
 import re
 import textwrap
 import uuid
-from abc import ABC
 from datetime import datetime
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, cast
 
 from pytest_mh.cli import CLIBuilderArgs
 from pytest_mh.conn import ProcessResult
@@ -24,9 +23,40 @@ from ..misc import (
     seconds_to_timespan,
 )
 from .base import BaseObject, BaseWindowsRole, DeleteAttribute
-from .generic import GenericCertificateAuthority, GenericPasswordPolicy
+from .generic import (
+    GenericAutomount,
+    GenericAutomountKey,
+    GenericAutomountMap,
+    GenericCertificateAuthority,
+    GenericComputer,
+    GenericDNSServer,
+    GenericDNSZone,
+    GenericGPO,
+    GenericGroup,
+    GenericNetgroup,
+    GenericNetgroupMember,
+    GenericOrganizationalUnit,
+    GenericPasswordPolicy,
+    GenericSite,
+    GenericSudoRule,
+    GenericUser,
+    GroupMemberField,
+    ProtocolName,
+    SudoRuleCommandField,
+    SudoRuleHostField,
+    SudoRuleRunAsGroupField,
+    SudoRuleRunAsUserField,
+    SudoRuleUserField,
+)
 from .ldap import LDAPNetgroupMember
 from .nfs import NFSExport
+
+_ADSudoUserInput: TypeAlias = SudoRuleUserField | int | list[SudoRuleUserField | int] | DeleteAttribute | None
+_ADSudoRunAsGroupInput: TypeAlias = (
+    SudoRuleRunAsGroupField | int | list[SudoRuleRunAsGroupField | int] | DeleteAttribute | None
+)
+_ADSudoUserAtom: TypeAlias = str | int | GenericUser | GenericGroup | ProtocolName
+_ADSudoGroupAtom: TypeAlias = str | int | GenericGroup | ProtocolName
 
 __all__ = [
     "AD",
@@ -566,7 +596,7 @@ class ADObject(BaseObject[ADHost, AD]):
         self.command_group: str = command_group
         """Active Directory Powershell module command group."""
 
-        self.name: str = name
+        self._name: str = name
         """Object name."""
 
         self.rdn: str = rdn
@@ -590,6 +620,10 @@ class ADObject(BaseObject[ADHost, AD]):
         self.__sid: str | None = None
 
         self.__create_default_ou(basedn, self.default_ou)
+
+    @property
+    def name(self) -> str:
+        return self._name
 
     def __create_default_ou(self, basedn: ADObject | str | None, default_ou: str | None) -> None:
         """
@@ -718,15 +752,18 @@ class ADObject(BaseObject[ADHost, AD]):
         }
         self._exec("Remove", self.cli.args(args, quote_value=True))
 
-    def get(self, attrs: list[str] | None = None) -> dict[str, list[str]]:
+    def get(self, attrs: list[str] | None = None, *, opattrs: bool = False) -> dict[str, list[str]] | None:
         """
         Get AD object attributes.
 
         :param attrs: If set, only requested attributes are returned, defaults to None
         :type attrs: list[str] | None, optional
+        :param opattrs: Ignored (LDAP-only); present for :class:`GenericUser` API compatibility.
+        :type opattrs: bool, optional
         :return: Dictionary with attribute name as a key.
-        :rtype: dict[str, list[str]]
+        :rtype: dict[str, list[str]] | None
         """
+        _ = opattrs
         cmd = self._exec("Get", self.cli.args(self._identity, quote_value=True), format_with="Format-List")
         return attrs_parse(cmd.stdout_lines, attrs)
 
@@ -735,20 +772,25 @@ class ADObject(BaseObject[ADHost, AD]):
         """
         Gets AD Object's SID.
 
-        :return: SID
-        :rtype: str
+        :return: SID, or None if not available.
+        :rtype: str | None
         """
         if self.__sid is None:
-            for i in self.get(["SID"]).values():
-                if len(i) == 1:
-                    self.__sid = i[0]
+            sid_attrs = self.get(["SID"])
+            if sid_attrs is not None:
+                for i in sid_attrs.values():
+                    if len(i) == 1:
+                        self.__sid = i[0]
 
         return self.__sid
 
 
-class ADOrganizationalUnit(ADObject):
+class ADOrganizationalUnit(ADObject, GenericOrganizationalUnit):
     """
     AD organizational unit management.
+
+    :class:`ADOrganizationalUnit` implements :class:`GenericOrganizationalUnit` for static
+    typing and provider-agnostic tests.
     """
 
     def __init__(self, role: AD, name: str, basedn: ADObject | str | None = None) -> None:
@@ -762,13 +804,19 @@ class ADOrganizationalUnit(ADObject):
         """
         super().__init__(role, "OrganizationalUnit", name, f"ou={name}", basedn)
 
-    def add(self) -> ADOrganizationalUnit:
+    def add(self, name: str | None = None) -> ADOrganizationalUnit:
         """
         Create new AD organizational unit.
 
+        Implements :meth:`GenericOrganizationalUnit.add`. The optional ``name`` argument
+        is accepted for API compatibility; the OU name is taken from :meth:`AD.ou`.
+
+        :param name: Unused; OU name is set when the object is created.
+        :type name: str | None
         :return: Self.
         :rtype: ADOrganizationalUnit
         """
+        _ = name
         attrs: CLIBuilderArgs = {
             "Name": (self.cli.option.VALUE, self.name),
             "Path": (self.cli.option.VALUE, self.path),
@@ -779,9 +827,11 @@ class ADOrganizationalUnit(ADObject):
         return self
 
 
-class ADSite(ADObject):
+class ADSite(ADObject, GenericSite):
     """
-    AD Sites management.
+    AD site management.
+
+    :class:`ADSite` implements :class:`GenericSite` for static typing and provider-agnostic tests.
     """
 
     def __init__(self, role: AD, name: str, basedn: ADObject | str | None = "cn=sites,cn=configuration") -> None:
@@ -799,6 +849,8 @@ class ADSite(ADObject):
         """
         Create new AD site.
 
+        Implements :meth:`GenericSite.add`.
+
         :return: Self.
         :rtype: ADSite
         """
@@ -811,9 +863,12 @@ class ADSite(ADObject):
         return self
 
 
-class ADComputer(ADObject):
+class ADComputer(ADObject, GenericComputer):
     """
     AD computer management.
+
+    :class:`ADComputer` implements :class:`GenericComputer` for static typing and
+    provider-agnostic tests.
     """
 
     def __init__(self, role: AD, name: str, basedn: ADObject | str | None = "cn=computers") -> None:
@@ -830,9 +885,11 @@ class ADComputer(ADObject):
     def move(self, target: str) -> ADComputer:
         """
         Move a computer object.
+
+        Implements :meth:`GenericComputer.move`.
+
         :param target: Target path.
         :type target: str
-
         :return: Self.
         :rtype: ADComputer
         """
@@ -848,9 +905,12 @@ class ADComputer(ADObject):
         return self
 
 
-class ADUser(ADObject):
+class ADUser(ADObject, GenericUser):
     """
     AD user management.
+
+    :class:`ADUser` implements :class:`GenericUser` for static typing and provider-agnostic tests.
+    AD-specific keyword arguments on :meth:`add` and :meth:`modify` are in addition to the generic API.
     """
 
     def __init__(self, role: AD, name: str, basedn: ADObject | str | None = "cn=users") -> None:
@@ -1011,18 +1071,17 @@ class ADUser(ADObject):
 
         return self
 
-    def reset(
-        self,
-        password: str = "Secret123",
-    ) -> ADUser:
+    def reset(self, password: str | None = "Secret123") -> ADUser:
         """
         Reset user password.
 
         :param password: Password, defaults to 'Secret123'
-        :type password: str, optional
+        :type password: str | None, optional
         :return: Self.
         :rtype: ADUser
         """
+        if password is None:
+            password = "Secret123"
         attrs: CLIBuilderArgs = {
             **self._identity,
             "Reset": (self.cli.option.SWITCH, True),
@@ -1034,15 +1093,17 @@ class ADUser(ADObject):
 
         return self
 
-    def expire(self, expiration: str = "19700101000000") -> ADUser:
+    def expire(self, expiration: str | None = "19700101000000") -> ADUser:
         """
         Set user password expiration date and time.
 
-        :param expiration: Date and time for user password expiration, defaults to 19700101000000Z
-        :type expiration: str, optional
+        :param expiration: Date and time for user password expiration, defaults to 19700101000000
+        :type expiration: str | None, optional
         :return: Self.
         :rtype: ADUser
         """
+        if expiration is None:
+            expiration = "19700101000000"
         expire = datetime.strptime(expiration, "%Y%m%d%H%M%S")
         expire_format = expire.strftime("%m/%d/%Y %H:%M:%S")
 
@@ -1087,7 +1148,7 @@ class ADUser(ADObject):
         :param passkey_mapping: Passkey mapping generated by ``sssctl passkey-register``
         :type passkey_mapping: str
         :return: Self.
-        :rtype: ADUser.
+        :rtype: ADUser
         """
         attrs: CLIBuilderArgs = {
             **self._identity,
@@ -1097,9 +1158,12 @@ class ADUser(ADObject):
         return self
 
 
-class ADGroup(ADObject):
+class ADGroup(ADObject, GenericGroup):
     """
     AD group management.
+
+    :class:`ADGroup` implements :class:`GenericGroup` for static typing and provider-agnostic tests.
+    AD-specific keyword arguments on :meth:`add` are in addition to the generic API.
     """
 
     def __init__(self, role: AD, name: str, basedn: ADObject | str | None = "cn=users") -> None:
@@ -1169,7 +1233,7 @@ class ADGroup(ADObject):
         :param description: Description, defaults to None
         :type description: str | DeleteAttribute | None, optional
         :return: Self.
-        :rtype: ADUser
+        :rtype: ADGroup
         """
         unix_attrs = {
             "gidNumber": gid,
@@ -1192,23 +1256,23 @@ class ADGroup(ADObject):
         self._modify(attrs)
         return self
 
-    def add_member(self, member: ADUser | ADGroup) -> ADGroup:
+    def add_member(self, member: GroupMemberField) -> ADGroup:
         """
         Add group member.
 
         :param member: User or group to add as a member.
-        :type member: ADUser | ADGroup
+        :type member: GroupMemberField
         :return: Self.
         :rtype: ADGroup
         """
         return self.add_members([member])
 
-    def add_members(self, members: list[ADUser | ADGroup]) -> ADGroup:
+    def add_members(self, members: list[GroupMemberField]) -> ADGroup:
         """
         Add multiple group members.
 
         :param members: List of users or groups to add as members.
-        :type members: list[ADUser | ADGroup]
+        :type members: list[GroupMemberField]
         :return: Self.
         :rtype: ADGroup
         """
@@ -1218,23 +1282,23 @@ class ADGroup(ADObject):
         """)
         return self
 
-    def remove_member(self, member: ADUser | ADGroup) -> ADGroup:
+    def remove_member(self, member: GroupMemberField) -> ADGroup:
         """
         Remove group member.
 
         :param member: User or group to remove from the group.
-        :type member: ADUser | ADGroup
+        :type member: GroupMemberField
         :return: Self.
         :rtype: ADGroup
         """
         return self.remove_members([member])
 
-    def remove_members(self, members: list[ADUser | ADGroup]) -> ADGroup:
+    def remove_members(self, members: list[GroupMemberField]) -> ADGroup:
         """
         Remove multiple group members.
 
         :param members: List of users or groups to remove from the group.
-        :type members: list[ADUser | ADGroup]
+        :type members: list[GroupMemberField]
         :return: Self.
         :rtype: ADGroup
         """
@@ -1244,13 +1308,24 @@ class ADGroup(ADObject):
         """)
         return self
 
-    def __get_members(self, members: list[ADUser | ADGroup]) -> str:
-        return ",".join([f'"{x.dn}"' for x in members])
+    def __member_dn(self, member: GroupMemberField) -> str:
+        if isinstance(member, ADObject):
+            return member.dn
+        if isinstance(member, str):
+            return member
+        return member.name
+
+    def __get_members(self, members: list[GroupMemberField]) -> str:
+        return ",".join([f'"{self.__member_dn(x)}"' for x in members])
 
 
-class ADNetgroup(ADObject):
+class ADNetgroup(ADObject, GenericNetgroup):
     """
     AD netgroup management.
+
+    :class:`ADNetgroup` implements :class:`GenericNetgroup` for static typing and
+    provider-agnostic tests. The optional ``domain`` argument on membership methods is
+    AD-specific and is not part of the generic API.
     """
 
     def __init__(self, role: AD, name: str, basedn: ADObject | str | None = "ou=netgroups") -> None:
@@ -1290,9 +1365,9 @@ class ADNetgroup(ADObject):
         self,
         *,
         host: str | None = None,
-        user: ADUser | str | None = None,
+        user: GenericUser | str | None = None,
         domain: str | None = None,
-        ng: ADNetgroup | str | None = None,
+        ng: GenericNetgroup | str | None = None,
     ) -> ADNetgroup:
         """
         Add netgroup member.
@@ -1300,22 +1375,22 @@ class ADNetgroup(ADObject):
         :param host: Host, defaults to None
         :type host: str | None, optional
         :param user: User, defaults to None
-        :type user: ADUser | str | None, optional
-        :param domain: Domain, defaults to None
+        :type user: GenericUser | str | None, optional
+        :param domain: Domain (AD NIS triple field), defaults to None
         :type domain: str | None, optional
         :param ng: Netgroup, defaults to None
-        :type ng: ADNetgroup | str | None, optional
+        :type ng: GenericNetgroup | str | None, optional
         :return: Self.
         :rtype: ADNetgroup
         """
         return self.add_members([ADNetgroupMember(host=host, user=user, domain=domain, ng=ng)])
 
-    def add_members(self, members: list[ADNetgroupMember]) -> ADNetgroup:
+    def add_members(self, members: list[GenericNetgroupMember]) -> ADNetgroup:
         """
         Add multiple netgroup members.
 
-        :param members: Netgroup members.
-        :type members: list[ADNetgroupMember]
+        :param members: Netgroup members (use :class:`ADNetgroupMember` for AD triples with domain).
+        :type members: list[GenericNetgroupMember]
         :return: Self.
         :rtype: ADNetgroup
         """
@@ -1340,9 +1415,9 @@ class ADNetgroup(ADObject):
         self,
         *,
         host: str | None = None,
-        user: ADUser | str | None = None,
+        user: GenericUser | str | None = None,
         domain: str | None = None,
-        ng: ADNetgroup | str | None = None,
+        ng: GenericNetgroup | str | None = None,
     ) -> ADNetgroup:
         """
         Remove netgroup member.
@@ -1350,24 +1425,24 @@ class ADNetgroup(ADObject):
         :param host: Host, defaults to None
         :type host: str | None, optional
         :param user: User, defaults to None
-        :type user: ADUser | str | None, optional
-        :param domain: Domain, defaults to None
+        :type user: GenericUser | str | None, optional
+        :param domain: Domain (AD NIS triple field), defaults to None
         :type domain: str | None, optional
         :param ng: Netgroup, defaults to None
-        :type ng: ADNetgroup | str | None, optional
+        :type ng: GenericNetgroup | str | None, optional
         :return: Self.
         :rtype: ADNetgroup
         """
         return self.remove_members([ADNetgroupMember(host=host, user=user, domain=domain, ng=ng)])
 
-    def remove_members(self, members: list[ADNetgroupMember]) -> ADNetgroup:
+    def remove_members(self, members: list[GenericNetgroupMember]) -> ADNetgroup:
         """
         Remove multiple netgroup members.
 
-        :param members: Netgroup members.
-        :type members: list[LDAPNetgroupMember]
+        :param members: Netgroup members (use :class:`ADNetgroupMember` for AD triples with domain).
+        :type members: list[GenericNetgroupMember]
         :return: Self.
-        :rtype: LDAPNetgroup[HostType, LDAPRoleType, LDAPUserType]
+        :rtype: ADNetgroup
         """
         triples, netgroups = self.__members(members)
 
@@ -1386,12 +1461,12 @@ class ADNetgroup(ADObject):
         self._modify(args)
         return self
 
-    def __members(self, members: list[ADNetgroupMember]) -> tuple[list[str], list[str]]:
+    def __members(self, members: list[GenericNetgroupMember]) -> tuple[list[str], list[str]]:
         """
-        Split members into triples and netgroups
+        Split members into triples and netgroups.
 
         :param members: Netgroup members.
-        :type members: list[LDAPNetgroupMember]
+        :type members: list[GenericNetgroupMember]
         :return: (triples, netgroups)
         :rtype: tuple[list[str], list[str]]
         """
@@ -1409,9 +1484,14 @@ class ADNetgroup(ADObject):
         return triples, netgroups
 
 
-class ADSudoRule(ADObject):
+class ADSudoRule(ADObject, GenericSudoRule):
     """
     AD sudo rule management.
+
+    :class:`ADSudoRule` implements :class:`GenericSudoRule` for static typing and
+    provider-agnostic tests. AD-specific ``int`` values (SID fragments as ``#N``),
+    ``notbefore`` / ``notafter``, and :class:`DeleteAttribute` on :meth:`modify` are
+    in addition to the generic API.
     """
 
     def __init__(
@@ -1433,12 +1513,12 @@ class ADSudoRule(ADObject):
     def add(
         self,
         *,
-        user: int | str | ADUser | ADGroup | list[int | str | ADUser | ADGroup] | None = None,
-        host: str | list[str] | None = None,
-        command: str | list[str] | None = None,
+        user: SudoRuleUserField | int | list[SudoRuleUserField | int] | None = None,
+        host: SudoRuleHostField = None,
+        command: SudoRuleCommandField = None,
         option: str | list[str] | None = None,
-        runasuser: int | str | ADUser | ADGroup | list[int | str | ADUser | ADGroup] | None = None,
-        runasgroup: int | str | ADGroup | list[int | str | ADGroup] | None = None,
+        runasuser: SudoRuleRunAsUserField | int | list[SudoRuleRunAsUserField | int] | None = None,
+        runasgroup: SudoRuleRunAsGroupField | int | list[SudoRuleRunAsGroupField | int] | None = None,
         notbefore: str | list[str] | None = None,
         notafter: str | list[str] | None = None,
         order: int | list[int] | None = None,
@@ -1448,20 +1528,20 @@ class ADSudoRule(ADObject):
         Create new sudo rule.
 
         :param user: sudoUser attribute, defaults to None
-        :type user: int | str | ADUser | ADGroup | list[int | str | ADUser | ADGroup], optional
+        :type user: SudoRuleUserField | int | list[SudoRuleUserField | int], optional
         :param host: sudoHost attribute, defaults to None
-        :type host: str | list[str], optional
+        :type host: SudoRuleHostField, optional
         :param command: sudoCommand attribute, defaults to None
-        :type command: str | list[str], optional
+        :type command: SudoRuleCommandField, optional
         :param option: sudoOption attribute, defaults to None
         :type option: str | list[str] | None, optional
         :param runasuser: sudoRunAsUser attribute, defaults to None
-        :type runasuser: int | str | ADUser | ADGroup | list[int | str | ADUser | ADGroup] | None, optional
+        :type runasuser: SudoRuleRunAsUserField | int | list[SudoRuleRunAsUserField | int] | None, optional
         :param runasgroup: sudoRunAsGroup attribute, defaults to None
-        :type runasgroup: int | str | ADGroup | list[int | str | ADGroup] | None, optional
-        :param notbefore: sudoNotBefore attribute, defaults to None
+        :type runasgroup: SudoRuleRunAsGroupField | int | list[SudoRuleRunAsGroupField | int] | None, optional
+        :param notbefore: sudoNotBefore attribute (AD only), defaults to None
         :type notbefore: str | list[str] | None, optional
-        :param notafter: sudoNotAfter attribute, defaults to None
+        :param notafter: sudoNotAfter attribute (AD only), defaults to None
         :type notafter: str | list[str] | None, optional
         :param order: sudoOrder attribute, defaults to None
         :type order: int | list[int] | None, optional
@@ -1501,12 +1581,14 @@ class ADSudoRule(ADObject):
     def modify(
         self,
         *,
-        user: int | str | ADUser | ADGroup | list[int | str | ADUser | ADGroup] | DeleteAttribute | None = None,
-        host: str | list[str] | DeleteAttribute | None = None,
-        command: str | list[str] | DeleteAttribute | None = None,
+        user: SudoRuleUserField | int | list[SudoRuleUserField | int] | DeleteAttribute | None = None,
+        host: SudoRuleHostField | DeleteAttribute | None = None,
+        command: SudoRuleCommandField | DeleteAttribute | None = None,
         option: str | list[str] | DeleteAttribute | None = None,
-        runasuser: int | str | ADUser | ADGroup | list[int | str | ADUser | ADGroup] | DeleteAttribute | None = None,
-        runasgroup: int | str | ADGroup | list[int | str | ADGroup] | DeleteAttribute | None = None,
+        runasuser: SudoRuleRunAsUserField | int | list[SudoRuleRunAsUserField | int] | DeleteAttribute | None = None,
+        runasgroup: (
+            SudoRuleRunAsGroupField | int | list[SudoRuleRunAsGroupField | int] | DeleteAttribute | None
+        ) = None,
         notbefore: str | list[str] | DeleteAttribute | None = None,
         notafter: str | list[str] | DeleteAttribute | None = None,
         order: int | list[int] | DeleteAttribute | None = None,
@@ -1527,7 +1609,7 @@ class ADSudoRule(ADObject):
         :type command: str | list[str] | DeleteAttribute | None, optional
         :param option: sudoOption attribute, defaults to None
         :type option: str | list[str] | DeleteAttribute | None, optional
-        :param runasuser: sudoRunAsUsere attribute, defaults to None
+        :param runasuser: sudoRunAsUser attribute, defaults to None
         :type runasuser: int | str | ADUser | ADGroup | list[int | str | ADUser | ADGroup]
           | DeleteAttribute | None, optional
         :param runasgroup: sudoRunAsGroup attribute, defaults to None
@@ -1574,14 +1656,12 @@ class ADSudoRule(ADObject):
         self._modify(args)
         return self
 
-    def __sudo_user(
-        self, sudo_user: None | DeleteAttribute | int | str | ADUser | ADGroup | list[int | str | ADUser | ADGroup]
-    ) -> list[str] | DeleteAttribute | None:
-        def _get_value(value: int | str | ADUser | ADGroup) -> str:
-            if isinstance(value, ADUser):
+    def __sudo_user(self, sudo_user: _ADSudoUserInput) -> list[str] | DeleteAttribute | None:
+        def _get_value(value: _ADSudoUserAtom) -> str:
+            if isinstance(value, GenericUser):
                 return value.name
 
-            if isinstance(value, ADGroup):
+            if isinstance(value, GenericGroup):
                 return "%" + value.name
 
             if isinstance(value, str):
@@ -1589,6 +1669,10 @@ class ADSudoRule(ADObject):
 
             if isinstance(value, int):
                 return "#" + str(value)
+
+            name = getattr(value, "name", None)
+            if isinstance(name, str):
+                return name
 
             raise ValueError(f"Unsupported type: {type(value)}")
 
@@ -1599,19 +1683,17 @@ class ADSudoRule(ADObject):
             return sudo_user
 
         if not isinstance(sudo_user, list):
-            return [_get_value(sudo_user)]
+            return [_get_value(cast(_ADSudoUserAtom, sudo_user))]
 
         out = []
         for value in sudo_user:
-            out.append(_get_value(value))
+            out.append(_get_value(cast(_ADSudoUserAtom, value)))
 
         return out
 
-    def __sudo_group(
-        self, sudo_group: None | DeleteAttribute | int | str | ADGroup | list[int | str | ADGroup]
-    ) -> list[str] | DeleteAttribute | None:
-        def _get_value(value: int | str | ADGroup):
-            if isinstance(value, ADGroup):
+    def __sudo_group(self, sudo_group: _ADSudoRunAsGroupInput) -> list[str] | DeleteAttribute | None:
+        def _get_value(value: _ADSudoGroupAtom) -> str:
+            if isinstance(value, GenericGroup):
                 return value.name
 
             if isinstance(value, str):
@@ -1619,6 +1701,10 @@ class ADSudoRule(ADObject):
 
             if isinstance(value, int):
                 return "#" + str(value)
+
+            name = getattr(value, "name", None)
+            if isinstance(name, str):
+                return name
 
             raise ValueError(f"Unsupported type: {type(value)}")
 
@@ -1629,18 +1715,22 @@ class ADSudoRule(ADObject):
             return sudo_group
 
         if not isinstance(sudo_group, list):
-            return [_get_value(sudo_group)]
+            return [_get_value(cast(_ADSudoGroupAtom, sudo_group))]
 
         out = []
         for value in sudo_group:
-            out.append(_get_value(value))
+            out.append(_get_value(cast(_ADSudoGroupAtom, value)))
 
         return out
 
 
-class ADAutomount(object):
+class ADAutomount(GenericAutomount):
     """
     AD automount management.
+
+    :class:`ADAutomount` implements :class:`GenericAutomount` for static typing and
+    provider-agnostic tests. The optional ``basedn`` argument on :meth:`map` is
+    AD-specific and is not part of the generic API.
     """
 
     def __init__(self, role: AD) -> None:
@@ -1654,6 +1744,9 @@ class ADAutomount(object):
         """
         Get automount map object.
 
+        Implements :meth:`GenericAutomount.map`; ``basedn`` selects the LDAP container
+        for the map (defaults to ``ou=autofs``).
+
         :param name: Automount map name.
         :type name: str
         :param basedn: Base dn, defaults to ``ou=autofs``
@@ -1663,23 +1756,30 @@ class ADAutomount(object):
         """
         return ADAutomountMap(self.__role, name, basedn)
 
-    def key(self, name: str, map: ADAutomountMap) -> ADAutomountKey:
+    def key(self, name: str, map: GenericAutomountMap) -> ADAutomountKey:
         """
         Get automount key object.
+
+        Implements :meth:`GenericAutomount.key`.
 
         :param name: Automount key name.
         :type name: str
         :param map: Automount map that is a parent to this key.
-        :type map: ADAutomountMap
+        :type map: GenericAutomountMap
         :return: New automount key object.
         :rtype: ADAutomountKey
         """
+        if not isinstance(map, ADAutomountMap):
+            raise TypeError("AD automount keys require an ADAutomountMap parent map.")
         return ADAutomountKey(self.__role, name, map)
 
 
-class ADAutomountMap(ADObject):
+class ADAutomountMap(ADObject, GenericAutomountMap):
     """
     AD automount map management.
+
+    :class:`ADAutomountMap` implements :class:`GenericAutomountMap` for static typing
+    and provider-agnostic tests.
     """
 
     def __init__(
@@ -1735,9 +1835,12 @@ class ADAutomountMap(ADObject):
         return ADAutomountKey(self.role, name, self)
 
 
-class ADAutomountKey(ADObject):
+class ADAutomountKey(ADObject, GenericAutomountKey):
     """
     AD automount key management.
+
+    :class:`ADAutomountKey` implements :class:`GenericAutomountKey` for static typing
+    and provider-agnostic tests.
     """
 
     def __init__(
@@ -1758,12 +1861,12 @@ class ADAutomountKey(ADObject):
         self.map: ADAutomountMap = map
         self.info: str | None = None
 
-    def add(self, *, info: str | NFSExport | ADAutomountMap) -> ADAutomountKey:
+    def add(self, *, info: str | NFSExport | GenericAutomountMap) -> ADAutomountKey:
         """
         Create new AD automount key.
 
         :param info: Automount information.
-        :type info: str | NFSExport | ADAutomountMap
+        :type info: str | NFSExport | GenericAutomountMap
         :return: Self.
         :rtype: ADAutomountKey
         """
@@ -1793,7 +1896,7 @@ class ADAutomountKey(ADObject):
     def modify(
         self,
         *,
-        info: str | NFSExport | ADAutomountMap | DeleteAttribute | None = None,
+        info: str | NFSExport | GenericAutomountMap | DeleteAttribute | None = None,
     ) -> ADAutomountKey:
         """
         Modify existing AD automount key.
@@ -1802,7 +1905,7 @@ class ADAutomountKey(ADObject):
         attribute by setting the value to :attr:`Delete`.
 
         :param info: Automount information, defaults to ``None``
-        :type info:  str | NFSExport | ADAutomountMap | DeleteAttribute | None
+        :type info: str | NFSExport | GenericAutomountMap | DeleteAttribute | None
         :return: Self.
         :rtype: ADAutomountKey
         """
@@ -1851,32 +1954,34 @@ class ADAutomountKey(ADObject):
         return self.dump()
 
     def __get_info(
-        self, info: str | NFSExport | ADAutomountMap | DeleteAttribute | None
+        self, info: str | NFSExport | GenericAutomountMap | DeleteAttribute | None
     ) -> str | DeleteAttribute | None:
         if isinstance(info, NFSExport):
             return info.get()
 
-        if isinstance(info, ADAutomountMap):
+        if isinstance(info, GenericAutomountMap):
             return info.name
 
         return info
 
 
-class GPO(BaseObject[ADHost, AD]):
+class GPO(GenericGPO):
     """
     Group policy object management.
+
+    :class:`GPO` implements :class:`GenericGPO` for static typing and provider-agnostic tests.
     """
 
     def __init__(self, role: AD, name: str) -> None:
         """
-        :param role: AD host object.
-        :type role:  ADHost
-        :param name: GPO name, defaults to 'Domain Test Policy'
-        :type name: str, optional
+        :param role: AD role object.
+        :type role: AD
+        :param name: GPO display name.
+        :type name: str
         """
         super().__init__(role)
 
-        self.name: str = name
+        self._name: str = name
         """Group policy display name."""
 
         self.target: str | None = None
@@ -1890,6 +1995,15 @@ class GPO(BaseObject[ADHost, AD]):
 
         self.cn = self.get("CN")
         """Group policy cn."""
+
+    @property
+    def name(self) -> str:
+        """
+        GPO display name.
+
+        Implements :attr:`GenericGPO.name`.
+        """
+        return self._name
 
     def get(self, key: str) -> str | None:
         """
@@ -2008,16 +2122,13 @@ class GPO(BaseObject[ADHost, AD]):
 
         return self
 
-    def unlink(self) -> GPO:
+    def unlink(self) -> None:
         """
         Unlink the group policy from the target.
 
-        :return: Group policy object
-        :rtype: GPO
+        Implements :meth:`GenericGPO.unlink`.
         """
         self.role.host.conn.run(f'Remove-GPLink -Guid "{self.cn}" -Target "{self.target}"')
-
-        return self
 
     def permissions(self, target: str, permission_level: str, target_type: str | None = "Group") -> GPO:
         """
@@ -2148,13 +2259,17 @@ class GPO(BaseObject[ADHost, AD]):
 
 class ADPasswordPolicy(GenericPasswordPolicy):
     """
-    Password policy management.
+    AD domain password policy management.
+
+    :class:`ADPasswordPolicy` implements :class:`GenericPasswordPolicy` for static typing
+    and provider-agnostic tests. Settings apply to the domain default password policy via
+    ``Set-ADDefaultDomainPasswordPolicy``.
     """
 
-    def __init__(self, role: AD):
+    def __init__(self, role: AD) -> None:
         """
-        :param role: AD host object.
-        :type role: ADHost
+        :param role: AD role object.
+        :type role: AD
         """
         super().__init__(role)
 
@@ -2170,9 +2285,11 @@ class ADPasswordPolicy(GenericPasswordPolicy):
         """
         Enable or disable password complexity.
 
+        Implements :meth:`GenericPasswordPolicy.complexity`.
+
         :param enable: Enable or disable password complexity.
         :type enable: bool
-        :return: ADPasswordPolicy object.
+        :return: Self.
         :rtype: ADPasswordPolicy
         """
         args: CLIBuilderArgs = {
@@ -2187,11 +2304,13 @@ class ADPasswordPolicy(GenericPasswordPolicy):
         """
         Set lockout duration and login attempts.
 
+        Implements :meth:`GenericPasswordPolicy.lockout`.
+
         :param duration: Duration of lockout in seconds.
         :type duration: int
         :param attempts: Number of login attempts.
         :type attempts: int
-        :return: ADPasswordPolicy object.
+        :return: Self.
         :rtype: ADPasswordPolicy
         """
         args: CLIBuilderArgs = {
@@ -2204,11 +2323,18 @@ class ADPasswordPolicy(GenericPasswordPolicy):
         return self
 
 
-class ADDNSServer(BaseObject[ADHost, AD]):
-    def __init__(self, role: AD):
+class ADDNSServer(GenericDNSServer):
+    """
+    AD DNS server management.
+
+    :class:`ADDNSServer` implements :class:`GenericDNSServer` for static typing and
+    provider-agnostic tests.
+    """
+
+    def __init__(self, role: AD) -> None:
         """
-        :param role: AD host object.
-        :type role: ADHost
+        :param role: AD role object.
+        :type role: AD
         """
         super().__init__(role)
 
@@ -2220,20 +2346,22 @@ class ADDNSServer(BaseObject[ADHost, AD]):
 
     def zone(self, name: str) -> ADDNSZone:
         """
-        Get ADDNsServerZone object.
+        Get DNS zone object.
+
+        Implements :meth:`GenericDNSServer.zone`.
 
         :param name: Zone name.
         :type name: str
-        :return: ADDNSServerZone object.
+        :return: DNS zone object.
         :rtype: ADDNSZone
         """
         return ADDNSZone(self.role, name)
 
-    def get_forwarders(self) -> list[str] | None:
+    def get_forwarders(self) -> list[str]:
         """
         Get DNS global forwarders.
 
-        :return: DNS global forwarders.
+        :return: List of forwarder IP addresses (empty if none are configured).
         :rtype: list[str]
         """
         forwarders = self.host.conn.run("Get-DnsServerForwarder").stdout_lines
@@ -2245,18 +2373,15 @@ class ADDNSServer(BaseObject[ADHost, AD]):
                     ip_addresses = [s.strip() for s in ip_addresses]
                     ip_addresses = [r.replace("...", "") for r in ip_addresses]
                     return ip_addresses[0].strip("{}").split(",")
-                else:
-                    return None
-            else:
-                return None
+        return []
 
     def add_forwarder(self, ip_address: str) -> ADDNSServer:
         """
         Add a DNS server forwarder.
 
-        :param ip_address: IP address.,
+        :param ip_address: IP address.
         :type ip_address: str
-        :return:  Self.
+        :return: Self.
         :rtype: ADDNSServer
         """
         self.host.conn.run(f"Add-DnsServerForwarder -IPAddress {ip_address}")
@@ -2299,15 +2424,18 @@ class ADDNSServer(BaseObject[ADHost, AD]):
         return result
 
 
-class ADDNSZone(ADDNSServer, ABC):
+class ADDNSZone(ADDNSServer, GenericDNSZone):
     """
-    DNS zone management.
+    AD DNS zone management.
+
+    :class:`ADDNSZone` implements :class:`GenericDNSZone` for static typing and
+    provider-agnostic tests.
     """
 
-    def __init__(self, role: AD, name: str):
+    def __init__(self, role: AD, name: str) -> None:
         """
-        :param name: DNS zone name.
-        :type name: str
+        :param role: AD role object.
+        :type role: AD
         :param name: DNS zone name.
         :type name: str
         """
@@ -2320,8 +2448,8 @@ class ADDNSZone(ADDNSServer, ABC):
         """
         Create new zone.
 
-        :return: ADDNSServer object.
-        :rtype: ADDNSServer
+        :return: Self.
+        :rtype: ADDNSZone
         """
         self.host.conn.run(f"Add-DnsServerPrimaryZone -Name {self.zone_name} -ReplicationScope Forest -Passthru")
         return self
@@ -2417,9 +2545,11 @@ class ADCertificateAuthority(GenericCertificateAuthority):
     """
     AD Certificate Authority server management.
 
-    This class provides certificate operations for Active Directory Certificate
-    Authority, including requesting, revoking, placing/removing certificate holds,
-    and retrieving certificate information via certreq and certutil commands.
+    :class:`ADCertificateAuthority` implements :class:`GenericCertificateAuthority` for
+    static typing and provider-agnostic tests. It requests, revokes, places/removes
+    certificate holds, and retrieves certificate information via ``certreq`` and
+    ``certutil``. :meth:`request` requires AD-specific ``template`` and ``subject``
+    arguments; :meth:`request_basic` is an additional AD helper without enrollment agent.
     """
 
     def __init__(self, host: ADHost) -> None:
@@ -2598,12 +2728,14 @@ class ADCertificateAuthority(GenericCertificateAuthority):
         self,
         template: str,
         subject: str,
+        **kwargs: Any,
     ) -> tuple[str, str, str]:
         """
         Request a smartcard certificate using Enrollment Agent.
 
-        Uses "Enroll On Behalf Of" functionality to issue certificates
-        with the correct subject for the target user.
+        Implements :meth:`GenericCertificateAuthority.request`. Uses "Enroll On Behalf Of"
+        functionality to issue certificates with the correct subject for the target user.
+        Extra ``**kwargs`` are ignored.
 
         :param template: Smartcard certificate template name (e.g., "SmartcardLogon").
         :type template: str
@@ -2612,6 +2744,7 @@ class ADCertificateAuthority(GenericCertificateAuthority):
         :return: A tuple of (certificate_path, key_path, csr_path).
         :rtype: tuple[str, str, str]
         """
+        del kwargs
         base_dn = ",".join(f"dc={part}" for part in self.host.domain.split(".") if part)
         user_dn = subject
         if base_dn.lower() not in subject.lower():
@@ -2660,8 +2793,7 @@ class ADCertificateAuthority(GenericCertificateAuthority):
         self.export_pfx(cert_path, pfx_path)
 
         self.host.conn.run(
-            f'"Secret123" | & openssl pkcs12 -in {pfx_path} -nocerts -nodes'
-            f" -out {extracted_key_path} -passin stdin"
+            f'"Secret123" | & openssl pkcs12 -in {pfx_path} -nocerts -nodes -out {extracted_key_path} -passin stdin'
         )
 
         self.host.conn.run(f"openssl rsa -in {extracted_key_path} -out {key_path}")
@@ -2697,6 +2829,8 @@ class ADCertificateAuthority(GenericCertificateAuthority):
         """
         Revoke a certificate in AD CA.
 
+        Implements :meth:`GenericCertificateAuthority.revoke`.
+
         Valid revocation reasons:
 
         - ``unspecified`` (default)
@@ -2724,6 +2858,8 @@ class ADCertificateAuthority(GenericCertificateAuthority):
         """
         Place a certificate on hold.
 
+        Implements :meth:`GenericCertificateAuthority.revoke_hold`.
+
         :param cert_path: Path to the certificate file.
         :type cert_path: str
         """
@@ -2732,6 +2868,8 @@ class ADCertificateAuthority(GenericCertificateAuthority):
     def revoke_hold_remove(self, cert_path: str) -> None:
         """
         Remove hold from a certificate.
+
+        Implements :meth:`GenericCertificateAuthority.revoke_hold_remove`.
 
         :param cert_path: Path to the certificate file.
         :type cert_path: str
@@ -2743,6 +2881,8 @@ class ADCertificateAuthority(GenericCertificateAuthority):
     def get(self, cert_path: str) -> dict[str, list[str]]:
         """
         Retrieve certificate details from AD CA.
+
+        Implements :meth:`GenericCertificateAuthority.get`.
 
         :param cert_path: Path to the certificate file.
         :type cert_path: str
