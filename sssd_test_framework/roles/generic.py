@@ -25,6 +25,11 @@ __all__ = [
     "GenericNetgroup",
     "GenericNetgroupMember",
     "GenericSudoRule",
+    "SudoRuleUserField",
+    "SudoRuleHostField",
+    "SudoRuleCommandField",
+    "SudoRuleRunAsUserField",
+    "SudoRuleRunAsGroupField",
     "GenericAutomount",
     "GenericAutomountMap",
     "GenericAutomountKey",
@@ -32,6 +37,7 @@ __all__ = [
     "GenericDNSServer",
     "GenericDNSZone",
     "GenericCertificateAuthority",
+    "GroupMemberField",
 ]
 
 
@@ -640,7 +646,7 @@ class GenericUser(ABC, BaseObject):
         :param password: Password, defaults to 'Secret123'
         :type password: str, optional
         :return: Self.
-        :rtype: IPAUser
+        :rtype: GenericUser
         """
         pass
 
@@ -650,9 +656,9 @@ class GenericUser(ABC, BaseObject):
         Set user password expiration date and time.
 
         :param expiration: Date and time for user password expiration, defaults to 19700101000000
-        :type expirataion: str, optional
+        :type expiration: str, optional
         :return: Self.
-        :rtype: IPAUser
+        :rtype: GenericUser
         """
         pass
 
@@ -677,14 +683,16 @@ class GenericUser(ABC, BaseObject):
         pass
 
     @abstractmethod
-    def get(self, attrs: list[str] | None = None) -> dict[str, list[str]]:
+    def get(self, attrs: list[str] | None = None, *, opattrs: bool = False) -> dict[str, list[str]] | None:
         """
         Get user attributes.
 
         :param attrs: If set, only requested attributes are returned, defaults to None
         :type attrs: list[str] | None, optional
-        :return: Dictionary with attribute name as a key.
-        :rtype: dict[str, list[str]]
+        :param opattrs: If True, include operational attributes (LDAP only), defaults to False
+        :type opattrs: bool, optional
+        :return: Dictionary with attribute name as a key, or None if not found.
+        :rtype: dict[str, list[str]] | None
         """
         pass
 
@@ -776,64 +784,70 @@ class GenericGroup(ABC, BaseObject):
         pass
 
     @abstractmethod
-    def get(self, attrs: list[str] | None = None) -> dict[str, list[str]]:
+    def get(self, attrs: list[str] | None = None, *, opattrs: bool = False) -> dict[str, list[str]] | None:
         """
         Get group attributes.
 
         :param attrs: If set, only requested attributes are returned, defaults to None
         :type attrs: list[str] | None, optional
-        :return: Dictionary with attribute name as a key.
-        :rtype: dict[str, list[str]]
+        :param opattrs: If True, include operational attributes (LDAP only), defaults to False
+        :type opattrs: bool, optional
+        :return: Dictionary with attribute name as a key, or None if not found.
+        :rtype: dict[str, list[str]] | None
         """
         pass
 
     @abstractmethod
-    def add_member(self, member: GenericUser | GenericGroup) -> GenericGroup:
+    def add_member(self, member: GroupMemberField) -> GenericGroup:
         """
         Add group member.
 
-        :param member: User or group to add as a member.
-        :type member: GenericUser | GenericGroup
+        :param member: User, group, or member name / external principal string.
+        :type member: GroupMemberField
         :return: Self.
         :rtype: GenericGroup
         """
         pass
 
     @abstractmethod
-    def add_members(self, members: list[GenericUser | GenericGroup]) -> GenericGroup:
+    def add_members(self, members: list[GroupMemberField]) -> GenericGroup:
         """
         Add multiple group members.
 
-        :param members: List of users or groups to add as members.
-        :type members: list[GenericUser | GenericGroup]
+        :param members: List of users, groups, or member name strings.
+        :type members: list[GroupMemberField]
         :return: Self.
         :rtype: GenericGroup
         """
         pass
 
     @abstractmethod
-    def remove_member(self, member: GenericUser | GenericGroup) -> GenericGroup:
+    def remove_member(self, member: GroupMemberField) -> GenericGroup:
         """
         Remove group member.
 
-        :param member: User or group to remove from the group.
-        :type member: GenericUser | GenericGroup
+        :param member: User, group, or member name / external principal string.
+        :type member: GroupMemberField
         :return: Self.
         :rtype: GenericGroup
         """
         pass
 
     @abstractmethod
-    def remove_members(self, members: list[GenericUser | GenericGroup]) -> GenericGroup:
+    def remove_members(self, members: list[GroupMemberField]) -> GenericGroup:
         """
         Remove multiple group members.
 
-        :param members: List of users or groups to remove from the group.
-        :type members: list[GenericUser | GenericGroup]
+        :param members: List of users, groups, or member name strings.
+        :type members: list[GroupMemberField]
         :return: Self.
         :rtype: GenericGroup
         """
         pass
+
+
+GroupMemberField = GenericUser | GenericGroup | str
+"""Group member: user, nested group, or string (name / external member / RDN fragment)."""
 
 
 class GenericComputer(ABC, BaseObject):
@@ -904,7 +918,7 @@ class GenericNetgroup(ABC, BaseObject):
         Create a new netgroup.
 
         :return: Self.
-        :rtype: GenericNetroup
+        :rtype: GenericNetgroup
         """
         pass
 
@@ -916,14 +930,16 @@ class GenericNetgroup(ABC, BaseObject):
         pass
 
     @abstractmethod
-    def get(self, attrs: list[str] | None = None) -> dict[str, list[str]]:
+    def get(self, attrs: list[str] | None = None, *, opattrs: bool = False) -> dict[str, list[str]] | None:
         """
         Get netgroup attributes.
 
         :param attrs: If set, only requested attributes are returned, defaults to None
         :type attrs: list[str] | None, optional
-        :return: Dictionary with attribute name as a key.
-        :rtype: dict[str, list[str]]
+        :param opattrs: If True, include operational attributes (LDAP only), defaults to False
+        :type opattrs: bool, optional
+        :return: Dictionary with attribute name as a key, or None if not found.
+        :rtype: dict[str, list[str]] | None
         """
         pass
 
@@ -970,7 +986,7 @@ class GenericNetgroup(ABC, BaseObject):
         ng: GenericNetgroup | str | None = None,
     ) -> GenericNetgroup:
         """
-        Remove group member.
+        Remove netgroup member.
 
         :param host: Host, defaults to None
         :type host: str | None, optional
@@ -979,19 +995,19 @@ class GenericNetgroup(ABC, BaseObject):
         :param ng: Netgroup, defaults to None
         :type ng: GenericNetgroup | str | None, optional
         :return: Self.
-        :rtype: GenericNetroup
+        :rtype: GenericNetgroup
         """
         pass
 
     @abstractmethod
     def remove_members(self, members: list[GenericNetgroupMember]) -> GenericNetgroup:
         """
-        Remove multiple group members.
+        Remove multiple netgroup members.
 
-        :param members: List of netgroup members to add.
+        :param members: List of netgroup members to remove.
         :type members: list[GenericNetgroupMember]
         :return: Self.
-        :rtype: GenericNetroup
+        :rtype: GenericNetgroup
         """
         pass
 
@@ -1009,15 +1025,19 @@ class GenericNetgroupMember(object):
     """
 
     def __init__(
-        self, *, host: str | None = None, user: ProtocolName | str | None = None, ng: ProtocolName | str | None = None
+        self,
+        *,
+        host: str | None = None,
+        user: GenericUser | ProtocolName | str | None = None,
+        ng: GenericNetgroup | ProtocolName | str | None = None,
     ) -> None:
         """
         :param host: Host, defaults to None
         :type host: str | None, optional
         :param user: User, defaults to None
-        :type user: ProtocolName | str | None, optional
+        :type user: GenericUser | ProtocolName | str | None, optional
         :param ng: Netgroup, defaults to None
-        :type ng: ProtocolName | str | None, optional
+        :type ng: GenericNetgroup | ProtocolName | str | None, optional
         """
         self.host: str | None = host
         """Member host."""
@@ -1028,7 +1048,10 @@ class GenericNetgroupMember(object):
         self.netgroup: str | None = self._get_name(ng)
         """Member netgroup."""
 
-    def _get_name(self, item: ProtocolName | str | None = None) -> str | None:
+    def _get_name(
+        self,
+        item: GenericUser | GenericNetgroup | GenericGroup | ProtocolName | str | None = None,
+    ) -> str | None:
         if item is None:
             return None
 
@@ -1036,6 +1059,34 @@ class GenericNetgroupMember(object):
             return item.name
 
         return item
+
+    def triple(self) -> str | None:
+        """
+        NIS netgroup triple string ``(host,user,)``.
+
+        :class:`LDAPNetgroupMember` overrides this when a ``domain`` field is set.
+        :class:`LocalNetgroupMember` uses :meth:`LocalNetgroupMember.to_member_string` instead.
+
+        :return: Triple string, or None if the member is only a nested netgroup.
+        :rtype: str | None
+        """
+        if self.host is None and self.user is None:
+            return None
+
+        host = self.host if self.host is not None else "-"
+        user = self.user if self.user is not None else "-"
+        return f"({host},{user},)"
+
+
+SudoRuleUserField = (
+    str | GenericUser | GenericGroup | ProtocolName | list[str | GenericUser | GenericGroup | ProtocolName] | None
+)
+SudoRuleHostField = str | ProtocolName | list[str | ProtocolName] | None
+SudoRuleCommandField = str | ProtocolName | list[str | ProtocolName] | None
+SudoRuleRunAsUserField = (
+    str | GenericUser | GenericGroup | ProtocolName | list[str | GenericUser | GenericGroup | ProtocolName] | None
+)
+SudoRuleRunAsGroupField = str | GenericGroup | ProtocolName | list[str | GenericGroup | ProtocolName] | None
 
 
 class GenericSudoRule(ABC, BaseObject):
@@ -1055,12 +1106,12 @@ class GenericSudoRule(ABC, BaseObject):
     def add(
         self,
         *,
-        user: str | GenericUser | GenericGroup | list[str | GenericUser | GenericGroup] | None = None,
-        host: str | list[str] | None = None,
-        command: str | list[str] | None = None,
+        user: SudoRuleUserField = None,
+        host: SudoRuleHostField = None,
+        command: SudoRuleCommandField = None,
         option: str | list[str] | None = None,
-        runasuser: str | GenericUser | GenericGroup | list[str | GenericUser | GenericGroup] | None = None,
-        runasgroup: str | GenericGroup | list[str | GenericGroup] | None = None,
+        runasuser: SudoRuleRunAsUserField = None,
+        runasgroup: SudoRuleRunAsGroupField = None,
         order: int | None = None,
         nopasswd: bool | None = None,
     ) -> GenericSudoRule:
@@ -1068,22 +1119,22 @@ class GenericSudoRule(ABC, BaseObject):
         Create new sudo rule.
 
         :param user: sudoUser attribute, defaults to None
-        :type user: str | GenericUser | GenericGroup | list[str  |  GenericUser  |  GenericGroup] | None, optional
+        :type user: SudoRuleUserField, optional
         :param host: sudoHost attribute, defaults to None
-        :type host: str | list[str] | None, optional
+        :type host: SudoRuleHostField, optional
         :param command: sudoCommand attribute, defaults to None
-        :type command: str | list[str] | None, optional
+        :type command: SudoRuleCommandField, optional
         :param option: sudoOption attribute, defaults to None
         :type option: str | list[str] | None, optional
         :param runasuser: sudoRunAsUser attribute, defaults to None
-        :type runasuser: str | GenericUser | GenericGroup | list[str  |  GenericUser  |  GenericGroup] | None, optional
+        :type runasuser: SudoRuleRunAsUserField, optional
         :param runasgroup: sudoRunAsGroup attribute, defaults to None
-        :type runasgroup: str | GenericGroup | list[str  |  GenericGroup] | None, optional
+        :type runasgroup: SudoRuleRunAsGroupField, optional
         :param order: sudoOrder attribute, defaults to None
         :type order: int | None, optional
         :param nopasswd: If true, no authentication is required (NOPASSWD), defaults to None (no change)
         :type nopasswd: bool | None, optional
-        :return: _description_
+        :return: Self.
         :rtype: GenericSudoRule
         """
         pass
@@ -1092,35 +1143,35 @@ class GenericSudoRule(ABC, BaseObject):
     def modify(
         self,
         *,
-        user: str | GenericUser | GenericGroup | list[str | GenericUser | GenericGroup] | None = None,
-        host: str | list[str] | None = None,
-        command: str | list[str] | None = None,
+        user: SudoRuleUserField = None,
+        host: SudoRuleHostField = None,
+        command: SudoRuleCommandField = None,
         option: str | list[str] | None = None,
-        runasuser: str | GenericUser | GenericGroup | list[str | GenericUser | GenericGroup] | None = None,
-        runasgroup: str | GenericGroup | list[str | GenericGroup] | None = None,
+        runasuser: SudoRuleRunAsUserField = None,
+        runasgroup: SudoRuleRunAsGroupField = None,
         order: int | None = None,
         nopasswd: bool | None = None,
     ) -> GenericSudoRule:
         """
-        Create new sudo rule.
+        Modify existing sudo rule.
 
         :param user: sudoUser attribute, defaults to None
-        :type user: str | GenericUser | GenericGroup | list[str  |  GenericUser  |  GenericGroup] | None, optional
+        :type user: SudoRuleUserField, optional
         :param host: sudoHost attribute, defaults to None
-        :type host: str | list[str] | None, optional
+        :type host: SudoRuleHostField, optional
         :param command: sudoCommand attribute, defaults to None
-        :type command: str | list[str] | None, optional
+        :type command: SudoRuleCommandField, optional
         :param option: sudoOption attribute, defaults to None
         :type option: str | list[str] | None, optional
         :param runasuser: sudoRunAsUser attribute, defaults to None
-        :type runasuser: str | GenericUser | GenericGroup | list[str  |  GenericUser  |  GenericGroup] | None, optional
+        :type runasuser: SudoRuleRunAsUserField, optional
         :param runasgroup: sudoRunAsGroup attribute, defaults to None
-        :type runasgroup: str | GenericGroup | list[str  |  GenericGroup] | None, optional
+        :type runasgroup: SudoRuleRunAsGroupField, optional
         :param order: sudoOrder attribute, defaults to None
         :type order: int | None, optional
         :param nopasswd: If true, no authentication is required (NOPASSWD), defaults to None (no change)
         :type nopasswd: bool | None, optional
-        :return: _description_
+        :return: Self.
         :rtype: GenericSudoRule
         """
         pass
@@ -1133,14 +1184,16 @@ class GenericSudoRule(ABC, BaseObject):
         pass
 
     @abstractmethod
-    def get(self, attrs: list[str] | None = None) -> dict[str, list[str]]:
+    def get(self, attrs: list[str] | None = None, *, opattrs: bool = False) -> dict[str, list[str]] | None:
         """
         Get sudo rule attributes.
 
         :param attrs: If set, only requested attributes are returned, defaults to None
         :type attrs: list[str] | None, optional
-        :return: Dictionary with attribute name as a key.
-        :rtype: dict[str, list[str]]
+        :param opattrs: If True, include operational attributes (LDAP only), defaults to False
+        :type opattrs: bool, optional
+        :return: Dictionary with attribute name as a key, or None if not found.
+        :rtype: dict[str, list[str]] | None
         """
         pass
 
@@ -1215,19 +1268,21 @@ class GenericAutomountMap(ABC, BaseObject):
     @abstractmethod
     def delete(self) -> None:
         """
-        Delete the automout map.
+        Delete the automount map.
         """
         pass
 
     @abstractmethod
-    def get(self, attrs: list[str] | None = None) -> dict[str, list[str]]:
+    def get(self, attrs: list[str] | None = None, *, opattrs: bool = False) -> dict[str, list[str]] | None:
         """
         Get automount map attributes.
 
         :param attrs: If set, only requested attributes are returned, defaults to None
         :type attrs: list[str] | None, optional
-        :return: Dictionary with attribute name as a key.
-        :rtype: dict[str, list[str]]
+        :param opattrs: If True, include operational attributes (LDAP only), defaults to False
+        :type opattrs: bool, optional
+        :return: Dictionary with attribute name as a key, or None if not found.
+        :rtype: dict[str, list[str]] | None
         """
         pass
 
@@ -1241,7 +1296,7 @@ class GenericAutomountKey(ABC, BaseObject):
     @abstractmethod
     def name(self):
         """
-        Automoutn key name.
+        Automount key name.
         """
         pass
 
@@ -1281,14 +1336,16 @@ class GenericAutomountKey(ABC, BaseObject):
         pass
 
     @abstractmethod
-    def get(self, attrs: list[str] | None = None) -> dict[str, list[str]]:
+    def get(self, attrs: list[str] | None = None, *, opattrs: bool = False) -> dict[str, list[str]] | None:
         """
         Get automount key attributes.
 
         :param attrs: If set, only requested attributes are returned, defaults to None
         :type attrs: list[str] | None, optional
-        :return: Dictionary with attribute name as a key.
-        :rtype: dict[str, list[str]]
+        :param opattrs: If True, include operational attributes (LDAP only), defaults to False
+        :type opattrs: bool, optional
+        :return: Dictionary with attribute name as a key, or None if not found.
+        :rtype: dict[str, list[str]] | None
         """
         pass
 
@@ -1520,8 +1577,8 @@ class GenericDNSZone(GenericDNSServer):
         """
         Create DNS zone.
 
-        :return: GenericDNSServer object.
-        :rtype: GenericDNSServer
+        :return: Self.
+        :rtype: GenericDNSZone
         """
         pass
 
@@ -1571,7 +1628,6 @@ class GenericDNSZone(GenericDNSServer):
 
 
 class GenericCertificateAuthority(ABC):
-
     @abstractmethod
     def request(self, *args, **kwargs) -> tuple[str, str, str]:
         """
