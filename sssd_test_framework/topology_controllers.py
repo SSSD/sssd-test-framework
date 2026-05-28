@@ -20,6 +20,7 @@ from .misc.ssh import retry_command
 __all__ = [
     "LDAPTopologyController",
     "LDAPKRB5TopologyController",
+    "BigLDAPTopologyController",
     "IPATopologyController",
     "ADTopologyController",
     "SambaTopologyController",
@@ -458,3 +459,17 @@ class GDMTopologyController(ProvisionedBackupTopologyController):
         ipa.conn.run("ipa idp-del keycloak")
 
         super().topology_teardown()
+
+
+class BigLDAPTopologyController(ProvisionedBackupTopologyController):
+    """
+    LDAP Topology Controller with large amount of users and large groups.
+    """
+
+    @BackupTopologyController.restore_vanilla_on_error
+    def topology_setup(self, client: ClientHost, ldap: LDAPHost) -> None:
+        ldap.stop()
+        ldap.conn.run("dsctl `dsctl -l` bak2db largedata")
+        ldap.start()
+
+        super().topology_setup()
