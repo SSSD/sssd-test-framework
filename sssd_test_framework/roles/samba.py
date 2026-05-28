@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import configparser
+from datetime import datetime
 from typing import Any, TypeAlias
 
 import ldap.modlist
@@ -14,8 +15,36 @@ from ..hosts.samba import SambaHost
 from ..misc import attrs_parse, ip_to_ptr, ip_version, to_list_of_strings
 from ..utils.ldap import LDAPRecordAttributes
 from .base import BaseLinuxLDAPRole, BaseObject, DeleteAttribute
-from .generic import GenericPasswordPolicy
-from .ldap import LDAPAutomount, LDAPNetgroup, LDAPNetgroupMember, LDAPObject, LDAPOrganizationalUnit, LDAPSudoRule
+from .generic import (
+    GenericAutomount,
+    GenericAutomountMap,
+    GenericComputer,
+    GenericDNSServer,
+    GenericDNSZone,
+    GenericGPO,
+    GenericGroup,
+    GenericOrganizationalUnit,
+    GenericPasswordPolicy,
+    GenericSite,
+    GenericSudoRule,
+    GenericUser,
+    GroupMemberField,
+    SudoRuleCommandField,
+    SudoRuleHostField,
+    SudoRuleRunAsGroupField,
+    SudoRuleRunAsUserField,
+    SudoRuleUserField,
+)
+from .ldap import (
+    LDAPAutomount,
+    LDAPAutomountKey,
+    LDAPAutomountMap,
+    LDAPNetgroup,
+    LDAPNetgroupMember,
+    LDAPObject,
+    LDAPOrganizationalUnit,
+    LDAPSudoRule,
+)
 
 __all__ = [
     "Samba",
@@ -299,7 +328,7 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
         :param name: Computer name.
         :type name: str
         :return: New computer object.
-        :rtype: ADComputer
+        :rtype: SambaComputer
         """
         return SambaComputer(self, name)
 
@@ -455,8 +484,8 @@ class SambaObject(BaseObject):
     """
     Base class for Samba DC object management.
 
-    Provides shortcuts for command execution and implementation of :meth:`get`
-    and :meth:`delete` methods.
+    Provides shortcuts for command execution and implementation of :meth:`get`,
+    :meth:`get_attrs`, and :meth:`delete` methods.
     """
 
     def __init__(self, role: Samba, command: str, name: str) -> None:
@@ -525,7 +554,7 @@ class SambaObject(BaseObject):
         :param attrs: Attributes to modify.
         :type attrs: dict[str, Any  |  list[Any]  |  DeleteAttribute  |  None]
         """
-        obj = self.get()
+        obj = self.get_attrs()
 
         # Remove dn and distinguishedName attributes
         dn = obj.pop("dn")[0]
@@ -563,9 +592,9 @@ class SambaObject(BaseObject):
         """
         self._exec("delete")
 
-    def get(self, attrs: list[str] | None = None) -> dict[str, list[str]]:
+    def get_attrs(self, attrs: list[str] | None = None) -> dict[str, list[str]]:
         """
-        Get Samba object attributes.
+        Get Samba object attributes from LDAP.
 
         :param attrs: If set, only requested attributes are returned, defaults to None
         :type attrs: list[str] | None, optional
@@ -609,7 +638,7 @@ class SambaObject(BaseObject):
         if self.__dn is not None:
             return self.__dn
 
-        obj = self.get(["dn"])
+        obj = self.get_attrs(["dn"])
         self.__dn = obj.pop("dn")[0]
         return self.__dn
 
@@ -621,7 +650,7 @@ class SambaObject(BaseObject):
         if self.__cn is not None:
             return self.__cn
 
-        obj = self.get(["cn"])
+        obj = self.get_attrs(["cn"])
         self.__cn = obj.pop("cn")[0]
         return self.__cn
 
@@ -633,14 +662,18 @@ class SambaObject(BaseObject):
         if self.__sid is not None:
             return self.__sid
 
-        obj = self.get(["objectSid"])
+        obj = self.get_attrs(["objectSid"])
         self.__sid = obj.pop("objectSid")[0]
         return self.__sid
 
 
-class SambaUser(SambaObject):
+class SambaUser(SambaObject, GenericUser):
     """
     Samba user management.
+
+    :class:`SambaUser` implements :class:`GenericUser` for static typing and
+    provider-agnostic tests. Samba-specific keyword arguments on :meth:`modify` are in
+    addition to the generic API.
     """
 
     def __init__(self, role: Samba, name: str) -> None:
@@ -652,12 +685,42 @@ class SambaUser(SambaObject):
         """
         super().__init__(role, "user", name)
 
+    @property
+    def name(self) -> str:
+        """
+        User name.
+
+        Implements :attr:`GenericUser.name`.
+        """
+        return self._name
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self._name = value
+
+    def get(self, attrs: list[str] | None = None, *, opattrs: bool = False) -> dict[str, list[str]] | None:
+        """
+        Get user attributes.
+
+        Implements :meth:`GenericUser.get`. Use :meth:`SambaObject.get_attrs` when a
+        non-optional attribute dictionary is required. LDAP ``opattrs`` is ignored.
+
+        :param attrs: If set, only requested attributes are returned, defaults to None
+        :type attrs: list[str] | None, optional
+        :param opattrs: Ignored (LDAP-only); present for :class:`GenericUser` API compatibility.
+        :type opattrs: bool, optional
+        :return: Dictionary with attribute name as a key.
+        :rtype: dict[str, list[str]] | None
+        """
+        _ = opattrs
+        return self.get_attrs(attrs)
+
     def add(
         self,
         *,
         uid: int | None = None,
         gid: int | None = None,
-        password: str | None = "Secret123",
+        password: str = "Secret123",
         home: str | None = None,
         gecos: str | None = None,
         shell: str | None = None,
@@ -708,6 +771,7 @@ class SambaUser(SambaObject):
         *,
         uid: int | DeleteAttribute | None = None,
         gid: int | DeleteAttribute | None = None,
+        password: str | DeleteAttribute | None = None,
         home: str | DeleteAttribute | None = None,
         gecos: str | DeleteAttribute | None = None,
         shell: str | DeleteAttribute | None = None,
@@ -716,13 +780,15 @@ class SambaUser(SambaObject):
         """
         Modify existing Samba user.
 
-        Parameters that are not set are ignored. If needed, you can delete an
-        attribute by setting the value to :attr:`Delete`.
+        Implements :meth:`GenericUser.modify`. Parameters that are not set are ignored.
+        If needed, you can delete an attribute by setting the value to :attr:`Delete`.
 
         :param uid: User id, defaults to None
         :type uid: int | DeleteAttribute | None, optional
         :param gid: Primary group id, defaults to None
         :type gid: int | DeleteAttribute | None, optional
+        :param password: Password, defaults to None
+        :type password: str | DeleteAttribute | None, optional
         :param home: Home directory, defaults to None
         :type home: str | DeleteAttribute | None, optional
         :param gecos: GECOS, defaults to None
@@ -746,11 +812,53 @@ class SambaUser(SambaObject):
         attrs = {**unix_attrs, **samba_attrs}
 
         self._modify(attrs)
+
+        if password is not None and not isinstance(password, DeleteAttribute):
+            self.reset(str(password))
+
+        return self
+
+    def reset(self, password: str | None = "Secret123") -> SambaUser:
+        """
+        Reset user password.
+
+        Implements :meth:`GenericUser.reset`.
+
+        :param password: Password, defaults to 'Secret123'
+        :type password: str | None, optional
+        :return: Self.
+        :rtype: SambaUser
+        """
+        if password is None:
+            password = "Secret123"
+
+        self._exec("setpassword", [password])
+        return self
+
+    def expire(self, expiration: str | None = "19700101000000") -> SambaUser:
+        """
+        Set user password expiration date and time.
+
+        Implements :meth:`GenericUser.expire`.
+
+        :param expiration: Date and time for user password expiration, defaults to 19700101000000
+        :type expiration: str | None, optional
+        :return: Self.
+        :rtype: SambaUser
+        """
+        if expiration is None:
+            expiration = "19700101000000"
+
+        expire = datetime.strptime(expiration, "%Y%m%d%H%M%S")
+        filetime = str(int((expire.timestamp() + 11644473600) * 10_000_000))
+        self._modify({"accountExpires": filetime})
         return self
 
     def password_change_at_logon(self, **kwargs) -> SambaUser:
         """
         Force user to change password next logon.
+
+        Implements :meth:`GenericUser.password_change_at_logon`.
 
         :return: Self.
         :rtype: SambaUser
@@ -761,6 +869,8 @@ class SambaUser(SambaObject):
     def passkey_add(self, passkey_mapping: str) -> SambaUser:
         """
         Add passkey mapping to the user.
+
+        Implements :meth:`GenericUser.passkey_add`.
 
         :param passkey_mapping: Passkey mapping generated by ``sssctl passkey-register``
         :type passkey_mapping: str
@@ -775,19 +885,25 @@ class SambaUser(SambaObject):
         """
         Remove passkey mapping from the user.
 
+        Implements :meth:`GenericUser.passkey_remove`.
+
         :param passkey_mapping: Passkey mapping generated by ``sssctl passkey-register``
         :type passkey_mapping: str
         :return: Self.
-        :rtype: SambaUser.
+        :rtype: SambaUser
         """
         attrs: LDAPRecordAttributes = {"altSecurityIdentities": passkey_mapping}
         self.role.ldap.modify(self.dn, delete=attrs)
         return self
 
 
-class SambaGroup(SambaObject):
+class SambaGroup(SambaObject, GenericGroup):
     """
     Samba group management.
+
+    :class:`SambaGroup` implements :class:`GenericGroup` for static typing and
+    provider-agnostic tests. Samba-specific keyword arguments on :meth:`add` are in
+    addition to the generic API.
     """
 
     def __init__(self, role: Samba, name: str) -> None:
@@ -799,6 +915,36 @@ class SambaGroup(SambaObject):
         """
         super().__init__(role, "group", name)
 
+    @property
+    def name(self) -> str:
+        """
+        Group name.
+
+        Implements :attr:`GenericGroup.name`.
+        """
+        return self._name
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self._name = value
+
+    def get(self, attrs: list[str] | None = None, *, opattrs: bool = False) -> dict[str, list[str]] | None:
+        """
+        Get group attributes.
+
+        Implements :meth:`GenericGroup.get`. Use :meth:`SambaObject.get_attrs` when a
+        non-optional attribute dictionary is required. LDAP ``opattrs`` is ignored.
+
+        :param attrs: If set, only requested attributes are returned, defaults to None
+        :type attrs: list[str] | None, optional
+        :param opattrs: Ignored (LDAP-only); present for :class:`GenericGroup` API compatibility.
+        :type opattrs: bool, optional
+        :return: Dictionary with attribute name as a key.
+        :rtype: dict[str, list[str]] | None
+        """
+        _ = opattrs
+        return self.get_attrs(attrs)
+
     def add(
         self,
         *,
@@ -809,6 +955,8 @@ class SambaGroup(SambaObject):
     ) -> SambaGroup:
         """
         Create new Samba group.
+
+        Implements :meth:`GenericGroup.add`; ``scope`` and ``category`` are Samba-specific.
 
         :param gid: Group id, defaults to None
         :type gid: int | None, optional
@@ -846,15 +994,15 @@ class SambaGroup(SambaObject):
         """
         Modify existing Samba group.
 
-        Parameters that are not set are ignored. If needed, you can delete an
-        attribute by setting the value to :attr:`Delete`.
+        Implements :meth:`GenericGroup.modify`. Parameters that are not set are ignored.
+        If needed, you can delete an attribute by setting the value to :attr:`Delete`.
 
         :param gid: Group id, defaults to None
         :type gid: int | DeleteAttribute | None, optional
         :param description: Description, defaults to None
         :type description: str | DeleteAttribute | None, optional
         :return: Self.
-        :rtype: SambaUser
+        :rtype: SambaGroup
         """
         attrs: dict[str, Any] = {
             "gidNumber": gid,
@@ -864,59 +1012,70 @@ class SambaGroup(SambaObject):
         self._modify(attrs)
         return self
 
-    def add_member(self, member: SambaUser | SambaGroup) -> SambaGroup:
+    def add_member(self, member: GroupMemberField) -> SambaGroup:
         """
         Add group member.
 
+        Implements :meth:`GenericGroup.add_member`.
+
         :param member: User or group to add as a member.
-        :type member: SambaUser | SambaGroup
+        :type member: GroupMemberField
         :return: Self.
         :rtype: SambaGroup
         """
         return self.add_members([member])
 
-    def add_members(self, members: list[SambaUser | SambaGroup]) -> SambaGroup:
+    def add_members(self, members: list[GroupMemberField]) -> SambaGroup:
         """
         Add multiple group members.
 
+        Implements :meth:`GenericGroup.add_members`.
+
         :param members: List of users or groups to add as members.
-        :type members: list[SambaUser | SambaGroup]
+        :type members: list[GroupMemberField]
         :return: Self.
         :rtype: SambaGroup
         """
         self._exec("addmembers", self.__get_member_args(members))
         return self
 
-    def remove_member(self, member: SambaUser | SambaGroup) -> SambaGroup:
+    def remove_member(self, member: GroupMemberField) -> SambaGroup:
         """
         Remove group member.
 
+        Implements :meth:`GenericGroup.remove_member`.
+
         :param member: User or group to remove from the group.
-        :type member: SambaUser | SambaGroup
+        :type member: GroupMemberField
         :return: Self.
         :rtype: SambaGroup
         """
         return self.remove_members([member])
 
-    def remove_members(self, members: list[SambaUser | SambaGroup]) -> SambaGroup:
+    def remove_members(self, members: list[GroupMemberField]) -> SambaGroup:
         """
         Remove multiple group members.
 
+        Implements :meth:`GenericGroup.remove_members`.
+
         :param members: List of users or groups to remove from the group.
-        :type members: list[SambaUser | SambaGroup]
+        :type members: list[GroupMemberField]
         :return: Self.
         :rtype: SambaGroup
         """
         self._exec("removemembers", self.__get_member_args(members))
         return self
 
-    def __get_member_args(self, members: list[SambaUser | SambaGroup]) -> list[str]:
-        return [",".join([x.name for x in members])]
+    def __get_member_args(self, members: list[GroupMemberField]) -> list[str]:
+        return [",".join([x if isinstance(x, str) else x.name for x in members])]
 
 
-class SambaComputer(SambaObject):
+class SambaComputer(SambaObject, GenericComputer):
     """
-    AD computer management.
+    Samba computer management.
+
+    :class:`SambaComputer` implements :class:`GenericComputer` for static typing and
+    provider-agnostic tests.
     """
 
     def __init__(self, role: Samba, name: str) -> None:
@@ -928,9 +1087,24 @@ class SambaComputer(SambaObject):
         """
         super().__init__(role, "computer", name)
 
+    @property
+    def name(self) -> str:
+        """
+        Computer name.
+
+        Implements :attr:`GenericComputer.name`.
+        """
+        return self._name
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self._name = value
+
     def move(self, target: str) -> SambaComputer:
         """
         Move a computer object.
+
+        Implements :meth:`GenericComputer.move`.
 
         :param target: Target path.
         :type target: str
@@ -942,9 +1116,11 @@ class SambaComputer(SambaObject):
         return self
 
 
-class SambaSite(SambaObject):
+class SambaSite(SambaObject, GenericSite):
     """
-    AD Sites management.
+    Samba site management.
+
+    :class:`SambaSite` implements :class:`GenericSite` for static typing and provider-agnostic tests.
     """
 
     def __init__(self, role: Samba, name: str) -> None:
@@ -956,9 +1132,24 @@ class SambaSite(SambaObject):
         """
         super().__init__(role, "sites", name)
 
+    @property
+    def name(self) -> str:
+        """
+        Site name.
+
+        Implements :attr:`GenericSite.name`.
+        """
+        return self._name
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self._name = value
+
     def add(self) -> SambaSite:
         """
         Create new Samba site.
+
+        Implements :meth:`GenericSite.add`.
 
         :return: Self.
         :rtype: SambaSite
@@ -968,15 +1159,19 @@ class SambaSite(SambaObject):
         return self
 
 
-class SambaGPO(SambaObject):
+class SambaGPO(SambaObject, GenericGPO):
     """
-    Group policy object management.
+    Samba group policy object management.
+
+    :class:`SambaGPO` implements :class:`GenericGPO` for static typing and provider-agnostic tests.
     """
 
     def __init__(self, role: Samba, name: str) -> None:
         """
-        :param name: GPO name, defaults to 'Domain Test Policy'
-        :type name: str, optional
+        :param role: Samba role object.
+        :type role: Samba
+        :param name: GPO display name.
+        :type name: str
         """
         super().__init__(role, "gpo", name)
 
@@ -990,11 +1185,43 @@ class SambaGPO(SambaObject):
         self.credentials: str = f" --username={self.role.host.adminuser} --password={self.role.host.adminpw}"
         """Credentials to manage GPOs."""
 
+    @property
+    def name(self) -> str:
+        """
+        GPO display name.
+
+        Implements :attr:`GenericGPO.name`.
+        """
+        return self._name
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self._name = value
+
+    def get(self, key: str) -> str | None:
+        """
+        Get GPO attribute value.
+
+        Implements :meth:`GenericGPO.get`.
+
+        :param key: LDAP attribute name.
+        :type key: str
+        :return: Attribute value.
+        :rtype: str | None
+        """
+        obj = self.get_attrs([key])
+        values = obj.get(key)
+        if values:
+            return values[0]
+        return None
+
     def add(self) -> SambaGPO:
         """
         Add a group policy object.
 
-        :return: Samba group policy object
+        Implements :meth:`GenericGPO.add`.
+
+        :return: Self.
         :rtype: SambaGPO
         """
         self.host.conn.run(f'samba-tool gpo create "{self.name}" {self.credentials}')
@@ -1004,6 +1231,8 @@ class SambaGPO(SambaObject):
     def delete(self) -> None:
         """
         Delete group policy object.
+
+        Implements :meth:`GenericGPO.delete`.
         """
         self.role.host.conn.run(f'samba-tool gpo del "{self.cn}" {self.credentials}')
 
@@ -1015,6 +1244,8 @@ class SambaGPO(SambaObject):
     ) -> SambaGPO:
         """
         Link the group policy to the target object inside the directory, a site, domain or an ou.
+
+        Implements :meth:`GenericGPO.link`.
 
         :param target: Group policy target, defaults to 'Default-First-Site-Name'
         :type target: str, optional
@@ -1044,20 +1275,29 @@ class SambaGPO(SambaObject):
 
         return self
 
-    def unlink(self) -> SambaGPO:
+    def unlink(self) -> None:
         """
         Unlink the group policy from the target.
 
-        :return: Samba group policy object
-        :rtype: SambaGPO
+        Implements :meth:`GenericGPO.unlink`.
         """
         self.host.conn.run(f'samba-tool gpo dellink "{self.target}" "{self.cn}" {self.credentials}')
 
-        return self
+    def permissions(self, target: str, permission_level: str, target_type: str | None = "Group") -> SambaGPO:
+        """
+        Configure GPO permissions.
 
-    def policy(self, logon_rights: dict[str, list[SambaObject]], cfg: dict[str, Any] | None = None) -> SambaGPO:
+        Implements :meth:`GenericGPO.permissions`.
+
+        :raises NotImplementedError: Samba GPO permission management is not implemented.
+        """
+        raise NotImplementedError("Samba GPO permissions are not supported by the test framework.")
+
+    def policy(self, logon_rights: dict[str, list[Any]], cfg: dict[str, Any] | None = None) -> SambaGPO:
         """
         Group policy configuration.
+
+        Implements :meth:`GenericGPO.policy`.
 
         This method does the remaining configuration of the group policy. It updates
         'GptTmpl.inf' with security logon right keys with the SIDs of users and groups
@@ -1074,18 +1314,14 @@ class SambaGPO(SambaObject):
         processed by the client.
 
         :param logon_rights: List of logon rights.
-        :type logon_rights: dict[str, list[SambaObject]]
+        :type logon_rights: dict[str, list[Any]]
         :param cfg: Extra configuration for GptTmpl.inf file, defaults to None
         :type cfg: dict[str, Any] | None, optional
         :return: Samba Group policy object
         :rtype: SambaGPO
         """
         _path: str = (
-            f"/var/lib/samba/sysvol/"
-            f"{self.role.domain}/"
-            f"Policies/{self.cn}"
-            f"/MACHINE/Microsoft/Windows "
-            f"NT/SecEdit/"
+            f"/var/lib/samba/sysvol/{self.role.domain}/Policies/{self.cn}/MACHINE/Microsoft/Windows NT/SecEdit/"
         )
         _full_path: str = f"{_path}GptTmpl.inf"
 
@@ -1148,13 +1384,17 @@ class SambaGPO(SambaObject):
 
 class SambaPasswordPolicy(GenericPasswordPolicy):
     """
-    Password policy management.
+    Samba domain password policy management.
+
+    :class:`SambaPasswordPolicy` implements :class:`GenericPasswordPolicy` for static
+    typing and provider-agnostic tests. Settings apply via ``samba-tool domain
+    passwordsettings``.
     """
 
-    def __init__(self, role: Samba):
+    def __init__(self, role: Samba) -> None:
         """
-        :param role: Samba host object.
-        :type role: SambaHost
+        :param role: Samba role object.
+        :type role: Samba
         """
         super().__init__(role)
 
@@ -1169,9 +1409,11 @@ class SambaPasswordPolicy(GenericPasswordPolicy):
         """
         Enable or disable password complexity.
 
+        Implements :meth:`GenericPasswordPolicy.complexity`.
+
         :param enable: Enable or disable password complexity.
         :type enable: bool
-        :return: SambaPasswordPolicy object.
+        :return: Self.
         :rtype: SambaPasswordPolicy
         """
         complexity: str = "on" if enable else "off"
@@ -1188,11 +1430,13 @@ class SambaPasswordPolicy(GenericPasswordPolicy):
         """
         Set lockout duration and login attempts.
 
+        Implements :meth:`GenericPasswordPolicy.lockout`.
+
         :param duration: Duration of lockout in seconds, converted to minutes.
         :type duration: int
         :param attempts: Number of login attempts.
         :type attempts: int
-        :return: SambaPasswordPolicy object.
+        :return: Self.
         :rtype: SambaPasswordPolicy
         """
         minutes = divmod(duration, 60)[0]
@@ -1206,15 +1450,18 @@ class SambaPasswordPolicy(GenericPasswordPolicy):
         return self
 
 
-class SambaDNSServer(BaseObject[SambaHost, Samba]):
+class SambaDNSServer(GenericDNSServer):
     """
-    DNS management utilities.
+    Samba DNS server management.
+
+    :class:`SambaDNSServer` implements :class:`GenericDNSServer` for static typing and
+    provider-agnostic tests.
     """
 
-    def __init__(self, role: Samba):
+    def __init__(self, role: Samba) -> None:
         """
-        :param role: Samba host object.
-        :type role: SambaHost
+        :param role: Samba role object.
+        :type role: Samba
         """
         super().__init__(role)
 
@@ -1234,31 +1481,32 @@ class SambaDNSServer(BaseObject[SambaHost, Samba]):
 
     def zone(self, name: str) -> SambaDNSZone:
         """
-        Get SambaDNSZone object.
+        Get DNS zone object.
+
+        Implements :meth:`GenericDNSServer.zone`.
 
         :param name: Zone name.
         :type name: str
-        :return: SambaDNSZone object.
+        :return: DNS zone object.
         :rtype: SambaDNSZone
         """
         return SambaDNSZone(self.role, name)
 
-    def get_forwarders(self) -> list[str] | None:
+    def get_forwarders(self) -> list[str]:
         """
         Get DNS global forwarders.
 
-        Global forwarders are configured in /etc/smb.conf
+        Global forwarders are configured in ``/etc/samba/smb.conf``.
 
-        :return: DNS global forwarders.
+        :return: List of forwarder IP addresses (empty if none are configured).
         :rtype: list[str]
         """
         result = [line.strip() for line in self.host.fs.read(self.smb_conf).split("\n")]
-        if result is not None and isinstance(result, list):
-            for i in result:
-                if "dns forwarder" in i:
-                    # The additional split is to support more than one server
-                    return i.split("=")[1].strip().split(" ")
-        return None
+        for i in result:
+            if "dns forwarder" in i:
+                # The additional split is to support more than one server
+                return i.split("=")[1].strip().split(" ")
+        return []
 
     def add_forwarder(self, ip_address: str) -> SambaDNSServer:
         """
@@ -1312,15 +1560,18 @@ class SambaDNSServer(BaseObject[SambaHost, Samba]):
         return result
 
 
-class SambaDNSZone(SambaDNSServer):
+class SambaDNSZone(SambaDNSServer, GenericDNSZone):
     """
-    DNS zone management.
+    Samba DNS zone management.
+
+    :class:`SambaDNSZone` implements :class:`GenericDNSZone` for static typing and
+    provider-agnostic tests.
     """
 
-    def __init__(self, role: Samba, name: str):
+    def __init__(self, role: Samba, name: str) -> None:
         """
-        :param role: Samba host object.
-        :type role: SambaHost
+        :param role: Samba role object.
+        :type role: Samba
         :param name: DNS zone name.
         :type name: str
         """
@@ -1333,8 +1584,10 @@ class SambaDNSZone(SambaDNSServer):
         """
         Create new zone.
 
-        :return: SambaDNSServer object.
-        :rtype: SambaDNSServer
+        Implements :meth:`GenericDNSZone.create`.
+
+        :return: Self.
+        :rtype: SambaDNSZone
         """
         self.host.conn.run(f"samba-tool dns zonecreate {self.server} {self.zone_name} {self.credentials}")
         return self
@@ -1342,21 +1595,25 @@ class SambaDNSZone(SambaDNSServer):
     def delete(self) -> None:
         """
         Delete zone.
+
+        Implements :meth:`GenericDNSZone.delete`.
         """
         self.host.conn.run(f"samba-tool dns zonedelete {self.server} {self.zone_name} {self.credentials}")
 
-    def add_record(self, name: str, data: str) -> SambaDNSZone:
+    def add_record(self, name: str, data: str | int) -> SambaDNSZone:
         """
         Add DNS record.
+
+        Implements :meth:`GenericDNSZone.add_record`.
 
         If ``data`` is a str, a forward record will be added.
         If an integer a reverse record will be added.
 
         :param name: Record name.
-        :type name: str | int
+        :type name: str
         :param data: Record data.
-        :type data: str
-        :return: SambaDNSZone object.
+        :type data: str | int
+        :return: Self.
         :rtype: SambaDNSZone
         """
         args = ""
@@ -1377,6 +1634,8 @@ class SambaDNSZone(SambaDNSServer):
     def delete_record(self, name: str) -> None:
         """
         Delete DNS record, both forward and reverse records are deleted.
+
+        Implements :meth:`GenericDNSZone.delete_record`.
 
         :param name: Name of the record.
         :type name: str
@@ -1413,9 +1672,11 @@ class SambaDNSZone(SambaDNSServer):
 
     def print(self) -> str:
         """
-        Prints all dns records in a zone as text.
+        Print all DNS records in a zone as text.
 
-        :return: Print zone data.
+        Implements :meth:`GenericDNSZone.print`.
+
+        :return: Zone data as text.
         :rtype: str
         """
         result = self.host.conn.run(
@@ -1425,8 +1686,186 @@ class SambaDNSZone(SambaDNSServer):
         return result
 
 
-SambaOrganizationalUnit: TypeAlias = LDAPOrganizationalUnit[SambaHost, Samba]
-SambaAutomount: TypeAlias = LDAPAutomount[SambaHost, Samba]
-SambaSudoRule: TypeAlias = LDAPSudoRule[SambaHost, Samba, SambaUser, SambaGroup]
+class SambaOrganizationalUnit(LDAPOrganizationalUnit[SambaHost, Samba], GenericOrganizationalUnit):
+    """
+    Samba organizational unit management.
+
+    :class:`SambaOrganizationalUnit` implements :class:`GenericOrganizationalUnit` for static
+    typing and provider-agnostic tests.
+    """
+
+    @property
+    def name(self) -> str:
+        """
+        OU name.
+
+        Implements :attr:`GenericOrganizationalUnit.name`.
+        """
+        return self._name
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self._name = value
+
+    def add(self, name: str | None = None) -> SambaOrganizationalUnit:
+        """
+        Create new Samba organizational unit.
+
+        Implements :meth:`GenericOrganizationalUnit.add`. The optional ``name`` argument
+        is accepted for API compatibility; the OU name is taken from :meth:`Samba.ou`.
+
+        :param name: Unused; OU name is set when the object is created.
+        :type name: str | None
+        :return: Self.
+        :rtype: SambaOrganizationalUnit
+        """
+        _ = name
+        super().add()
+        return self
+
+
+class SambaAutomount(LDAPAutomount[SambaHost, Samba], GenericAutomount):
+    """
+    Samba automount management.
+
+    :class:`SambaAutomount` implements :class:`GenericAutomount` for static typing and
+    provider-agnostic tests. The optional ``basedn`` argument on :meth:`map` is
+    Samba-specific and is not part of the generic API.
+    """
+
+    def map(self, name: str, basedn: LDAPObject | str | None = "ou=autofs") -> LDAPAutomountMap[SambaHost, Samba]:
+        """
+        Get automount map object.
+
+        Implements :meth:`GenericAutomount.map`; ``basedn`` selects the LDAP container
+        for the map (defaults to ``ou=autofs``).
+
+        :param name: Automount map name.
+        :type name: str
+        :param basedn: Base dn, defaults to ``ou=autofs``
+        :type basedn: LDAPObject | str | None, optional
+        :return: New automount map object.
+        :rtype: LDAPAutomountMap[SambaHost, Samba]
+        """
+        return super().map(name, basedn)
+
+    def key(self, name: str, map: GenericAutomountMap) -> LDAPAutomountKey[SambaHost, Samba]:
+        """
+        Get automount key object.
+
+        Implements :meth:`GenericAutomount.key`.
+
+        :param name: Automount key name.
+        :type name: str
+        :param map: Automount map that is a parent to this key.
+        :type map: GenericAutomountMap
+        :return: New automount key object.
+        :rtype: LDAPAutomountKey[SambaHost, Samba]
+        """
+        if not isinstance(map, LDAPAutomountMap):
+            raise TypeError("Samba automount keys require an LDAP automount map parent map.")
+        return super().key(name, map)
+
+
+class SambaSudoRule(LDAPSudoRule[SambaHost, Samba, SambaUser, SambaGroup], GenericSudoRule):
+    """
+    Samba sudo rule management.
+
+    :class:`SambaSudoRule` implements :class:`GenericSudoRule` for static typing and
+    provider-agnostic tests. ``int`` values (SID fragments as ``#N``), ``notbefore`` /
+    ``notafter``, and :class:`DeleteAttribute` on :meth:`modify` are in addition to the
+    generic API.
+    """
+
+    @property
+    def name(self) -> str:
+        """
+        Sudo rule name.
+
+        Implements :attr:`GenericSudoRule.name`.
+        """
+        return self._name
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self._name = value
+
+    def add(
+        self,
+        *,
+        user: SudoRuleUserField | int | list[SudoRuleUserField | int] | None = None,
+        host: SudoRuleHostField = None,
+        command: SudoRuleCommandField = None,
+        option: str | list[str] | None = None,
+        runasuser: SudoRuleRunAsUserField | int | list[SudoRuleRunAsUserField | int] | None = None,
+        runasgroup: SudoRuleRunAsGroupField | int | list[SudoRuleRunAsGroupField | int] | None = None,
+        notbefore: str | list[str] | None = None,
+        notafter: str | list[str] | None = None,
+        order: int | list[int] | None = None,
+        nopasswd: bool | None = None,
+    ) -> SambaSudoRule:
+        """
+        Create new sudo rule.
+
+        Implements :meth:`GenericSudoRule.add`. ``notbefore`` and ``notafter`` are
+        LDAP-specific and are not part of the generic API.
+
+        :return: Self.
+        :rtype: SambaSudoRule
+        """
+        super().add(
+            user=user,
+            host=host,
+            command=command,
+            option=option,
+            runasuser=runasuser,
+            runasgroup=runasgroup,
+            notbefore=notbefore,
+            notafter=notafter,
+            order=order,
+            nopasswd=nopasswd,
+        )
+        return self
+
+    def modify(
+        self,
+        *,
+        user: SudoRuleUserField | int | list[SudoRuleUserField | int] | DeleteAttribute | None = None,
+        host: SudoRuleHostField | DeleteAttribute | None = None,
+        command: SudoRuleCommandField | DeleteAttribute | None = None,
+        option: str | list[str] | DeleteAttribute | None = None,
+        runasuser: SudoRuleRunAsUserField | int | list[SudoRuleRunAsUserField | int] | DeleteAttribute | None = None,
+        runasgroup: (
+            SudoRuleRunAsGroupField | int | list[SudoRuleRunAsGroupField | int] | DeleteAttribute | None
+        ) = None,
+        notbefore: str | list[str] | DeleteAttribute | None = None,
+        notafter: str | list[str] | DeleteAttribute | None = None,
+        order: int | list[int] | DeleteAttribute | None = None,
+        nopasswd: bool | None = None,
+    ) -> SambaSudoRule:
+        """
+        Modify existing sudo rule.
+
+        Implements :meth:`GenericSudoRule.modify`. ``notbefore`` and ``notafter`` are
+        LDAP-specific and are not part of the generic API.
+
+        :return: Self.
+        :rtype: SambaSudoRule
+        """
+        super().modify(
+            user=user,
+            host=host,
+            command=command,
+            option=option,
+            runasuser=runasuser,
+            runasgroup=runasgroup,
+            notbefore=notbefore,
+            notafter=notafter,
+            order=order,
+            nopasswd=nopasswd,
+        )
+        return self
+
+
 SambaNetgroup: TypeAlias = LDAPNetgroup[SambaHost, Samba, SambaUser]
 SambaNetgroupMember: TypeAlias = LDAPNetgroupMember[SambaUser, SambaNetgroup]
