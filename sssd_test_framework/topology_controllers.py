@@ -25,6 +25,7 @@ __all__ = [
     "IPATrustADTopologyController",
     "IPATrustSambaTopologyController",
     "KeycloakTopologyController",
+    "BigLDAPTopologyController",
 ]
 
 
@@ -417,3 +418,18 @@ class GDMTopologyController(ProvisionedBackupTopologyController):
         ipa.conn.run("ipa idp-del keycloak")
 
         super().topology_teardown()
+
+
+class BigLDAPTopologyController(ProvisionedBackupTopologyController):
+    """
+    LDAP Topology Controller with large amount of users and large groups.
+    """
+
+    @BackupTopologyController.restore_vanilla_on_error
+    def topology_setup(self, client: ClientHost, ldap: LDAPHost) -> None:
+        ldap.conn.run(
+            "systemctl stop dirsrv@localhost.service && "
+            "dsctl slapd-localhost bak2db largedata && "
+            "systemctl start dirsrv@localhost.service"
+        )
+        super().topology_setup()

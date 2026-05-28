@@ -10,6 +10,7 @@ from pytest_mh import KnownTopologyBase, KnownTopologyGroupBase, Topology, Topol
 from .config import SSSDTopologyMark
 from .topology_controllers import (
     ADTopologyController,
+    BigLDAPTopologyController,
     ClientTopologyController,
     GDMTopologyController,
     IPATopologyController,
@@ -213,6 +214,17 @@ class KnownTopology(KnownTopologyBase):
     )
     """
     .. topology-mark:: KnownTopology.Keycloak
+    """
+
+    BigLDAP = SSSDTopologyMark(
+        name="big-ldap",
+        topology=Topology(TopologyDomain("sssd", client=1, ldap=1)),
+        controller=BigLDAPTopologyController(),
+        domains=dict(test="sssd.ldap[0]"),
+        fixtures=dict(client="sssd.client[0]", ldap="sssd.ldap[0]", provider="sssd.ldap[0]"),
+    )
+    """
+    .. topology-mark:: KnownTopology.BigLDAP
     """
 
 
