@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 from datetime import datetime
 from enum import Enum
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeAlias, TypeVar, cast
 
 import ldap
 import ldap.ldapobject
@@ -14,7 +14,25 @@ from ..hosts.ldap import LDAPHost
 from ..misc import attrs_include_value, to_list_without_none
 from ..utils.ldap import LDAPRecordAttributes, LDAPUtils
 from .base import BaseLinuxLDAPRole, BaseObject, DeleteAttribute, HostType
-from .generic import GenericNetgroupMember, GenericPasswordPolicy, ProtocolName
+from .generic import (
+    GenericAutomount,
+    GenericAutomountKey,
+    GenericAutomountMap,
+    GenericGroup,
+    GenericNetgroup,
+    GenericNetgroupMember,
+    GenericOrganizationalUnit,
+    GenericPasswordPolicy,
+    GenericSudoRule,
+    GenericUser,
+    GroupMemberField,
+    ProtocolName,
+    SudoRuleCommandField,
+    SudoRuleHostField,
+    SudoRuleRunAsGroupField,
+    SudoRuleRunAsUserField,
+    SudoRuleUserField,
+)
 from .nfs import NFSExport
 
 __all__ = [
@@ -39,9 +57,16 @@ __all__ = [
 
 
 LDAPRoleType = TypeVar("LDAPRoleType", bound=BaseLinuxLDAPRole)
-LDAPUserType = TypeVar("LDAPUserType", bound=ProtocolName)
-LDAPGroupType = TypeVar("LDAPGroupType", bound=ProtocolName)
-LDAPNetgroupType = TypeVar("LDAPNetgroupType", bound=ProtocolName)
+LDAPUserType = TypeVar("LDAPUserType", bound=GenericUser)
+LDAPGroupType = TypeVar("LDAPGroupType", bound=GenericGroup)
+LDAPNetgroupType = TypeVar("LDAPNetgroupType", bound=GenericNetgroup)
+
+_LDAPSudoUserInput: TypeAlias = SudoRuleUserField | int | list[SudoRuleUserField | int] | DeleteAttribute | None
+_LDAPSudoRunAsGroupInput: TypeAlias = (
+    SudoRuleRunAsGroupField | int | list[SudoRuleRunAsGroupField | int] | DeleteAttribute | None
+)
+_LDAPSudoUserAtom: TypeAlias = str | int | LDAPUserType | LDAPGroupType | GenericUser | GenericGroup | ProtocolName
+_LDAPSudoGroupAtom: TypeAlias = str | int | LDAPGroupType | GenericGroup | ProtocolName
 
 
 class LDAP(BaseLinuxLDAPRole[LDAPHost]):
@@ -652,7 +677,7 @@ class LDAPObject(BaseObject[HostType, LDAPRoleType]):
         """
         self.role.ldap.delete(self.dn)
 
-    def get(self, attrs: list[str] | None = None, opattrs: bool = False) -> dict[str, list[str]] | None:
+    def get(self, attrs: list[str] | None = None, *, opattrs: bool = False) -> dict[str, list[str]] | None:
         """
         Get LDAP record attributes.
 
@@ -735,9 +760,12 @@ class LDAPACI(object):
         self.ldap.modify(self.dn, delete={"aci": value})
 
 
-class LDAPOrganizationalUnit(LDAPObject[HostType, LDAPRoleType]):
+class LDAPOrganizationalUnit(LDAPObject[HostType, LDAPRoleType], GenericOrganizationalUnit):
     """
     LDAP organizational unit management.
+
+    :class:`LDAPOrganizationalUnit` implements :class:`GenericOrganizationalUnit` for static
+    typing and provider-agnostic tests.
     """
 
     def __init__(self, role: LDAPRoleType, name: str, basedn: LDAPObject | str | None = None) -> None:
@@ -751,22 +779,46 @@ class LDAPOrganizationalUnit(LDAPObject[HostType, LDAPRoleType]):
         """
         super().__init__(role, name, f"ou={name}", basedn)
 
-    def add(self) -> LDAPOrganizationalUnit:
+    @property
+    def name(self) -> str:
+        """
+        OU name.
+
+        Implements :attr:`GenericOrganizationalUnit.name`.
+        """
+        return self._name
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self._name = value
+
+    def add(self, name: str | None = None) -> LDAPOrganizationalUnit:
         """
         Create new LDAP organizational unit.
 
+        Implements :meth:`GenericOrganizationalUnit.add`. The optional ``name`` argument
+        is accepted for API compatibility; the OU name is taken from the provider ``ou()``
+        factory.
+
+        :param name: Unused; OU name is set when the object is created.
+        :type name: str | None
         :return: Self.
         :rtype: LDAPOrganizationalUnit
         """
+        _ = name
         attrs: LDAPRecordAttributes = {"objectClass": "organizationalUnit", "ou": self.name}
 
         self._add(attrs)
         return self
 
 
-class LDAPUser(LDAPObject[LDAPHost, LDAP]):
+class LDAPUser(LDAPObject[LDAPHost, LDAP], GenericUser):
     """
     LDAP user management.
+
+    :class:`LDAPUser` implements :class:`GenericUser` for static typing and provider-agnostic
+    tests. LDAP-specific keyword arguments on :meth:`add` and :meth:`modify` are in addition
+    to the generic API.
     """
 
     def __init__(
@@ -787,12 +839,25 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         self.first_passkey_add = False
         """Whether the 'passkeyUser' objectClass has already been added."""
 
+    @property
+    def name(self) -> str:
+        """
+        User name.
+
+        Implements :attr:`GenericUser.name`.
+        """
+        return self._name
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self._name = value
+
     def add(
         self,
         *,
         uid: int | None = None,
         gid: int | None = None,
-        password: str | None = "Secret123",
+        password: str = "Secret123",
         home: str | None = None,
         gecos: str | None = None,
         shell: str | None = None,
@@ -808,8 +873,8 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         """
         Create new LDAP user.
 
-        User and group id is assigned automatically if they are not set. Other
-        parameters that are not set are ignored.
+        Implements :meth:`GenericUser.add`. User and group id is assigned automatically if
+        they are not set. Other parameters that are not set are ignored.
 
         :param uid: User id, defaults to None
         :type uid: int | None, optional
@@ -901,8 +966,8 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         """
         Modify existing LDAP user.
 
-        Parameters that are not set are ignored. If needed, you can delete an
-        attribute by setting the value to :attr:`Delete`.
+        Implements :meth:`GenericUser.modify`. Parameters that are not set are ignored.
+        If needed, you can delete an attribute by setting the value to :attr:`Delete`.
 
         :param uid: User id, defaults to None
         :type uid: int | DeleteAttribute | None, optional
@@ -962,6 +1027,8 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         """
         Reset user password.
 
+        Implements :meth:`GenericUser.reset`.
+
         :param password: Password, defaults to 'Secret123'
         :type password: str, optional
         :return: Self.
@@ -970,15 +1037,18 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         self.modify(password=password)
         return self
 
-    def expire(self, expiration: str = "19700101000000") -> LDAPUser:
+    def expire(self, expiration: str | None = "19700101000000") -> LDAPUser:
         """
         Set user password expiration date and time.
 
         :param expiration: Date and time for user password expiration, defaults to 19700101000000
-        :type expirataion: str, optional
+        :type expiration: str | None, optional
         :return: Self.
-        :rtype: IPAUser
+        :rtype: LDAPUser
         """
+        if expiration is None:
+            expiration = "19700101000000"
+
         start = datetime.now()
         end = datetime.strptime(expiration, "%Y%m%d%H%M%S")
         time_diff = end - start
@@ -994,6 +1064,8 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         """
         Force user to change password next logon.
 
+        Implements :meth:`GenericUser.password_change_at_logon`.
+
         :return: Self.
         :rtype: LDAPUser
         """
@@ -1008,6 +1080,8 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
     def passkey_add(self, passkey_mapping: str) -> LDAPUser:
         """
         Add passkey mapping to the user.
+
+        Implements :meth:`GenericUser.passkey_add`.
 
         :param passkey_mapping: Passkey mapping generated by ``sssctl passkey-register``
         :type passkey_mapping: str
@@ -1030,19 +1104,25 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP]):
         """
         Remove passkey mapping from the user.
 
+        Implements :meth:`GenericUser.passkey_remove`.
+
         :param passkey_mapping: Passkey mapping generated by ``sssctl passkey-register``
         :type passkey_mapping: str
         :return: Self.
-        :rtype: LDAPUser.
+        :rtype: LDAPUser
         """
         attrs: LDAPRecordAttributes = {"objectClass": "passkeyUser", "passkey": passkey_mapping}
         self._modify(delete=attrs)
         return self
 
 
-class LDAPGroup(LDAPObject[LDAPHost, LDAP]):
+class LDAPGroup(LDAPObject[LDAPHost, LDAP], GenericGroup):
     """
     LDAP group management.
+
+    :class:`LDAPGroup` implements :class:`GenericGroup` for static typing and provider-agnostic
+    tests. LDAP-specific keyword arguments on :meth:`add` and :meth:`modify` are in addition to
+    the generic API.
     """
 
     def __init__(
@@ -1070,33 +1150,58 @@ class LDAPGroup(LDAPObject[LDAPHost, LDAP]):
             self.object_class = ["posixGroup", "groupOfNames"]
             self.member_attr = "member"
 
-    def __members(self, values: list[LDAPUser | LDAPGroup | str] | None) -> list[str] | None:
+    @property
+    def name(self) -> str:
+        """
+        Group name.
+
+        Implements :attr:`GenericGroup.name`.
+        """
+        return self._name
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self._name = value
+
+    def __member_dn(self, member: GroupMemberField) -> str:
+        if isinstance(member, LDAPObject):
+            return member.dn
+        if isinstance(member, str):
+            return self._dn(member)
+        return self._dn(member.name)
+
+    def __member_name(self, member: GroupMemberField) -> str:
+        if isinstance(member, str):
+            return member
+        return member.name
+
+    def __members(self, values: list[GroupMemberField] | None) -> list[str] | None:
         if values is None:
             return None
 
         if self.rfc2307bis:
-            return [x.dn if isinstance(x, LDAPObject) else self._dn(x) for x in values]
+            return [self.__member_dn(x) for x in values]
 
-        return [x.name if isinstance(x, LDAPObject) else x for x in values]
+        return [self.__member_name(x) for x in values]
 
     def add(
         self,
         *,
         gid: int | None = None,
-        members: list[LDAPUser | LDAPGroup | str] | None = None,
+        members: list[GroupMemberField] | None = None,
         password: str | None = None,
         description: str | None = None,
     ) -> LDAPGroup:
         """
         Create new LDAP group.
 
-        Group id is assigned automatically if it is not set. Other parameters
-        that are not set are ignored.
+        Implements :meth:`GenericGroup.add`. Group id is assigned automatically if it is not
+        set. Other parameters that are not set are ignored.
 
-        :param gid: _description_, defaults to None
+        :param gid: Group id, defaults to None
         :type gid: int | None, optional
         :param members: List of group members, defaults to None
-        :type members: list[LDAPUser  |  LDAPGroup  |  str] | None, optional
+        :type members: list[GroupMemberField] | None, optional
         :param password: Group password, defaults to None
         :type password: str | None, optional
         :param description: Description, defaults to None
@@ -1125,20 +1230,20 @@ class LDAPGroup(LDAPObject[LDAPHost, LDAP]):
         self,
         *,
         gid: int | DeleteAttribute | None = None,
-        members: list[LDAPUser | LDAPGroup | str] | DeleteAttribute | None = None,
+        members: list[GroupMemberField] | DeleteAttribute | None = None,
         password: str | DeleteAttribute | None = None,
         description: str | DeleteAttribute | None = None,
     ) -> LDAPGroup:
         """
         Modify existing LDAP group.
 
-        Parameters that are not set are ignored. If needed, you can delete an
-        attribute by setting the value to :attr:`Delete`.
+        Implements :meth:`GenericGroup.modify`. Parameters that are not set are ignored.
+        If needed, you can delete an attribute by setting the value to :attr:`Delete`.
 
         :param gid: Group id, defaults to None
         :type gid: int | DeleteAttribute | None, optional
         :param members: List of group members, defaults to None
-        :type members: list[LDAPUser  |  LDAPGroup  |  str] | DeleteAttribute | None, optional
+        :type members: list[GroupMemberField] | DeleteAttribute | None, optional
         :param password: Group password, defaults to None
         :type password: str | DeleteAttribute | None, optional
         :param description: Description, defaults to None
@@ -1156,46 +1261,54 @@ class LDAPGroup(LDAPObject[LDAPHost, LDAP]):
         self._set(attrs)
         return self
 
-    def add_member(self, member: LDAPUser | LDAPGroup | str) -> LDAPGroup:
+    def add_member(self, member: GroupMemberField) -> LDAPGroup:
         """
         Add group member.
 
+        Implements :meth:`GenericGroup.add_member`.
+
         :param member: User or group (on rfc2307bis schema) to add as a member.
-        :type member: LDAPUser | LDAPGroup | str
+        :type member: GroupMemberField
         :return: Self.
         :rtype: LDAPGroup
         """
         return self.add_members([member])
 
-    def add_members(self, members: list[LDAPUser | LDAPGroup | str]) -> LDAPGroup:
+    def add_members(self, members: list[GroupMemberField]) -> LDAPGroup:
         """
         Add multiple group members.
 
+        Implements :meth:`GenericGroup.add_members`.
+
         :param members: Users or groups (on rfc2307bis schema) to add as members.
-        :type members: list[LDAPUser | LDAPGroup | str]
+        :type members: list[GroupMemberField]
         :return: Self.
         :rtype: LDAPGroup
         """
         self._modify(add={self.member_attr: self.__members(members)})
         return self
 
-    def remove_member(self, member: LDAPUser | LDAPGroup | str) -> LDAPGroup:
+    def remove_member(self, member: GroupMemberField) -> LDAPGroup:
         """
         Remove group member.
 
-        :param member: User or group (on rfc2307bis schema) to add as a member.
-        :type member: LDAPUser | LDAPGroup | str
+        Implements :meth:`GenericGroup.remove_member`.
+
+        :param member: User or group (on rfc2307bis schema) to remove from the group.
+        :type member: GroupMemberField
         :return: Self.
         :rtype: LDAPGroup
         """
         return self.remove_members([member])
 
-    def remove_members(self, members: list[LDAPUser | LDAPGroup | str]) -> LDAPGroup:
+    def remove_members(self, members: list[GroupMemberField]) -> LDAPGroup:
         """
         Remove multiple group members.
 
-        :param members: Users or groups (on rfc2307bis schema) to add as members.
-        :type members: list[LDAPUser | LDAPGroup | str]
+        Implements :meth:`GenericGroup.remove_members`.
+
+        :param members: Users or groups (on rfc2307bis schema) to remove from the group.
+        :type members: list[GroupMemberField]
         :return: Self.
         :rtype: LDAPGroup
         """
@@ -1203,9 +1316,17 @@ class LDAPGroup(LDAPObject[LDAPHost, LDAP]):
         return self
 
 
-class LDAPNetgroup(Generic[HostType, LDAPRoleType, LDAPUserType], LDAPObject[HostType, LDAPRoleType]):
+class LDAPNetgroup(
+    Generic[HostType, LDAPRoleType, LDAPUserType],
+    LDAPObject[HostType, LDAPRoleType],
+    GenericNetgroup,
+):
     """
     LDAP netgroup management.
+
+    :class:`LDAPNetgroup` implements :class:`GenericNetgroup` for static typing and
+    provider-agnostic tests. The optional ``domain`` argument on membership methods is
+    LDAP-specific (NIS triple) and is not part of the generic API.
     """
 
     def __init__(self, role: LDAPRoleType, name: str, basedn: LDAPObject | str | None = "ou=netgroups") -> None:
@@ -1219,9 +1340,24 @@ class LDAPNetgroup(Generic[HostType, LDAPRoleType, LDAPUserType], LDAPObject[Hos
         """
         super().__init__(role, name, f"cn={name}", basedn, default_ou="netgroups")
 
+    @property
+    def name(self) -> str:
+        """
+        Netgroup name.
+
+        Implements :attr:`GenericNetgroup.name`.
+        """
+        return self._name
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self._name = value
+
     def add(self) -> LDAPNetgroup[HostType, LDAPRoleType, LDAPUserType]:
         """
         Create new LDAP netgroup.
+
+        Implements :meth:`GenericNetgroup.add`.
 
         :return: Self.
         :rtype: LDAPNetgroup[HostType, LDAPRoleType, LDAPUserType]
@@ -1238,32 +1374,37 @@ class LDAPNetgroup(Generic[HostType, LDAPRoleType, LDAPUserType], LDAPObject[Hos
         self,
         *,
         host: str | None = None,
-        user: LDAPUser | str | None = None,
+        user: GenericUser | str | None = None,
         domain: str | None = None,
-        ng: LDAPNetgroup | str | None = None,
+        ng: GenericNetgroup | str | None = None,
     ) -> LDAPNetgroup[HostType, LDAPRoleType, LDAPUserType]:
         """
         Add netgroup member.
 
+        Implements :meth:`GenericNetgroup.add_member`.
+
         :param host: Host, defaults to None
         :type host: str | None, optional
         :param user: User, defaults to None
-        :type user: LDAPUser | str | None, optional
-        :param domain: Domain, defaults to None
+        :type user: GenericUser | str | None, optional
+        :param domain: Domain (NIS triple field), defaults to None
         :type domain: str | None, optional
         :param ng: Netgroup, defaults to None
-        :type ng: LDAPNetgroup | str | None, optional
+        :type ng: GenericNetgroup | str | None, optional
         :return: Self.
         :rtype: LDAPNetgroup[HostType, LDAPRoleType, LDAPUserType]
         """
         return self.add_members([LDAPNetgroupMember(host=host, user=user, domain=domain, ng=ng)])
 
-    def add_members(self, members: list[LDAPNetgroupMember]) -> LDAPNetgroup[HostType, LDAPRoleType, LDAPUserType]:
+    def add_members(self, members: list[GenericNetgroupMember]) -> LDAPNetgroup[HostType, LDAPRoleType, LDAPUserType]:
         """
         Add multiple netgroup members.
 
+        Implements :meth:`GenericNetgroup.add_members`. Use :class:`LDAPNetgroupMember` for
+        LDAP NIS triples with ``domain``.
+
         :param members: Netgroup members.
-        :type members: list[LDAPNetgroupMember]
+        :type members: list[GenericNetgroupMember]
         :return: Self.
         :rtype: LDAPNetgroup[HostType, LDAPRoleType, LDAPUserType]
         """
@@ -1283,32 +1424,39 @@ class LDAPNetgroup(Generic[HostType, LDAPRoleType, LDAPUserType], LDAPObject[Hos
         self,
         *,
         host: str | None = None,
-        user: LDAPUser | str | None = None,
+        user: GenericUser | str | None = None,
         domain: str | None = None,
-        ng: LDAPNetgroup | str | None = None,
+        ng: GenericNetgroup | str | None = None,
     ) -> LDAPNetgroup[HostType, LDAPRoleType, LDAPUserType]:
         """
         Remove netgroup member.
 
+        Implements :meth:`GenericNetgroup.remove_member`.
+
         :param host: Host, defaults to None
         :type host: str | None, optional
         :param user: User, defaults to None
-        :type user: LDAPUser | str | None, optional
-        :param domain: Domain, defaults to None
+        :type user: GenericUser | str | None, optional
+        :param domain: Domain (NIS triple field), defaults to None
         :type domain: str | None, optional
         :param ng: Netgroup, defaults to None
-        :type ng: LDAPNetgroup | str | None, optional
+        :type ng: GenericNetgroup | str | None, optional
         :return: Self.
         :rtype: LDAPNetgroup[HostType, LDAPRoleType, LDAPUserType]
         """
         return self.remove_members([LDAPNetgroupMember(host=host, user=user, domain=domain, ng=ng)])
 
-    def remove_members(self, members: list[LDAPNetgroupMember]) -> LDAPNetgroup[HostType, LDAPRoleType, LDAPUserType]:
+    def remove_members(
+        self, members: list[GenericNetgroupMember]
+    ) -> LDAPNetgroup[HostType, LDAPRoleType, LDAPUserType]:
         """
         Remove multiple netgroup members.
 
+        Implements :meth:`GenericNetgroup.remove_members`. Use :class:`LDAPNetgroupMember`
+        for LDAP NIS triples with ``domain``.
+
         :param members: Netgroup members.
-        :type members: list[LDAPNetgroupMember]
+        :type members: list[GenericNetgroupMember]
         :return: Self.
         :rtype: LDAPNetgroup[HostType, LDAPRoleType, LDAPUserType]
         """
@@ -1324,12 +1472,12 @@ class LDAPNetgroup(Generic[HostType, LDAPRoleType, LDAPUserType], LDAPObject[Hos
         self._modify(delete=attrs)
         return self
 
-    def __members(self, members: list[LDAPNetgroupMember]) -> tuple[list[str], list[str]]:
+    def __members(self, members: list[GenericNetgroupMember]) -> tuple[list[str], list[str]]:
         """
-        Split members into triples and netgroups
+        Split members into triples and netgroups.
 
         :param members: Netgroup members.
-        :type members: list[LDAPNetgroupMember]
+        :type members: list[GenericNetgroupMember]
         :return: (triples, netgroups)
         :rtype: tuple[list[str], list[str]]
         """
@@ -1356,19 +1504,19 @@ class LDAPNetgroupMember(Generic[LDAPUserType, LDAPNetgroupType], GenericNetgrou
         self,
         *,
         host: str | None = None,
-        user: LDAPUserType | str | None = None,
+        user: GenericUser | str | None = None,
         domain: str | None = None,
-        ng: LDAPNetgroupType | str | None = None,
+        ng: GenericNetgroup | str | None = None,
     ) -> None:
         """
         :param host: Host, defaults to None
         :type host: str | None, optional
         :param user: User, defaults to None
-        :type user: LDAPUserType | str | None, optional
+        :type user: GenericUser | str | None, optional
         :param domain: Domain, defaults to None
         :type domain: str | None, optional
         :param ng: Netgroup, defaults to None
-        :type ng: LDAPNetgroupType | str | None, optional
+        :type ng: GenericNetgroup | str | None, optional
         """
         super().__init__(host=host, user=user, ng=ng)
 
@@ -1388,9 +1536,18 @@ class LDAPNetgroupMember(Generic[LDAPUserType, LDAPNetgroupType], GenericNetgrou
         return f"({_value(self.host)}, {_value(self.user)}, {_value(self.domain, '')})"
 
 
-class LDAPSudoRule(Generic[HostType, LDAPRoleType, LDAPUserType, LDAPGroupType], LDAPObject[HostType, LDAPRoleType]):
+class LDAPSudoRule(
+    Generic[HostType, LDAPRoleType, LDAPUserType, LDAPGroupType],
+    LDAPObject[HostType, LDAPRoleType],
+    GenericSudoRule,
+):
     """
     LDAP sudo rule management.
+
+    :class:`LDAPSudoRule` implements :class:`GenericSudoRule` for static typing and
+    provider-agnostic tests. ``int`` values (SID fragments as ``#N``), ``notbefore`` /
+    ``notafter``, and :class:`DeleteAttribute` on :meth:`modify` are in addition to the
+    generic API.
     """
 
     def __init__(
@@ -1421,17 +1578,28 @@ class LDAPSudoRule(Generic[HostType, LDAPRoleType, LDAPUserType, LDAPGroupType],
         self.group_cls: type[LDAPGroupType] = group_cls
         """Group class."""
 
+    @property
+    def name(self) -> str:
+        """
+        Sudo rule name.
+
+        Implements :attr:`GenericSudoRule.name`.
+        """
+        return self._name
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self._name = value
+
     def add(
         self,
         *,
-        user: int | str | LDAPUserType | LDAPGroupType | list[int | str | LDAPUserType | LDAPGroupType] | None = None,
-        host: str | list[str] | None = None,
-        command: str | list[str] | None = None,
+        user: SudoRuleUserField | int | list[SudoRuleUserField | int] | None = None,
+        host: SudoRuleHostField = None,
+        command: SudoRuleCommandField = None,
         option: str | list[str] | None = None,
-        runasuser: (
-            int | str | LDAPUserType | LDAPGroupType | list[int | str | LDAPUserType | LDAPGroupType] | None
-        ) = None,
-        runasgroup: int | str | LDAPGroupType | list[int | str | LDAPGroupType] | None = None,
+        runasuser: SudoRuleRunAsUserField | int | list[SudoRuleRunAsUserField | int] | None = None,
+        runasgroup: SudoRuleRunAsGroupField | int | list[SudoRuleRunAsGroupField | int] | None = None,
         notbefore: str | list[str] | None = None,
         notafter: str | list[str] | None = None,
         order: int | list[int] | None = None,
@@ -1439,6 +1607,9 @@ class LDAPSudoRule(Generic[HostType, LDAPRoleType, LDAPUserType, LDAPGroupType],
     ) -> LDAPSudoRule:
         """
         Create new sudo rule.
+
+        Implements :meth:`GenericSudoRule.add`. ``notbefore`` and ``notafter`` are
+        LDAP-specific and are not part of the generic API.
 
         :param user: sudoUser attribute, defaults to None
         :type user: int | str | LDAPUserType | LDAPGroupType | list[int | str | LDAPUserType | LDAPGroupType], optional
@@ -1489,28 +1660,14 @@ class LDAPSudoRule(Generic[HostType, LDAPRoleType, LDAPUserType, LDAPGroupType],
     def modify(
         self,
         *,
-        user: (
-            int
-            | str
-            | LDAPUserType
-            | LDAPGroupType
-            | list[int | str | LDAPUserType | LDAPGroupType]
-            | DeleteAttribute
-            | None
-        ) = None,
-        host: str | list[str] | DeleteAttribute | None = None,
-        command: str | list[str] | DeleteAttribute | None = None,
+        user: SudoRuleUserField | int | list[SudoRuleUserField | int] | DeleteAttribute | None = None,
+        host: SudoRuleHostField | DeleteAttribute | None = None,
+        command: SudoRuleCommandField | DeleteAttribute | None = None,
         option: str | list[str] | DeleteAttribute | None = None,
-        runasuser: (
-            int
-            | str
-            | LDAPUserType
-            | LDAPGroupType
-            | list[int | str | LDAPUserType | LDAPGroupType]
-            | DeleteAttribute
-            | None
+        runasuser: SudoRuleRunAsUserField | int | list[SudoRuleRunAsUserField | int] | DeleteAttribute | None = None,
+        runasgroup: (
+            SudoRuleRunAsGroupField | int | list[SudoRuleRunAsGroupField | int] | DeleteAttribute | None
         ) = None,
-        runasgroup: int | str | LDAPGroupType | list[int | str | LDAPGroupType] | DeleteAttribute | None = None,
         notbefore: str | list[str] | DeleteAttribute | None = None,
         notafter: str | list[str] | DeleteAttribute | None = None,
         order: int | list[int] | DeleteAttribute | None = None,
@@ -1519,8 +1676,8 @@ class LDAPSudoRule(Generic[HostType, LDAPRoleType, LDAPUserType, LDAPGroupType],
         """
         Modify existing sudo rule.
 
-        Parameters that are not set are ignored. If needed, you can delete an
-        attribute by setting the value to :attr:`Delete`.
+        Implements :meth:`GenericSudoRule.modify`. Parameters that are not set are ignored.
+        If needed, you can delete an attribute by setting the value to :attr:`Delete`.
 
         :param user: sudoUser attribute, defaults to None
         :type user: int | str | LDAPUserType | LDAPGroupType | list[int | str | LDAPUserType | LDAPGroupType]
@@ -1531,7 +1688,7 @@ class LDAPSudoRule(Generic[HostType, LDAPRoleType, LDAPUserType, LDAPGroupType],
         :type command: str | list[str] | DeleteAttribute | None, optional
         :param option: sudoOption attribute, defaults to None
         :type option: str | list[str] | DeleteAttribute | None, optional
-        :param runasuser: sudoRunAsUsere attribute, defaults to None
+        :param runasuser: sudoRunAsUser attribute, defaults to None
         :type runasuser: int | str | LDAPUserType | LDAPGroupType | list[int | str | LDAPUserType | LDAPGroupType]
           | DeleteAttribute | None, optional
         :param runasgroup: sudoRunAsGroup attribute, defaults to None
@@ -1568,23 +1725,12 @@ class LDAPSudoRule(Generic[HostType, LDAPRoleType, LDAPUserType, LDAPGroupType],
         self._set(attrs)
         return self
 
-    def __sudo_user(
-        self,
-        sudo_user: (
-            None
-            | DeleteAttribute
-            | int
-            | str
-            | LDAPUserType
-            | LDAPGroupType
-            | list[int | str | LDAPUserType | LDAPGroupType]
-        ),
-    ) -> list[str] | DeleteAttribute | None:
-        def _get_value(value: int | str | LDAPUserType | LDAPGroupType):
-            if isinstance(value, self.user_cls):
+    def __sudo_user(self, sudo_user: _LDAPSudoUserInput) -> list[str] | DeleteAttribute | None:
+        def _get_value(value: _LDAPSudoUserAtom) -> str:
+            if isinstance(value, self.user_cls) or isinstance(value, GenericUser):
                 return value.name
 
-            if isinstance(value, self.group_cls):
+            if isinstance(value, self.group_cls) or isinstance(value, GenericGroup):
                 return "%" + value.name
 
             if isinstance(value, str):
@@ -1592,6 +1738,10 @@ class LDAPSudoRule(Generic[HostType, LDAPRoleType, LDAPUserType, LDAPGroupType],
 
             if isinstance(value, int):
                 return "#" + str(value)
+
+            name = getattr(value, "name", None)
+            if isinstance(name, str):
+                return name
 
             raise ValueError(f"Unsupported type: {type(value)}")
 
@@ -1602,19 +1752,17 @@ class LDAPSudoRule(Generic[HostType, LDAPRoleType, LDAPUserType, LDAPGroupType],
             return sudo_user
 
         if not isinstance(sudo_user, list):
-            return [_get_value(sudo_user)]
+            return [_get_value(cast(_LDAPSudoUserAtom, sudo_user))]
 
         out = []
         for value in sudo_user:
-            out.append(_get_value(value))
+            out.append(_get_value(cast(_LDAPSudoUserAtom, value)))
 
         return out
 
-    def __sudo_group(
-        self, sudo_group: None | DeleteAttribute | int | str | LDAPGroupType | list[int | str | LDAPGroupType]
-    ) -> list[str] | DeleteAttribute | None:
-        def _get_value(value: int | str | LDAPGroupType):
-            if isinstance(value, self.group_cls):
+    def __sudo_group(self, sudo_group: _LDAPSudoRunAsGroupInput) -> list[str] | DeleteAttribute | None:
+        def _get_value(value: _LDAPSudoGroupAtom) -> str:
+            if isinstance(value, self.group_cls) or isinstance(value, GenericGroup):
                 return value.name
 
             if isinstance(value, str):
@@ -1622,6 +1770,10 @@ class LDAPSudoRule(Generic[HostType, LDAPRoleType, LDAPUserType, LDAPGroupType],
 
             if isinstance(value, int):
                 return "#" + str(value)
+
+            name = getattr(value, "name", None)
+            if isinstance(name, str):
+                return name
 
             raise ValueError(f"Unsupported type: {type(value)}")
 
@@ -1632,18 +1784,22 @@ class LDAPSudoRule(Generic[HostType, LDAPRoleType, LDAPUserType, LDAPGroupType],
             return sudo_group
 
         if not isinstance(sudo_group, list):
-            return [_get_value(sudo_group)]
+            return [_get_value(cast(_LDAPSudoGroupAtom, sudo_group))]
 
         out = []
         for value in sudo_group:
-            out.append(_get_value(value))
+            out.append(_get_value(cast(_LDAPSudoGroupAtom, value)))
 
         return out
 
 
-class LDAPAutomount(Generic[HostType, LDAPRoleType]):
+class LDAPAutomount(Generic[HostType, LDAPRoleType], GenericAutomount):
     """
     LDAP automount management.
+
+    :class:`LDAPAutomount` implements :class:`GenericAutomount` for static typing and
+    provider-agnostic tests. The optional ``basedn`` argument on :meth:`map` is
+    LDAP-specific and is not part of the generic API.
     """
 
     class Schema(Enum):
@@ -1669,26 +1825,33 @@ class LDAPAutomount(Generic[HostType, LDAPRoleType]):
         """
         Get automount map object.
 
+        Implements :meth:`GenericAutomount.map`; ``basedn`` selects the LDAP container
+        for the map (defaults to ``ou=autofs``).
+
         :param name: Automount map name.
         :type name: str
         :param basedn: Base dn, defaults to ``ou=autofs``
         :type basedn: LDAPObject | str | None, optional
         :return: New automount map object.
-        :rtype: LDAPAutomountMap[HostType, LDAPRoleType]:
+        :rtype: LDAPAutomountMap[HostType, LDAPRoleType]
         """
         return LDAPAutomountMap[HostType, LDAPRoleType](self.__role, name, basedn, schema=self.__schema)
 
-    def key(self, name: str, map: LDAPAutomountMap) -> LDAPAutomountKey[HostType, LDAPRoleType]:
+    def key(self, name: str, map: GenericAutomountMap) -> LDAPAutomountKey[HostType, LDAPRoleType]:
         """
         Get automount key object.
+
+        Implements :meth:`GenericAutomount.key`.
 
         :param name: Automount key name.
         :type name: str
         :param map: Automount map that is a parent to this key.
-        :type map: LDAPAutomountMap
+        :type map: GenericAutomountMap
         :return: New automount key object.
         :rtype: LDAPAutomountKey[HostType, LDAPRoleType]
         """
+        if not isinstance(map, LDAPAutomountMap):
+            raise TypeError("LDAP automount keys require an LDAP automount map parent map.")
         return LDAPAutomountKey[HostType, LDAPRoleType](self.__role, name, map, schema=self.__schema)
 
     def set_schema(self, schema: "LDAPAutomount.Schema"):
@@ -1701,9 +1864,13 @@ class LDAPAutomount(Generic[HostType, LDAPRoleType]):
         self.__schema = schema
 
 
-class LDAPAutomountMap(LDAPObject[HostType, LDAPRoleType]):
+class LDAPAutomountMap(LDAPObject[HostType, LDAPRoleType], GenericAutomountMap):
     """
     LDAP automount map management.
+
+    :class:`LDAPAutomountMap` implements :class:`GenericAutomountMap` for static typing
+    and provider-agnostic tests. The ``schema`` argument on construction is LDAP-specific
+    and is not part of the generic API.
     """
 
     def __init__(
@@ -1726,7 +1893,20 @@ class LDAPAutomountMap(LDAPObject[HostType, LDAPRoleType]):
         """
         self.__schema: LDAPAutomount.Schema = schema
         self.__attrs: dict[str, str] = self.__get_attrs_map(schema)
-        super().__init__(role, name, f'{self.__attrs["rdn"]}={name}', basedn, default_ou="autofs")
+        super().__init__(role, name, f"{self.__attrs['rdn']}={name}", basedn, default_ou="autofs")
+
+    @property
+    def name(self) -> str:
+        """
+        Automount map name.
+
+        Implements :attr:`GenericAutomountMap.name`.
+        """
+        return self._name
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self._name = value
 
     def __get_attrs_map(self, schema: LDAPAutomount.Schema) -> dict[str, str]:
         if schema == LDAPAutomount.Schema.RFC2307:
@@ -1756,6 +1936,8 @@ class LDAPAutomountMap(LDAPObject[HostType, LDAPRoleType]):
         """
         Create new LDAP automount map.
 
+        Implements :meth:`GenericAutomountMap.add`.
+
         :return: Self.
         :rtype: LDAPAutomountMap
         """
@@ -1774,17 +1956,23 @@ class LDAPAutomountMap(LDAPObject[HostType, LDAPRoleType]):
         """
         Get automount key object for this map.
 
+        Implements :meth:`GenericAutomountMap.key`.
+
         :param name: Automount key name.
         :type name: str
         :return: New automount key object.
-        :rtype: LDAPAutomountKey
+        :rtype: LDAPAutomountKey[HostType, LDAPRoleType]
         """
         return LDAPAutomountKey(self.role, name, self, schema=self.__schema)
 
 
-class LDAPAutomountKey(LDAPObject[HostType, LDAPRoleType]):
+class LDAPAutomountKey(LDAPObject[HostType, LDAPRoleType], GenericAutomountKey):
     """
     LDAP automount key management.
+
+    :class:`LDAPAutomountKey` implements :class:`GenericAutomountKey` for static typing
+    and provider-agnostic tests. The ``schema`` argument on construction is LDAP-specific
+    and is not part of the generic API.
     """
 
     def __init__(
@@ -1808,9 +1996,22 @@ class LDAPAutomountKey(LDAPObject[HostType, LDAPRoleType]):
         self.__schema: LDAPAutomount.Schema = schema
         self.__attrs: dict[str, str] = self.__get_attrs_map(schema)
 
-        super().__init__(role, name, f'{self.__attrs["rdn"]}={name}', map)
+        super().__init__(role, name, f"{self.__attrs['rdn']}={name}", map)
         self.map: LDAPAutomountMap = map
         self.info: str = ""
+
+    @property
+    def name(self) -> str:
+        """
+        Automount key name.
+
+        Implements :attr:`GenericAutomountKey.name`.
+        """
+        return self._name
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self._name = value
 
     def __get_attrs_map(self, schema: LDAPAutomount.Schema) -> dict[str, str]:
         if schema == LDAPAutomount.Schema.RFC2307:
@@ -1837,12 +2038,14 @@ class LDAPAutomountKey(LDAPObject[HostType, LDAPRoleType]):
         else:
             raise ValueError(f"Unknown schema: {schema}")
 
-    def add(self, *, info: str | NFSExport | LDAPAutomountMap) -> LDAPAutomountKey:
+    def add(self, *, info: str | NFSExport | GenericAutomountMap) -> LDAPAutomountKey:
         """
         Create new LDAP automount key.
 
+        Implements :meth:`GenericAutomountKey.add`.
+
         :param info: Automount information.
-        :type info: str | NFSExport | LDAPAutomountMap
+        :type info: str | NFSExport | GenericAutomountMap
         :return: Self.
         :rtype: LDAPAutomountKey
         """
@@ -1867,13 +2070,16 @@ class LDAPAutomountKey(LDAPObject[HostType, LDAPRoleType]):
     def modify(
         self,
         *,
-        info: str | NFSExport | LDAPAutomountMap | DeleteAttribute | None = None,
+        info: str | NFSExport | GenericAutomountMap | DeleteAttribute | None = None,
     ) -> LDAPAutomountKey:
         """
         Modify existing LDAP automount key.
 
+        Implements :meth:`GenericAutomountKey.modify`. :class:`DeleteAttribute` is
+        LDAP-specific and is not part of the generic API.
+
         :param info: Automount information, defaults to ``None``
-        :type info: str | NFSExport | LDAPAutomountMap | DeleteAttribute | None
+        :type info: str | NFSExport | GenericAutomountMap | DeleteAttribute | None
         :return: Self.
         :rtype: LDAPAutomountKey
         """
@@ -1910,11 +2116,11 @@ class LDAPAutomountKey(LDAPObject[HostType, LDAPRoleType]):
         """
         return self.dump()
 
-    def __get_info(self, info: str | NFSExport | LDAPAutomountMap | DeleteAttribute | None):
+    def __get_info(self, info: str | NFSExport | GenericAutomountMap | DeleteAttribute | None):
         if isinstance(info, NFSExport):
             return info.get()
 
-        if isinstance(info, LDAPAutomountMap):
+        if isinstance(info, GenericAutomountMap):
             return info.name
 
         return info
