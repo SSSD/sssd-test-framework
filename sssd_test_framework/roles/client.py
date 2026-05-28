@@ -86,7 +86,7 @@ class Client(BaseLinuxRole[ClientHost]):
         Methods for testing automount.
         """
 
-        self.local: LocalUsersUtils = LocalUsersUtils(self.host, self.fs)
+        self.local: LocalUsersUtils = LocalUsersUtils(self.host, self.fs, client=self)
         """
         Managing local users and groups.
         """
