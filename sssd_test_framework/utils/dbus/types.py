@@ -792,7 +792,7 @@ class DBUSSignatureReader:
                 if suffix is not None:
                     if not reminder.text.startswith(suffix):
                         raise ValueError(
-                            f"Found the prefix '{prefix}' but no suffix " f"'{suffix}' in the signature '{signature}'"
+                            f"Found the prefix '{prefix}' but no suffix '{suffix}' in the signature '{signature}'"
                         )
 
                     reminder.text = reminder.text.removeprefix(suffix)

@@ -112,7 +112,7 @@ class ChronyUtils(MultihostUtility[MultihostHost]):
             yield
         finally:
             self.host.conn.run(
-                f"chronyc -a -m 'settime {saved_time} + 10 seconds'" " 'makestep' 'manual reset' 'online' 2>&1",
+                f"chronyc -a -m 'settime {saved_time} + 10 seconds' 'makestep' 'manual reset' 'online' 2>&1",
                 raise_on_error=False,
             )
             self.host.conn.run(

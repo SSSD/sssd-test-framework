@@ -78,7 +78,7 @@ class NFSExport(BaseObject[NFSHost, NFS]):
         self.fullpath: str = f"{self.role.exports_dir}/{self.path}"
         """Absolute path of the exported directory."""
 
-        self.exports_file = f'/etc/exports.d/{path.replace("/", "_")}.exports'
+        self.exports_file = f"/etc/exports.d/{path.replace('/', '_')}.exports"
         """NFS exports file that manages this directory."""
 
         self.opts: str = "rw,sync,no_root_squash"

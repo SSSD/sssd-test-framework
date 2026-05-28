@@ -48,3 +48,4 @@ add_imports = "from __future__ import annotations"
 
 [tool.black]
 line-length = 119
+target-version = ["py311"]
