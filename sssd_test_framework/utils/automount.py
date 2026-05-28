@@ -156,9 +156,9 @@ class AutomountUtils(MultihostUtility[MultihostHost]):
 
         def parse_result(lines: list[str]) -> dict[str, dict[str, str | list[str]]]:
             mountpoints: dict[str, dict[str, str | list[str]]] = {}
-            for i, l in enumerate(lines):
-                if l.startswith("Mount point: "):
-                    point = l.replace("Mount point: ", "").strip()
+            for i, line in enumerate(lines):
+                if line.startswith("Mount point: "):
+                    point = line.replace("Mount point: ", "").strip()
                     for k, l2 in enumerate(lines[i + 1 :], i + 1):
                         if l2.startswith("Mount point: "):
                             break

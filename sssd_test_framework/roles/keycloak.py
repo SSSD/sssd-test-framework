@@ -156,7 +156,7 @@ class KeycloakUser(KeycloakObject):
 
         self.id = result.stderr.split()[-1].strip("'")
 
-        set_password = "set-password -r master " f"--username {self.name} " f"--new-password {password}"
+        set_password = f"set-password -r master --username {self.name} --new-password {password}"
         self.role.kcadm(set_password)
 
         return self

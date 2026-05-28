@@ -285,7 +285,7 @@ class GroupEntry(object):
         """
 
     def __str__(self) -> str:
-        return f'({self.name}:{self.password}:{self.gid}:{",".join(self.members)})'
+        return f"({self.name}:{self.password}:{self.gid}:{','.join(self.members)})"
 
     def __repr__(self) -> str:
         return str(self)
@@ -348,7 +348,7 @@ class InitgroupsEntry(object):
         """
 
     def __str__(self) -> str:
-        return f'({self.name}:{",".join([str(i) for i in self.groups])})'
+        return f"({self.name}:{','.join([str(i) for i in self.groups])})"
 
     def __repr__(self) -> str:
         return str(self)
@@ -474,7 +474,7 @@ class NetgroupEntry(object):
         """
 
     def __str__(self) -> str:
-        return f'{self.name} {" ".join(map(str, self.members))})'
+        return f"{self.name} {' '.join(map(str, self.members))})"
 
     def __repr__(self) -> str:
         return str(self)

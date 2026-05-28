@@ -188,10 +188,10 @@ class ProxyMethod(ProxyObject):
                     )
                 objargs.append(obj)
 
-        method = f'{self.interface}.{self.child.attrib["name"]}'
+        method = f"{self.interface}.{self.child.attrib['name']}"
         res = self._run(method, *tuple(objargs))
         if res.rc != 0:
-            raise RuntimeError(f'Execution of \'{self.child.attrib["name"]}{args}\' failed: ' + res.stderr)
+            raise RuntimeError(f"Execution of '{self.child.attrib['name']}{args}' failed: " + res.stderr)
 
         # Skip output processing if no output is expected
         if self.output is None or len(self.output) == 0:

@@ -16,7 +16,6 @@ __all__ = ["NetworkUtils", "IPUtils"]
 
 
 class NetworkUtils(MultihostUtility[MultihostHost]):
-
     def __init__(self, host: MultihostHost, fs: LinuxFileSystem) -> None:
         """
         :param host: Remote host.
