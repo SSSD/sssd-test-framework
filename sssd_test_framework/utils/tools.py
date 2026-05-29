@@ -10,6 +10,7 @@ from pytest_mh.conn import Process, ProcessResult
 from pytest_mh.utils.fs import LinuxFileSystem
 
 __all__ = [
+    "AHostSv4Entry",
     "GetentUtils",
     "GroupEntry",
     "LinuxToolsUtils",
@@ -601,6 +602,36 @@ class HostsEntry(object):
         return cls.FromList(result)
 
 
+class AHostSv4Entry(object):
+    """First IPv4 from getent ahostsv4 output (NSS host resolution on the test client)."""
+
+    def __init__(self, ip: str | None) -> None:
+        self.ip: str | None = ip
+        """IPv4 dotted-quad (first column of ``getent ahostsv4`` output)."""
+
+    def __str__(self) -> str:
+        return f"({self.ip})"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+    @classmethod
+    def FromOutput(cls, stdout: str) -> AHostSv4Entry | None:
+        """
+        Parse the first IPv4 address from getent ahostsv4 stdout.
+
+        :param stdout: Raw command output.
+        :type stdout: str
+        :return: Entry with ip set, or None if no address line is found.
+        :rtype: AHostSv4Entry | None
+        """
+        for line in stdout.splitlines():
+            parts = line.split()
+            if parts:
+                return cls(ip=parts[0])
+        return None
+
+
 class NetworksEntry(object):
     """
     Result of ``getent networks``
@@ -1057,6 +1088,53 @@ class GetentUtils(MultihostUtility[MultihostHost]):
         :rtype: HostsEntry | None
         """
         return self.__exec(HostsEntry, "hosts", name, service)
+
+    def ahostsv4(self, name: str, *, service: str | None = None) -> AHostSv4Entry | None:
+        """
+        Run getent ahostsv4 and return the first IPv4.
+
+        Use client.net.dig for DNS A/SRV/PTR checks.
+
+        :param name: Hostname or address to resolve.
+        :type name: str
+        :param service: Optional NSS source (getent -s).
+        :type service: str | None, optional
+        :return: Parsed entry, or None if lookup failed.
+        :rtype: AHostSv4Entry | None
+        """
+        args: list[str] = []
+        if service is not None:
+            args = ["-s", service]
+
+        command = self.host.conn.exec(["getent", *args, "ahostsv4", str(name)], raise_on_error=False)
+        if command.rc != 0:
+            return None
+
+        return AHostSv4Entry.FromOutput(command.stdout)
+
+    def resolve_ipv4(self, name: str, *, host: object | None = None) -> str | None:
+        """
+        Return IPv4 for name on this host.
+
+        Uses host.ip from the multihost config when available, else ahostsv4().
+
+        :param name: Hostname to resolve.
+        :type name: str
+        :param host: Optional role host (provider.host, kdc.host, …) with ip.
+        :type host: object | None, optional
+        :return: IPv4 dotted-quad, or None if not found.
+        :rtype: str | None
+        """
+        if host is not None:
+            role_ip = getattr(host, "ip", None)
+            if role_ip:
+                return str(role_ip)
+
+        entry = self.ahostsv4(name)
+        if entry is not None and entry.ip is not None:
+            return entry.ip
+
+        return None
 
     def networks(self, name: str, *, service: str | None = None) -> NetworksEntry:
         """

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import base64
+import tempfile
+import time
 from datetime import datetime
 from enum import Enum
-from typing import Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 import ldap
 import ldap.ldapobject
@@ -16,6 +18,9 @@ from ..utils.ldap import LDAPRecordAttributes, LDAPUtils
 from .base import BaseLinuxLDAPRole, BaseObject, DeleteAttribute, HostType
 from .generic import GenericNetgroupMember, GenericPasswordPolicy, ProtocolName
 from .nfs import NFSExport
+
+if TYPE_CHECKING:
+    from .kdc import KDC
 
 __all__ = [
     "LDAPRoleType",
@@ -238,6 +243,197 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
             )
         except ldap.TYPE_OR_VALUE_EXISTS:
             pass
+
+    def enable_gssapi(self, kdc: KDC) -> None:
+        """
+        Configure Directory Server for GSSAPI/SASL authentication.
+
+        This method sets up the LDAP server to accept GSSAPI (Kerberos) authentication
+        by creating a service principal, exporting the keytab, and configuring Directory Server.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.LDAP_KRB5)
+            def test_ldap_gssapi(client: Client, ldap: LDAP, kdc: KDC):
+                # Enable GSSAPI on LDAP server
+                ldap.enable_gssapi(kdc)
+
+                ldap.user('testuser').add()
+                kdc.principal('testuser').add()
+
+                # Configure SSSD to use GSSAPI
+                client.sssd.domain["ldap_sasl_mech"] = "GSSAPI"
+                client.sssd.start()
+
+                result = client.tools.id('testuser')
+                assert result is not None
+
+        :param kdc: KDC role object to create service principal
+        :type kdc: KDC
+        """
+
+        # 1. Install required packages
+        self.host.conn.run(
+            "dnf install -y cyrus-sasl-gssapi krb5-workstation || "
+            "yum install -y cyrus-sasl-gssapi krb5-workstation",
+        )
+        self.host.conn.run("rpm -q cyrus-sasl-gssapi")
+
+        # 2. Create LDAP service principal
+        ldap_principal = f"ldap/{self.host.hostname}"
+        kdc.principal(ldap_principal).add(password=None)
+
+        # 3. Export keytab to LDAP server (same transfer pattern as LDAPKRB5TopologyController)
+        keytab_path = "/etc/dirsrv/ds.keytab"
+        keytab_staging = "/tmp/sssd-test-framework-ds.keytab"
+        qualified_principal = kdc.qualify(ldap_principal)
+        kdc.host.conn.run(f"rm -f {keytab_staging}", raise_on_error=False)
+        kdc.host.conn.run(f"kadmin.local -q 'ktadd -k {keytab_staging} -norandkey \"{qualified_principal}\"'")
+        with tempfile.NamedTemporaryFile() as tmp:
+            kdc.host.fs.download(keytab_staging, tmp.name)
+            self.host.fs.upload(tmp.name, keytab_path)
+        kdc.host.conn.run(f"rm -f {keytab_staging}", raise_on_error=False)
+        self.host.conn.run(f"chown dirsrv:dirsrv {keytab_path}")
+        self.host.conn.run(f"chmod 600 {keytab_path}")
+
+        # 4. Copy krb5.conf from KDC to LDAP server
+        krb5_conf = kdc.config()
+        self.host.conn.run(f"cat > /etc/krb5.conf << 'EOFKRB5'\n{krb5_conf}\nEOFKRB5")
+
+        # Add default_keytab_name to krb5.conf as fallback
+        self.host.conn.run(f"sed -i '/\\[libdefaults\\]/a\\  default_keytab_name = {keytab_path}' /etc/krb5.conf")
+
+        # 5. Configure Cyrus SASL to use the keytab
+        # This is critical - without this, the SASL GSSAPI plugin won't know where to find the keytab
+        self.host.conn.run(
+            f"mkdir -p /etc/sasl2 && "
+            f"cat > /etc/sasl2/slapd.conf << 'EOFSASL'\n"
+            f"mech_list: GSSAPI EXTERNAL PLAIN LOGIN\n"
+            f"keytab: {keytab_path}\n"
+            f"EOFSASL"
+        )
+
+        # Also create for other possible SASL application names
+        self.host.conn.run("cp /etc/sasl2/slapd.conf /etc/sasl2/ns-slapd.conf")
+        self.host.conn.run("cp /etc/sasl2/slapd.conf /etc/sasl2/ldap.conf")
+
+        # 6. Set KRB5_KTNAME environment variable for Directory Server via sysconfig
+        # Note: systemd Environment= directives don't work reliably in containers
+        # Use EnvironmentFile instead
+        self.host.conn.run(f"echo 'KRB5_KTNAME={keytab_path}' > /etc/sysconfig/dirsrv-localhost")
+
+        # 7. Configure SASL identity mapping in Directory Server
+        # Align default Kerberos maps with the data suffix (sssd-qe krb_credential_cache) and
+        # add a high-priority map for host/ldap service principals used by SSSD GSSAPI binds.
+        realm = kdc.realm
+        base_dn = self.naming_context
+        binddn = self.host.binddn
+        bindpw = self.host.bindpw
+
+        sasl_ldif = ""
+        for cn in (
+            "Kerberos uid mapping",
+            "rfc 2829 dn syntax",
+            "rfc 2829 u syntax",
+            "uid mapping",
+        ):
+            sasl_ldif += (
+                f"dn: cn={cn},cn=mapping,cn=sasl,cn=config\n"
+                "changetype: modify\n"
+                "replace: nsSaslMapBaseDNTemplate\n"
+                f"nsSaslMapBaseDNTemplate: {base_dn}\n"
+                "\n"
+            )
+        self.host.conn.run(
+            f"ldapmodify -x -D '{binddn}' -w '{bindpw}' -H ldap://localhost",
+            input=sasl_ldif,
+        )
+        for cn in (
+            "SSSD service principals",
+            "SSSD service principals no realm",
+        ):
+            self.host.conn.run(
+                f"ldapmodify -x -D '{binddn}' -w '{bindpw}' -H ldap://localhost",
+                input=(f"dn: cn={cn},cn=mapping,cn=sasl,cn=config\n" "changetype: delete\n"),
+                raise_on_error=False,
+            )
+
+        # cn=Directory Manager is a bind identity, not a searchable LDAP entry (BASE
+        # search returns No such object). Map GSSAPI clients to a real entry under the
+        # data suffix, per 389-ds server-to-server SASL examples (full target DN +
+        # (objectclass=*)).
+        people_ou = f"ou=People,{base_dn}"
+        gssapi_proxy_dn = f"uid=sssd-gssapi,{people_ou}"
+        bootstrap_ldif = (
+            f"dn: {people_ou}\n"
+            "changetype: add\n"
+            "objectClass: organizationalUnit\n"
+            "ou: People\n"
+            "\n"
+            f"dn: {gssapi_proxy_dn}\n"
+            "changetype: add\n"
+            "objectClass: top\n"
+            "objectClass: person\n"
+            "objectClass: organizationalPerson\n"
+            "objectClass: inetOrgPerson\n"
+            "cn: SSSD GSSAPI proxy\n"
+            "sn: proxy\n"
+            "uid: sssd-gssapi\n"
+        )
+        self.host.conn.run(
+            f"ldapmodify -x -D '{binddn}' -w '{bindpw}' -H ldap://localhost",
+            input=bootstrap_ldif,
+            raise_on_error=False,
+        )
+        service_map_ldif = (
+            "dn: cn=SSSD service principals,cn=mapping,cn=sasl,cn=config\n"
+            "changetype: add\n"
+            "objectClass: top\n"
+            "objectClass: nsSaslMapping\n"
+            "cn: SSSD service principals\n"
+            f"nsSaslMapRegexString: ^(host|ldap)/.*@{realm}$\n"
+            f"nsSaslMapBaseDNTemplate: {gssapi_proxy_dn}\n"
+            "nsSaslMapFilterTemplate: (objectclass=*)\n"
+            "nsSaslMapPriority: 10\n"
+            "\n"
+            "dn: cn=SSSD service principals no realm,cn=mapping,cn=sasl,cn=config\n"
+            "changetype: add\n"
+            "objectClass: top\n"
+            "objectClass: nsSaslMapping\n"
+            "cn: SSSD service principals no realm\n"
+            "nsSaslMapRegexString: ^(host|ldap)/.*$\n"
+            f"nsSaslMapBaseDNTemplate: {gssapi_proxy_dn}\n"
+            "nsSaslMapFilterTemplate: (objectclass=*)\n"
+            "nsSaslMapPriority: 11\n"
+        )
+        self.host.conn.run(
+            f"ldapmodify -x -D '{binddn}' -w '{bindpw}' -H ldap://localhost",
+            input=service_map_ldif,
+        )
+        verify = self.host.conn.run(
+            f"ldapsearch -x -D '{binddn}' -w '{bindpw}' -H ldap://localhost "
+            f"-b '{gssapi_proxy_dn}' -s base '(objectclass=*)' dn",
+            raise_on_error=False,
+        )
+        if verify.rc != 0 or "dn:" not in (verify.stdout or ""):
+            raise RuntimeError(
+                f"SASL GSSAPI proxy entry {gssapi_proxy_dn} is not searchable: " f"{verify.stdout or verify.stderr}"
+            )
+
+        # 8. Reload systemd and restart Directory Server
+        self.host.conn.run("systemctl daemon-reload")
+        self.host.conn.run("systemctl restart dirsrv@localhost")
+
+        # Wait for Directory Server to fully start with GSSAPI support
+        time.sleep(3)
+
+        klist = self.host.conn.run(f"klist -kt {keytab_path}", raise_on_error=False)
+        if qualified_principal not in (klist.stdout or ""):
+            raise RuntimeError(
+                f"LDAP GSSAPI keytab {keytab_path} does not contain {qualified_principal}: "
+                f"{klist.stdout or klist.stderr}"
+            )
 
     def fqn(self, name: str) -> str:
         """
