@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import configparser
+import tempfile
 from io import StringIO
 from typing import TYPE_CHECKING, Literal
 
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
     from pytest_mh.utils.services import SystemdServices
 
     from ..roles.base import BaseRole
+    from ..roles.ipa import IPA
     from ..roles.kdc import KDC
     from .authselect import AuthselectUtils
     from .smartcard import SmartCardUtils
@@ -108,10 +110,12 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
             return
 
         # Set default configuration
-        self.config.read_string("""
+        self.config.read_string(
+            """
             [sssd]
             services = nss, pam
-            """)
+            """
+        )
 
     def async_start(
         self,
@@ -869,7 +873,7 @@ class SSSDCommonConfiguration(object):
         )
         self.sssd.default_domain = "local"
 
-    def krb_provider(self, backend: KDC | GenericProvider) -> None:
+    def krb_provider(self, backend: KDC | GenericProvider | IPA) -> None:
         """
         Set auth_provider to krb5 and populate krb5 options.
 
@@ -878,7 +882,7 @@ class SSSDCommonConfiguration(object):
         the provided backend (KDC, IPA, or AD).
 
         :param backend: Backend role object (KDC, IPA, or AD).
-        :type backend: KDC | GenericProvider
+        :type backend: KDC | GenericProvider | IPA
         """
         host = backend.host
         if not isinstance(host, BaseDomainHost):
@@ -998,11 +1002,27 @@ class SSSDCommonConfiguration(object):
         tls_reqcert: str = "demand",
         ssl: bool = False,
         config: dict[str, str] | None = None,
+        *,
+        auth_provider: Literal["ldap", "krb5"] = "ldap",
+        ipa: IPA | None = None,
+        ldap_schema: str | None = None,
+        discovery_domain: str | None = None,
+        gssapi: bool = False,
+        client_hostname: str | None = None,
+        ldap_krb5_keytab: str = "/etc/krb5.keytab",
+        replace_domain: bool | None = None,
     ) -> None:
         """
         Configure SSSD to use the ldap_provider to connect to IPA or AD.
         This is an alternate configuration and should rarely be used. LDAP
         provider test cases should cover these scenarios.
+
+        **Default (``auth_provider="ldap"``)** — unchanged behaviour: ``id_provider``
+        and ``auth_provider`` are both ``ldap``, simple bind only.
+
+        **Krb5 mode** — pass ``auth_provider="krb5"`` and ``ipa`` (plus optional
+        ``gssapi``, ``discovery_domain``, ``ldap_schema``) for ``id_provider=ldap``
+        with ``auth_provider=krb5`` against IPA.
 
         :param server: LDAP server.
         :type server: str
@@ -1023,6 +1043,37 @@ class SSSDCommonConfiguration(object):
         :param config: Additional configuration, optional
         :type config: dict[str, str] | None
         """
+        if auth_provider == "ldap" and (
+            ipa is not None
+            or ldap_schema is not None
+            or discovery_domain is not None
+            or gssapi
+            or client_hostname is not None
+            or replace_domain is not None
+        ):
+            raise ValueError("krb5 options require auth_provider='krb5'")
+
+        if auth_provider == "krb5":
+            self._ldap_provider_krb5(
+                server,
+                naming_context,
+                bind_user_dn,
+                bind_password,
+                ipa=ipa,
+                ldap_schema=ldap_schema,
+                discovery_domain=discovery_domain,
+                gssapi=gssapi,
+                client_hostname=client_hostname,
+                ldap_krb5_keytab=ldap_krb5_keytab,
+                subids=subids,
+                cacert=cacert,
+                tls_reqcert=tls_reqcert,
+                ssl=ssl,
+                replace_domain=replace_domain,
+                config=config,
+            )
+            return
+
         self.sssd.domain.clear()
         self.sssd.domain.update(
             id_provider="ldap",
@@ -1054,6 +1105,209 @@ class SSSDCommonConfiguration(object):
             )
 
         if config is not None and isinstance(config, dict):
+            for key, value in config.items():
+                self.sssd.domain[key] = value
+
+        self.sssd.config_apply()
+
+    _IPA_HOST_KEYTAB_STAGING = "/root/.sssd-test-framework-host.keytab"
+
+    def _ipa_host_keytab_has_principal(self, keytab: str, principal: str) -> bool:
+        klist = self.sssd.host.conn.run(f"klist -kt {keytab}", raise_on_error=False)
+        return klist.rc == 0 and principal in (klist.stdout or "")
+
+    def _ensure_ipa_host_enrolled(self, ipa: IPA, client_hostname: str) -> None:
+        """Register ``client_hostname`` in IPA when only the local hostname was set."""
+        ipa.host.kinit()
+        if ipa.host.conn.run(f"ipa host-show {client_hostname}", raise_on_error=False).rc == 0:
+            return
+
+        client = self.sssd.host
+        join = client.conn.exec(["realm", "join", ipa.domain], input=ipa.host.adminpw, raise_on_error=False)
+        if join.rc == 0:
+            return
+
+        ipa.host.kinit()
+        ipa.host.conn.run(f"ipa host-add {client_hostname} --force", raise_on_error=False)
+
+    def _fetch_ipa_host_keytab(self, ipa: IPA, principals: list[str], staging: str) -> ProcessResult:
+        ipa.host.kinit()
+        ipa.host.conn.run(f"rm -f {staging}", raise_on_error=False)
+        last: ProcessResult | None = None
+        for principal in principals:
+            last = ipa.host.conn.run(
+                f"ipa-getkeytab -s {ipa.server} -p {principal} -k {staging}",
+                raise_on_error=False,
+            )
+            if last.rc == 0:
+                return last
+        assert last is not None
+        return last
+
+    def ensure_ipa_host_keytab(
+        self,
+        ipa: IPA,
+        *,
+        client_hostname: str | None = None,
+        keytab: str = "/etc/krb5.keytab",
+    ) -> None:
+        """
+        Ensure the client has ``host/<fqdn>`` in ``keytab`` for GSSAPI LDAP binds.
+
+        Per-test client restore may drop ``/etc/krb5.keytab`` when the backup was
+        taken without it. If the host principal is missing in IPA (hostname was
+        changed without ``realm join``), enroll or ``ipa host-add`` first, then
+        fetch keys with ``ipa-getkeytab``.
+
+        :param ipa: IPA role (LDAP + KDC on ``ipa.server``).
+        :type ipa: IPA
+        :param client_hostname: Client FQDN (default: ``hostname -f`` on the client).
+        :type client_hostname: str | None, optional
+        :param keytab: Host keytab path on the client.
+        :type keytab: str, optional
+        """
+        if client_hostname is None:
+            fqdn = self.sssd.host.conn.run("hostname -f", raise_on_error=False).stdout.strip()
+            client_hostname = fqdn or self.sssd.host.hostname
+
+        principal = f"host/{client_hostname}"
+        if self._ipa_host_keytab_has_principal(keytab, principal):
+            return
+
+        self._ensure_ipa_host_enrolled(ipa, client_hostname)
+        if self._ipa_host_keytab_has_principal(keytab, principal):
+            return
+
+        staging = self._IPA_HOST_KEYTAB_STAGING
+        principals = [principal, f"{principal}@{ipa.realm}"]
+        result = self._fetch_ipa_host_keytab(ipa, principals, staging)
+        if result.rc != 0:
+            msg = result.stderr or result.stdout or "unknown error"
+            raise RuntimeError(f"ipa-getkeytab failed for {principal}: {msg}")
+
+        with tempfile.NamedTemporaryFile() as tmp:
+            ipa.host.fs.download(staging, tmp.name)
+            self.sssd.fs.upload(tmp.name, keytab)
+
+        ipa.host.conn.run(f"rm -f {staging}", raise_on_error=False)
+        self.sssd.host.conn.run(
+            f"chmod 600 {keytab} && chown root:root {keytab}",
+            raise_on_error=False,
+        )
+
+    def _ldap_provider_krb5(
+        self,
+        server: str,
+        naming_context: str,
+        bind_user_dn: str,
+        bind_password: str,
+        *,
+        ipa: IPA | None,
+        ldap_schema: str | None,
+        discovery_domain: str | None,
+        gssapi: bool,
+        client_hostname: str | None,
+        ldap_krb5_keytab: str,
+        subids: bool,
+        cacert: str,
+        tls_reqcert: str,
+        ssl: bool,
+        replace_domain: bool | None,
+        config: dict[str, str] | None,
+    ) -> None:
+        if ipa is None:
+            raise ValueError("ipa is required when auth_provider is krb5")
+
+        naming_context = naming_context.strip()
+        search_base = f"cn=accounts,{naming_context}"
+
+        if ldap_schema is None:
+            ldap_schema = "IPA"
+        elif ldap_schema.lower() in ("ipa_v1", "ipa"):
+            ldap_schema = "IPA"
+
+        if gssapi:
+            if not client_hostname:
+                fqdn = self.sssd.host.conn.run("hostname -f", raise_on_error=False).stdout.strip()
+                client_hostname = fqdn or self.sssd.host.hostname
+            self.ensure_ipa_host_keytab(ipa, client_hostname=client_hostname, keytab=ldap_krb5_keytab)
+
+        self.krb_provider(ipa)
+
+        domain_opts: dict[str, str] = {
+            "id_provider": "ldap",
+            "auth_provider": "krb5",
+            "access_provider": "permit",
+            "krb5_realm": ipa.realm,
+            "krb5_server": ipa.server,
+            "krb5_kpasswd": ipa.server,
+            "ldap_uri": f"ldap://{server}",
+            "ldap_search_base": search_base,
+            "ldap_schema": ldap_schema,
+            "ldap_tls_reqcert": tls_reqcert,
+            "ldap_tls_cacert": cacert,
+            "ldap_id_use_start_tls": "true",
+        }
+
+        if gssapi:
+            domain_opts.update(
+                ldap_sasl_mech="GSSAPI",
+                ldap_sasl_authid=f"host/{client_hostname}",
+                ldap_krb5_keytab=ldap_krb5_keytab,
+                ldap_sasl_minssf="56",
+            )
+        else:
+            domain_opts.update(
+                ldap_default_bind_dn=bind_user_dn,
+                ldap_default_authtok_type="password",
+                ldap_default_authtok=bind_password,
+            )
+
+        if ssl:
+            domain_opts.update(
+                ldap_uri=f"ldaps://{server}",
+                ldap_id_use_start_tls="False",
+            )
+
+        if subids:
+            domain_opts.update(
+                ldap_subid_ranges_search_base=f"cn=subids,cn=accounts,{naming_context}",
+                ldap_subuid_object_class="ipasubordinateidentry",
+                ldap_subuid_count="ipaSubUidCount",
+                ldap_subgid_count="ipaSubGidCount",
+                ldap_subuid_number="ipaSubUidNumber",
+                ldap_subgid_number="ipaSubGidNumber",
+                ldap_subid_range_owner="ipaOwner",
+            )
+
+        if replace_domain is None:
+            replace_domain = True
+
+        domain_name = self.sssd.default_domain
+        if domain_name is None:
+            raise ValueError("No default SSSD domain is set")
+
+        if replace_domain:
+            del self.sssd.config[f"domain/{domain_name}"]
+            self.sssd.config[f"domain/{domain_name}"] = domain_opts
+        else:
+            self.sssd.domain.clear()
+            self.sssd.domain.update(domain_opts)
+
+        if discovery_domain is not None:
+            self.sssd.dom(domain_name)["dns_discovery_domain"] = discovery_domain
+
+        enrolled = self.sssd.host.conn.run("test -f /etc/ipa/default.conf", raise_on_error=False).rc == 0
+        if enrolled:
+            self.sssd.host.conn.run(
+                "ipa-client-install --configure-dns --configure-krb5 --unattended",
+                raise_on_error=False,
+            )
+        else:
+            krb5_conf = ipa.host.fs.read("/etc/krb5.conf")
+            self.sssd.fs.write("/etc/krb5.conf", krb5_conf, user="root", group="root", mode="0644", dedent=False)
+
+        if config is not None:
             for key, value in config.items():
                 self.sssd.domain[key] = value
 
