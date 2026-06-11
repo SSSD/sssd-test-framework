@@ -30,8 +30,8 @@ jobs:
             echo 'skipenv=.*-upstream$' >> $GITHUB_OUTPUT
             ;;
         esac
-    - uses: actions/checkout@v3
-    - uses: actions/setup-python@v4
+    - uses: actions/checkout@v6
+    - uses: actions/setup-python@v6
       with:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
@@ -60,12 +60,12 @@ jobs:
     permissions:
       contents: read
     steps:
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v6
       with:
         python-version: 3.x
 
     - name: Checkout sssd-test-framework repository
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       with:
         # Fetch the entire history of the repository and tags to determine
         # correct framework version, as it is constructed from git describe
@@ -74,7 +74,7 @@ jobs:
         path: sssd-test-framework
 
     - name: Checkout sssd repository
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       with:
         repository: SSSD/sssd
         path: sssd
