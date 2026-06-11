@@ -179,10 +179,36 @@ jobs:
 
         # Install system tests requirements
         pip3 install -r ./requirements.txt
+        pip3 install flake8 pycodestyle isort mypy black
 
         # Install yq to parse yaml files
         sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
         sudo chmod a+x /usr/local/bin/yq
+
+    - name: flake8
+      if: always()
+      working-directory: ./sssd/src/tests/system
+      run: source .venv/bin/activate && flake8 .
+
+    - name: pycodestyle
+      if: always()
+      working-directory: ./sssd/src/tests/system
+      run: source .venv/bin/activate && pycodestyle .
+
+    - name: isort
+      if: always()
+      working-directory: ./sssd/src/tests/system
+      run: source .venv/bin/activate && isort --check-only .
+
+    - name: black
+      if: always()
+      working-directory: ./sssd/src/tests/system
+      run: source .venv/bin/activate && black --check --diff .
+
+    - name: mypy
+      if: always()
+      working-directory: ./sssd/src/tests/system
+      run: source .venv/bin/activate && mypy --install-types --non-interactive tests
 
     - name: Install test framework
       shell: bash
