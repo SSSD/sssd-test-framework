@@ -294,7 +294,9 @@ class IPUtils(MultihostUtility[MultihostHost]):
         netmask = self._get(["ipv4_mask"]).get("ipv4_mask")
         return netmask if netmask is not None else None
 
-    def add_device(self, ip: str, netmask: str = "255.255.255.0") -> IPUtils:
+    def add_device(
+        self, ip: str, netmask: str = "255.255.255.0", ipv6: str | None = None, prefix: str = "64"
+    ) -> IPUtils:
         """
         Add and create a link to a dummy device.This is used by dyndns tests.
 
@@ -302,12 +304,18 @@ class IPUtils(MultihostUtility[MultihostHost]):
         :type ip: str
         :param netmask: IP network mask, defaults to 255.255.255.0
         :type netmask: str, optional
+        :param ipv6: Add ipv6 address, defaults to False
+        :type ipv6: bool, optional
+        :param prefix: IP prefix, defaults to 64
+        :type prefix: str, optional
         :return: IPUtils object.
         :rtype: IPUtils
         """
         if self.name != self.default_device or self.name is not None:
             self.host.conn.exec(["ip", "link", "add", self.name, "type", "dummy"])
             self.host.conn.exec(["ip", "addr", "add", f"{ip}/{netmask}", "dev", self.name])
+            if ipv6 is not None:
+                self.host.conn.exec(["ip", "addr", "add", f"{ipv6}/{prefix}", "dev", self.name])
             self.__rollback.append(f"ip link del {self.name}")
             return self
         else:
