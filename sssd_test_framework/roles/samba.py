@@ -12,7 +12,7 @@ from pytest_mh.cli import CLIBuilderArgs
 from pytest_mh.conn import ProcessResult
 
 from ..hosts.samba import SambaHost
-from ..misc import attrs_parse, ip_to_ptr, ip_version, to_list_of_strings
+from ..misc import attrs_parse, ip_version, to_list_of_strings
 from ..utils.ldap import LDAPRecordAttributes
 from .base import BaseLinuxLDAPRole, BaseObject, DeleteAttribute
 from .generic import (
@@ -1635,40 +1635,66 @@ class SambaDNSZone(SambaDNSServer, GenericDNSZone):
         """
         Delete DNS record, both forward and reverse records are deleted.
 
-        Implements :meth:`GenericDNSZone.delete_record`.
+        The complexity is because the method takes one parameter. We need to discover the correct
+        values and type to properly delete the entry.
+
+        The samba-tool output returns multiple lines per record. Two examples,
+
+          Name=client, Records=1, Children=0
+          A: 172.16.100.40 (flags=f0, serial=110, ttl=3600)
+
+          Name=50, Records=1, Children=0
+          PTR: client.samba.test (flags=f0, serial=2, ttl=900)
+
+        Implements: meth:`GenericDNSZone.delete_record`.
 
         :param name: Name of the record.
         :type name: str
         """
         if self.domain not in name:
             name = f"{name}.{self.domain}"
+        short_name = name.split(".")[0]
 
         records = self.host.conn.run(f"dig +short +norecurse {name} '@{self.server}'").stdout_lines
-        records = [s.rstrip("\r") for s in records]
+        zones = self.list_zones()
 
-        if not isinstance(records, list) or records is None:
-            return None
-
-        if len(records) > 1:
-            for record in records:
-                if ip_version(record) == 4:
-                    self.role.host.conn.run(
-                        f"samba-tool dns delete {self.server} {self.zone_name} {name} A {record} {self.credentials}"
-                    )
-                if ip_version(record) == 6:
-                    self.host.conn.run(
-                        f"samba-tool dns delete {self.server} {self.zone_name} {name} AAAA {record} {self.credentials}"
-                    )
-
-        for ptr_records in records:
-            ptr_record = self.host.conn.run(f"dig +short -x +norecurse {ptr_records} '@{self.server}'").stdout_lines
-            ptr_record = [r.rstrip("\r") for r in ptr_record]
-            if ptr_record:
-                self.host.conn.run(
-                    f"samba-tool dns delete {self.server} {ip_to_ptr(ptr_record[0])} {name} "
-                    f"PTR {ptr_record} {self.credentials}"
-                )
-        return None
+        if records is not None:
+            for zone in zones:
+                if zone in name:
+                    a_record = self.host.conn.run(
+                        f"samba-tool dns query {self.server} {zone} @ A {self.credentials}",
+                    ).stdout_lines
+                    for i in a_record:
+                        if f"Name={short_name}," in i:
+                            ip = a_record[a_record.index(i) + 1].strip().split()[1].strip()
+                            if ip_version(ip) == 4:
+                                self.host.conn.run(
+                                    f"samba-tool dns delete {self.server} {zone} "
+                                    f"{short_name} A {ip} {self.credentials}",
+                                )
+                            elif ip_version(ip) == 6:
+                                self.host.conn.run(
+                                    f"samba-tool dns delete {self.server} {zone} "
+                                    f"{short_name} AAAA {ip} {self.credentials}",
+                                )
+                if "in-addr" in zone:
+                    ptr_record = self.host.conn.run(
+                        f"samba-tool dns query {self.server} {zone} @ PTR {self.credentials}",
+                    ).stdout_lines
+                    for j in ptr_record:
+                        if name in j:
+                            _name = (
+                                ptr_record[ptr_record.index(j) - 1]
+                                .strip()
+                                .split()[0]
+                                .strip()
+                                .split("=")[-1]
+                                .rstrip(",")
+                            )
+                            self.host.conn.run(
+                                f"samba-tool dns delete {self.server} {zone} "
+                                f"{_name} PTR {name} {self.credentials}",
+                            )
 
     def print(self) -> str:
         """
