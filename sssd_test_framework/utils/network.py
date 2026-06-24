@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import jc
@@ -77,7 +78,7 @@ class NetworkUtils(MultihostUtility[MultihostHost]):
 
         return self.host.conn.exec(["tshark", *args])
 
-    def dig(self, address: str, server: str | None = None) -> list[dict] | None:
+    def dig(self, address: str, server: str | None = None, attempts: int = 30, delay: int = 2) -> list[dict] | None:
         """
         Execute and parse dig command.
 
@@ -99,50 +100,59 @@ class NetworkUtils(MultihostUtility[MultihostHost]):
         :type address: str
         :param server: DNS server, optional, defaults to ""
         :type server: str = ""
+        :param attempts: Number of attempts, defaults to 5
+        :type attempts: int
+        :param delay: Delay between attempts, defaults to 3
+        :type delay: int
         :return: List of dig results.
         :rtype: list[dict]
         """
         server = f"@{server}" if server else ""
         args = f"+norecurse {'-x ' if ip_is_valid(address) else ''}{address} {server}"
 
-        try:
-            output = self.host.conn.run(f"dig {args}").stdout
-            parsed_output = jc.parse("dig", output)
-        except Exception:
-            return None
+        attempt = 0
+        while True:
+            try:
+                output = self.host.conn.run(f"dig {args}").stdout
+                parsed_output = jc.parse("dig", output)
+            except Exception:
+                parsed_output = None
 
-        if not isinstance(parsed_output, list) or not parsed_output:
-            return None
+            if isinstance(parsed_output, list) and parsed_output:
+                result = parsed_output[0].get("answer", [])
+                if isinstance(result, list) and result:
+                    required_keys = {"name", "type", "ttl", "data"}
+                    records = []
 
-        result = parsed_output[0].get("answer", [])
-        if not isinstance(result, list) or not result:
-            return None
+                    for record in result:
+                        if not isinstance(record, dict):
+                            continue
+                        if not required_keys.issubset(record.keys()):
+                            continue
+                        if not isinstance(record["ttl"], int) or record["ttl"] < 0:
+                            continue
 
-        required_keys = {"name", "type", "ttl", "data"}
-        records = []
+                        # Strip trailing dots for easier matching
+                        _name = record["name"].rstrip(".") if isinstance(record["name"], str) else record["name"]
+                        _data = record["data"].rstrip(".") if isinstance(record["data"], str) else record["data"]
 
-        for record in result:
-            if not isinstance(record, dict):
-                continue
-            if not required_keys.issubset(record.keys()):
-                continue
-            if not isinstance(record["ttl"], int) or record["ttl"] < 0:
-                continue
+                        records.append(
+                            {
+                                "name": _name,
+                                "data": _data,
+                                "type": record["type"],
+                                "ttl": record["ttl"],
+                            }
+                        )
 
-            # Strip trailing dots for easier matching
-            _name = record["name"].rstrip(".") if isinstance(record["name"], str) else record["name"]
-            _data = record["data"].rstrip(".") if isinstance(record["data"], str) else record["data"]
+                    if records:
+                        return records
 
-            records.append(
-                {
-                    "name": _name,
-                    "data": _data,
-                    "type": record["type"],
-                    "ttl": record["ttl"],
-                }
-            )
+            attempt += 1
+            if attempt >= attempts:
+                return None
 
-        return records if records else None
+            time.sleep(delay)
 
     def teardown(self):
         """
@@ -175,9 +185,9 @@ class IPUtils(MultihostUtility[MultihostHost]):
         :caption: Example usage
 
         # Create dummy interfaces
-        client.net.ip(name="dummy0").add_device(ip="172.16.2.40", netmask="255.255.255.0")
-        client.net.ip(name="dummy0").add_device(ip="172.16.2.40", netmask="24")
         client.net.ip(name="dummy0").add_device(ip="172.16.2.40")
+        client.net.ip(name="dummy0").add_device(ip="2001:db8::1")
+        client.net.ip(name="dummy0").add_device(ip=["172.16.2.40", "2001:db8::1"])
 
         # Get default device
         default_device  = client.net.ip().default_device
@@ -294,28 +304,29 @@ class IPUtils(MultihostUtility[MultihostHost]):
         netmask = self._get(["ipv4_mask"]).get("ipv4_mask")
         return netmask if netmask is not None else None
 
-    def add_device(
-        self, ip: str, netmask: str = "255.255.255.0", ipv6: str | None = None, prefix: str = "64"
-    ) -> IPUtils:
+    def add_device(self, ip: str | list[str]) -> IPUtils:
         """
         Add and create a link to a dummy device.This is used by dyndns tests.
 
-        :param ip: IP address.
-        :type ip: str
-        :param netmask: IP network mask, defaults to 255.255.255.0
-        :type netmask: str, optional
-        :param ipv6: Add ipv6 address, defaults to False
-        :type ipv6: bool, optional
-        :param prefix: IP prefix, defaults to 64
-        :type prefix: str, optional
+        :param ip: IP address or list of IP addresses.
+        :type ip: str | list[str]
         :return: IPUtils object.
         :rtype: IPUtils
         """
         if self.name != self.default_device or self.name is not None:
             self.host.conn.exec(["ip", "link", "add", self.name, "type", "dummy"])
-            self.host.conn.exec(["ip", "addr", "add", f"{ip}/{netmask}", "dev", self.name])
-            if ipv6 is not None:
-                self.host.conn.exec(["ip", "addr", "add", f"{ipv6}/{prefix}", "dev", self.name])
+
+            addresses = ip if isinstance(ip, list) else [ip]
+            for address in addresses:
+                if "/" in address:
+                    _address = address
+                elif ":" in address:
+                    _address = f"{address}/64"
+                else:
+                    _address = f"{address}/24"
+
+                self.host.conn.exec(["ip", "addr", "add", _address, "dev", self.name])
+
             self.__rollback.append(f"ip link del {self.name}")
             return self
         else:
