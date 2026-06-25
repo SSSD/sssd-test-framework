@@ -2659,7 +2659,7 @@ class ADCertificateAuthority(GenericCertificateAuthority):
             FriendlyName = "Enrollment Agent"
 
             [RequestAttributes]
-            CertificateTemplate = "EnrollmentAgent2"
+            CertificateTemplate = "EnrollmentAgent_IDMTEST"
             "@
             Set-Content -Path "{inf_path}" -Value $infContent
         """)
