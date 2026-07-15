@@ -789,7 +789,9 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
             }}
 
             # Phase 4: Device touch
-            sleep 2
+            # IPA backend lookups can take longer than 2s, especially for
+            # the 3rd+ user in sequential auth tests on fedora-43/rawhide.
+            sleep 5
             spawn {test_venv_bin}/vfido_touch
             set ID_touch $spawn_id
 
