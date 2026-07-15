@@ -1381,6 +1381,25 @@ class SambaGPO(SambaObject, GenericGPO):
 
         return self
 
+    def filesyspath(self, path: str) -> SambaGPO:
+        """
+        Overwrite the GPO's ``gPCFileSysPath`` attribute.
+
+        Implements :meth:`GenericGPO.filesyspath`.
+
+        Modifies the GPO 'gPCFileSysPath' attribute in LDAP.
+        This should not be used in any circumstance, added to verify a bug.
+
+        :param path: gPCFileSysPath value.
+        :type path: str
+        :return: Samba group policy object
+        :rtype: SambaGPO
+        """
+        attrs: LDAPRecordAttributes = {"gPCFileSysPath": path}
+        self._modify(attrs)
+
+        return self
+
 
 class SambaPasswordPolicy(GenericPasswordPolicy):
     """

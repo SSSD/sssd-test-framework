@@ -2256,6 +2256,27 @@ class GPO(GenericGPO):
 
         return self
 
+    def filesyspath(self, path: str) -> GPO:
+        """
+        Overwrite the GPO's ``gPCFileSysPath`` attribute.
+
+        Implements :meth:`GenericGPO.filesyspath`.
+
+        Modifies the GPO 'gPCFileSysPath' attribute in LDAP.
+        This should not be used in any circumstance, added to verify a bug.
+
+        :param path: gPCFileSysPath value.
+        :type path: str
+        :return: Group policy object
+        :rtype: GPO
+        """
+        self.host.conn.run(rf"""
+            $ErrorActionPreference = "Stop"
+            Set-ADObject -Identity "{self.dn}" -Replace @{{gPCFileSysPath="{path}"}}
+            """)
+
+        return self
+
 
 class ADPasswordPolicy(GenericPasswordPolicy):
     """
