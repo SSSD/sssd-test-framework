@@ -1470,6 +1470,21 @@ class GenericGPO(
         """
         pass
 
+    @abstractmethod
+    def filesyspath(self, path: str) -> GenericGPO:
+        """
+        Overwrite the GPO's ``gPCFileSysPath`` attribute.
+
+        Modifies the GPO 'gPCFileSysPath' attribute in LDAP.
+        This should not be used in any circumstance, added to verify a bug.
+
+        :param path: gPCFileSysPath value.
+        :type path: str
+        :return: Self.
+        :rtype: GenericGPO
+        """
+        raise NotImplementedError()
+
 
 class GenericPasswordPolicy(ABC, BaseObject):
     """
