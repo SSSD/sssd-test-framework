@@ -998,6 +998,7 @@ class SSSDCommonConfiguration(object):
         tls_reqcert: str = "demand",
         ssl: bool = False,
         config: dict[str, str] | None = None,
+        check_config: bool = True,
     ) -> None:
         """
         Configure SSSD to use the ldap_provider to connect to IPA or AD.
@@ -1022,6 +1023,8 @@ class SSSDCommonConfiguration(object):
         :type ssl: bool
         :param config: Additional configuration, optional
         :type config: dict[str, str] | None
+        :param check_config: Run config validation, defaults to True
+        :type check_config: bool
         """
         self.sssd.domain.clear()
         self.sssd.domain.update(
@@ -1057,7 +1060,7 @@ class SSSDCommonConfiguration(object):
             for key, value in config.items():
                 self.sssd.domain[key] = value
 
-        self.sssd.config_apply()
+        self.sssd.config_apply(check_config=check_config)
 
     def proxy(
         self,
