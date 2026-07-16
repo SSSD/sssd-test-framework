@@ -151,14 +151,14 @@ class BaseLinuxRole(BaseRole[HostType]):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-        self.authselect: AuthselectUtils = AuthselectUtils(self.host)
-        """
-        Manage nsswitch and PAM configuration.
-        """
-
         self.fs: LinuxFileSystem = LinuxFileSystem(self.host)
         """
         File system manipulation.
+        """
+
+        self.authselect: AuthselectUtils = AuthselectUtils(self.host, self.fs)
+        """
+        Manage nsswitch and PAM configuration.
         """
 
         self.svc: SystemdServices = SystemdServices(self.host)
