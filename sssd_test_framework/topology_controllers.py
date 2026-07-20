@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import tempfile
+import textwrap
 
 from pytest_mh import BackupTopologyController
 from pytest_mh.conn import ProcessResult
@@ -66,10 +67,14 @@ class ProvisionedBackupTopologyController(BackupTopologyController[SSSDMultihost
         """
         Helper method for joining domains
         """
+        client.fs.backup("/etc/krb5.conf")
+        client.fs.backup("/etc/krb5.keytab")
         self.logger.info(f"Enrolling {client.hostname} into {provider.domain}")
 
         # Remove any existing Kerberos configuration and keytab
-        client.fs.rm("/etc/krb5.conf")
+        # Skip removing krb5.conf when provider is AD
+        if not isinstance(provider, (ADHost)):
+            client.fs.rm("/etc/krb5.conf")
         client.fs.rm("/etc/krb5.keytab")
 
         # First check if joined.  If so, leave.
@@ -99,6 +104,18 @@ class ProvisionedBackupTopologyController(BackupTopologyController[SSSDMultihost
             else:
                 client.conn.exec(["realm", "leave", "--unattended", provider.domain], input=provider.adminpw)
             client.conn.exec(["realm", "join", provider.domain], input=provider.adminpw)
+
+        if isinstance(provider, (ADHost)):
+            ad_krb5_content = textwrap.dedent(f"""\
+                [realms]
+                {provider.realm} = {{
+                    default_domain = {provider.domain}
+                    pkinit_anchors = FILE:/etc/sssd/pki/sssd_auth_ca_db.pem
+                    pkinit_eku_checking = kpServerAuth
+                    pkinit_kdc_hostname = {provider.hostname}
+                }}
+            """)
+            client.fs.write("/etc/krb5.conf.d/ad_pkinit", ad_krb5_content)
 
 
 class ClientTopologyController(ProvisionedBackupTopologyController):

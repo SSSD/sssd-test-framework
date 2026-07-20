@@ -183,21 +183,18 @@ class AD(BaseWindowsRole[ADHost]):
                 }
         """
 
-    #
-    # Disabling CA functionality until sssd-ci-container updated
-    #
-    #        self._ca = ADCertificateAuthority(self.host)
-    #        """
-    #        AD Certificate Authority server management.
-    #
-    #        Provides certificate operations:
-    #        - Request certificates using templates
-    #        - Request smartcard certificates with Enrollment Agent
-    #        - Revoke certificates with configurable reasons
-    #        - Manage certificate holds
-    #        - Export certificates as PFX
-    #        - Retrieve certificate and template details
-    #        """
+        self._ca = ADCertificateAuthority(self.host)
+        """
+        AD Certificate Authority server management.
+
+        Provides certificate operations:
+        - Request certificates using templates
+        - Request smartcard certificates with Enrollment Agent
+        - Revoke certificates with configurable reasons
+        - Manage certificate holds
+        - Export certificates as PFX
+        - Retrieve certificate and template details
+        """
 
     @property
     def password_policy(self) -> ADPasswordPolicy:
@@ -217,47 +214,44 @@ class AD(BaseWindowsRole[ADHost]):
         """
         return self._password_policy
 
-    #
-    # Disabling CA functionality until sssd-ci-container updated
-    #
-    #    @property
-    #    def ca(self) -> ADCertificateAuthority:
-    #        """
-    #        AD Certificate Authority management.
-    #
-    #        Provides certificate operations:
-    #
-    #        - Request certificates using templates
-    #        - Request smartcard certificates with Enrollment Agent
-    #        - Revoke certificates with configurable reasons
-    #        - Manage certificate holds
-    #        - Export certificates as PFX
-    #        - Retrieve certificate and template details
-    #
-    #        .. code-block:: python
-    #            :caption: Example usage
-    #
-    #            @pytest.mark.topology(KnownTopology.AD)
-    #            def test_example(client: Client, ad: AD):
-    #                # Request smartcard certificate
-    #                cert, key, csr = ad.ca.request(
-    #                    template="SmartcardLogon",
-    #                    subject="CN=testuser"
-    #                )
-    #
-    #                # Get certificate details
-    #                cert_details = ad.ca.get(cert)
-    #
-    #                # Place certificate on hold (temporary revocation)
-    #                ad.ca.revoke_hold(cert)
-    #
-    #                # Remove hold (restore certificate)
-    #                ad.ca.revoke_hold_remove(cert)
-    #
-    #                # Permanently revoke certificate
-    #                ad.ca.revoke(cert, reason="key_compromise")
-    #        """
-    #        return self._ca
+    @property
+    def ca(self) -> ADCertificateAuthority:
+        """
+        AD Certificate Authority management.
+
+        Provides certificate operations:
+
+        - Request certificates using templates
+        - Request smartcard certificates with Enrollment Agent
+        - Revoke certificates with configurable reasons
+        - Manage certificate holds
+        - Export certificates as PFX
+        - Retrieve certificate and template details
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.AD)
+            def test_example(client: Client, ad: AD):
+                # Request smartcard certificate
+                cert, key, csr = ad.ca.request(
+                    template="SmartcardLogon",
+                    subject="CN=testuser"
+                )
+
+                # Get certificate details
+                cert_details = ad.ca.get(cert)
+
+                # Place certificate on hold (temporary revocation)
+                ad.ca.revoke_hold(cert)
+
+                # Remove hold (restore certificate)
+                ad.ca.revoke_hold_remove(cert)
+
+                # Permanently revoke certificate
+                ad.ca.revoke(cert, reason="key_compromise")
+        """
+        return self._ca
 
     @property
     def naming_context(self) -> str:
@@ -2659,7 +2653,7 @@ class ADCertificateAuthority(GenericCertificateAuthority):
             FriendlyName = "Enrollment Agent"
 
             [RequestAttributes]
-            CertificateTemplate = "EnrollmentAgent2"
+            CertificateTemplate = "EnrollmentAgent_IDMTEST"
             "@
             Set-Content -Path "{inf_path}" -Value $infContent
         """)
@@ -2830,7 +2824,7 @@ class ADCertificateAuthority(GenericCertificateAuthority):
         self.export_pfx(cert_path, pfx_path)
 
         self.host.conn.run(
-            f'"Secret123" | & openssl pkcs12 -in {pfx_path} -nocerts -nodes -out {extracted_key_path} -passin stdin'
+            f"openssl pkcs12 -in {pfx_path} -nocerts -nodes -out {extracted_key_path} -passin pass:Secret123"
         )
 
         self.host.conn.run(f"openssl rsa -in {extracted_key_path} -out {key_path}")
@@ -3074,24 +3068,25 @@ class ADCertificateAuthority(GenericCertificateAuthority):
         :rtype: str
         :raises RuntimeError: If CA certificate cannot be retrieved.
         """
+        ca_name = self._get_ca_config().split("\\", 1)[1].strip('"')
         result = self.host.conn.run(
-            textwrap.dedent("""\
-                $ca = Get-ChildItem -Path Cert:\\LocalMachine\\Root | Where-Object {
-                    $_.Subject -like '*CN=ad-RootCA*' -and $_.Issuer -eq $_.Subject
-                } | Select-Object -First 1
-                if ($ca) {
+            textwrap.dedent(f"""\
+                $ca = Get-ChildItem -Path Cert:\\LocalMachine\\Root | Where-Object {{
+                    $_.Subject -like '*CN={ca_name}*' -and $_.Issuer -eq $_.Subject
+                }} | Select-Object -First 1
+                if ($ca) {{
                     [System.Convert]::ToBase64String($ca.Export('Cert'))
-                } else {
-                    $ca = Get-ChildItem -Path Cert:\\LocalMachine\\My | Where-Object {
-                        $_.Subject -like '*CN=ad-RootCA*'
-                    } | Select-Object -First 1
-                    if ($ca) {
+                }} else {{
+                    $ca = Get-ChildItem -Path Cert:\\LocalMachine\\My | Where-Object {{
+                        $_.Subject -like '*CN={ca_name}*'
+                    }} | Select-Object -First 1
+                    if ($ca) {{
                         [System.Convert]::ToBase64String($ca.Export('Cert'))
-                    } else {
+                    }} else {{
                         Write-Error "CA certificate not found"
                         exit 1
-                    }
-                }
+                    }}
+                }}
             """),
             raise_on_error=False,
         )
