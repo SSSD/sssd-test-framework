@@ -3089,7 +3089,10 @@ class IPADNSZone(IPADNSServer, GenericDNSZone):
 
     def delete_record(self, name: str) -> None:
         """
-        Delete DNS record, both forward and reverse records are deleted.
+        Delete all A/AAAA/PTR/NSPTR records for provided record.
+
+        The complexity is because the method takes one parameter and not specifying the record type will
+        remove the entire entry. Instead the record type and data is specified to preserve sshfp records.
 
         Implements :meth:`GenericDNSZone.delete_record`.
 
@@ -3098,28 +3101,58 @@ class IPADNSZone(IPADNSServer, GenericDNSZone):
         """
         if self.domain not in name:
             name = f"{name}.{self.domain}"
+        short_name = name.split(".")[0].strip()
+        zones = self.list_zones()
 
-        records = self.host.conn.run(f"dig +short +norecurse {name} '@{self.server}'").stdout_lines
-        records = [s.rstrip("\r") for s in records]
+        for zone in zones:
+            zone_records = self.host.conn.run(f"ipa dnsrecord-find {zone}").stdout_lines
+            in_section: bool = False
 
-        if not isinstance(records, list) or records is None:
-            return None
+            for i, line in enumerate(zone_records):
+                _line = line.strip()
 
-        if len(records) > 1:
-            for record in records:
-                if ip_version(record) == 4:
-                    self.host.conn.run(f"ipa dnsrecord-del {self.zone_name} --a-rec={record}")
-                if ip_version(record) == 6:
-                    self.host.conn.run(f"ipa dnsrecord-del {self.zone_name} --aaaa-rec={record}")
+                if not _line:
+                    if in_section:
+                        break
+                    continue
 
-        for ptr_records in records:
-            ptr_record = self.host.conn.run(f"dig +short -x +norecurse {ptr_records} '@{self.server}'").stdout_lines
-            ptr_record = [r.rstrip("\r") for r in ptr_record]
-            if ptr_record:
-                self.host.conn.run(f"ipa dnsrecord-del {self.zone_name} --ptr-rec={record}")
-        return None
+                if _line.startswith("Record name:"):
+                    current = _line.split(":", 1)[1].strip()
+                    in_section = current == short_name or current == f"{name}."
+                    continue
 
-        time.sleep(5)  # Wait for the record to be deleted
+                if in_section:
+                    if _line.startswith("AAAA record:"):
+                        ip = _line.split(":", 1)[1].strip()
+                        _ip = [x.strip() for x in ip.split(",")] if "," in ip else [ip.strip()]
+                        for y in _ip:
+                            self.host.conn.run(
+                                f"ipa dnsrecord-del {zone} {short_name} " f"--aaaa-rec={y}",
+                            )
+
+                    elif _line.startswith("A record:"):
+                        ip = _line.split(":", 1)[1].strip()
+                        _ip = [x.strip() for x in ip.split(",")] if "," in ip else [ip.strip()]
+                        for y in _ip:
+                            self.host.conn.run(
+                                f"ipa dnsrecord-del {zone} {short_name} " f"--a-rec={y}",
+                            )
+                    elif _line.startswith("PTR record:"):
+                        if i > 0:
+                            prev = zone_records[i - 1].strip()
+                            if prev.startswith("Record name:"):
+                                ptr = prev.split(":", 1)[1].strip()
+                                self.host.conn.run(
+                                    f"ipa dnsrecord-del {self.zone_name} {zone} --ptr-rec={ptr} {name}."
+                                )
+                    elif _line.startswith("NSPTR record:"):
+                        if i > 0:
+                            prev = zone_records[i - 1].strip()
+                            if prev.startswith("Record name:"):
+                                ptr = prev.split(":", 1)[1].strip()
+                                self.host.conn.run(
+                                    f"ipa dnsrecord-del {self.zone_name} {zone} --naptr-rec={ptr} {name}."
+                                )
 
     def print(self) -> str:
         """

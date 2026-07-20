@@ -245,7 +245,9 @@ class SSSCTLUtils(MultihostUtility[MultihostHost]):
 
         return result.stdout_lines[-1].strip()
 
-    def user_checks(self, username: str, action: str = "acct", service: str = "system-auth") -> ProcessResult:
+    def user_checks(
+        self, username: str, action: str = "acct", service: str = "system-auth", auth_input: str | None = None
+    ) -> ProcessResult:
         """
         Print information about a user and check authentication
 
@@ -255,10 +257,12 @@ class SSSCTLUtils(MultihostUtility[MultihostHost]):
         :type action: str
         :param service: PAM service, defaults to "system-auth"
         :type service: str
+        :param auth_input: input during authentication (action "auth"), e.g. password or pin
+        :type auth_input: str | None, optional
         :return: Result of called command
         :rtype: ProcessResult
         """
-        return self.host.conn.exec(["sssctl", "user-checks", username, "-a", action, "-s", service])
+        return self.host.conn.exec(["sssctl", "user-checks", username, "-a", action, "-s", service], input=auth_input)
 
     def user_show(self, user: str | None = None, sid: str | None = None, uid: int | None = None) -> ProcessResult:
         """

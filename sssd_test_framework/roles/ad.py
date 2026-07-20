@@ -18,7 +18,6 @@ from ..misc import (
     attrs_include_value,
     attrs_parse,
     attrs_to_hash,
-    ip_to_ptr,
     ip_version,
     seconds_to_timespan,
 )
@@ -2437,10 +2436,11 @@ class ADDNSServer(GenericDNSServer):
         :return: List of zones.
         :rtype: list[str]
         """
-        result = self.host.conn.run("Get-DnsServerZone | Format-List -Property ZoneName").stdout_lines
-        result = [x for x in result if x not in ["\r", "", None]]
-        result = [y.replace("\r", "").strip() for y in result]
-        result = [z.split(":")[1].strip() for z in result]
+        result = self.host.conn.run(
+            "Get-DnsServerZone | Format-List -Property ZoneName", unified_newlines=True
+        ).stdout_lines
+        result = [x for x in result if x not in ["", None]]
+        result = [y.split(":")[1].strip() for y in result]
 
         return result
 
@@ -2513,41 +2513,57 @@ class ADDNSZone(ADDNSServer, GenericDNSZone):
 
     def delete_record(self, name: str) -> None:
         """
-        Delete DNS record, both forward and reverse records are deleted.
+        Delete all records for provided dns entry.
+
+        The complexity is because the method takes one parameter. We need to discover the correct
+        value, cmdlet, protocol, and zone to properly delete the entry.
+
+        If dig returns a result, iterate through the zones, if the zone is in the name, it's a forward record.
+        The return may be from the cache, search the zone for the record, if found, delete it. If "in-addr" is
+        in the zone name, it's a reverse record that follows the same steps as a forward record.
 
         :param name: Name or IP of the record.
         :type name: str
         """
         if self.domain not in name:
             name = f"{name}.{self.domain}"
+        short_name = name.split(".")[0]
 
-        records = self.host.conn.run(f"dig +short +norecurse {name} '@{self.server}'").stdout_lines
-        records = [s.rstrip("\r") for s in records]
+        records = self.host.conn.run(
+            f"dig +short +norecurse {name} '@{self.server}'", unified_newlines=True
+        ).stdout_lines
+        zones = self.list_zones()
 
-        if not isinstance(records, list) or records is None:
-            return None
-
-        if len(records) > 1:
-            for record in records:
-                if ip_version(record) == 4:
-                    self.role.host.conn.run(
-                        f"Remove-DnsServerResourceRecord -RRType A -Force -ZoneName {self.zone_name} -Name {name}"
-                    )
-                if ip_version(record) == 6:
-                    self.host.conn.run(
-                        f"Remove-DnsServerResourceRecord -RRType AAAA -Force -ZoneName {self.zone_name} -Name {name}"
-                    )
-
-        for ptr_records in records:
-            ptr_record = self.host.conn.run(f"dig +short -x +norecurse {ptr_records} '@{self.server}'").stdout_lines
-            ptr_record = [r.rstrip("\r") for r in ptr_record]
-            if ptr_record:
-                self.host.conn.run(
-                    f"Remove-DnsServerResourceRecord -RRType PTR "
-                    f"-Force -ZoneName {ip_to_ptr(ptr_record[0])} "
-                    f"-Name {'.'.join(ptr_record).split()[-1]}",
-                )
-        return None
+        if records is not None:
+            for zone in zones:
+                if zone in name:
+                    a_records = self.host.conn.run(
+                        f'Get-DnsServerResourceRecord -ZoneName "{zone}" | Where-Object '
+                        f'{{ $_.HostName -eq "{short_name}" }}',
+                        unified_newlines=True,
+                    ).stdout_lines[3:]
+                    if a_records is not None:
+                        for j in a_records:
+                            if ip_version(j.split()[-1].strip()) == 4:
+                                self.host.conn.run(
+                                    f"Remove-DnsServerResourceRecord -ZoneName {zone} "
+                                    f"-Name {short_name} -RRType A -Force"
+                                )
+                            elif ip_version(j.split()[-1].strip()) == 6:
+                                self.host.conn.run(
+                                    f"Remove-DnsServerResourceRecord -ZoneName {zone} "
+                                    f"-Name {short_name} -RRType AAAA -Force"
+                                )
+                if "in-addr" in zone:
+                    ptr_record = self.host.conn.run(
+                        f'Get-DnsServerResourceRecord -ZoneName "{zone}" | Where-Object '
+                        f'{{ $_.RecordData.PtrDomainName -eq "{name}." }}'
+                    ).stdout_lines
+                    if len(ptr_record) == 1:
+                        ptr_name = ptr_record[0].split()[0].strip()
+                        self.host.conn.run(
+                            f"Remove-DnsServerResourceRecord -ZoneName {zone} " f"-Name {ptr_name}. -RRType PTR -Force"
+                        )
 
     def print(self) -> str:
         """
