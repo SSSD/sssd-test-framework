@@ -81,6 +81,27 @@ class SambaHost(BaseLDAPDomainHost, BaseLinuxHost):
     def stop(self) -> None:
         self.svc.stop("samba.service")
 
+    def export_root_ca_certificate(self) -> str:
+        """
+        Export the Samba root CA certificate in PEM format.
+
+        This method retrieves the CA certificate used for LDAPS from the Samba
+        domain controller and exports it in PEM format.
+
+        :return: PEM-formatted root CA certificate content.
+        :rtype: str
+        :raises RuntimeError: If certificate cannot be exported.
+        """
+        result = self.conn.run(
+            "cat /var/data/certs/ca.crt",
+            raise_on_error=False,
+        )
+
+        if result.rc != 0:
+            raise RuntimeError(f"Failed to export root CA certificate: {result.stderr}")
+
+        return result.stdout.strip()
+
     def backup(self) -> Any:
         """
         Backup all Samba server data.
