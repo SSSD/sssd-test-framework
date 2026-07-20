@@ -2824,7 +2824,7 @@ class ADCertificateAuthority(GenericCertificateAuthority):
         self.export_pfx(cert_path, pfx_path)
 
         self.host.conn.run(
-            f'"Secret123" | & openssl pkcs12 -in {pfx_path} -nocerts -nodes -out {extracted_key_path} -passin stdin'
+            f"openssl pkcs12 -in {pfx_path} -nocerts -nodes -out {extracted_key_path} -passin pass:Secret123"
         )
 
         self.host.conn.run(f"openssl rsa -in {extracted_key_path} -out {key_path}")
@@ -3068,24 +3068,25 @@ class ADCertificateAuthority(GenericCertificateAuthority):
         :rtype: str
         :raises RuntimeError: If CA certificate cannot be retrieved.
         """
+        ca_name = self._get_ca_config().split("\\", 1)[1].strip('"')
         result = self.host.conn.run(
-            textwrap.dedent("""\
-                $ca = Get-ChildItem -Path Cert:\\LocalMachine\\Root | Where-Object {
-                    $_.Subject -like '*CN=ad-RootCA*' -and $_.Issuer -eq $_.Subject
-                } | Select-Object -First 1
-                if ($ca) {
+            textwrap.dedent(f"""\
+                $ca = Get-ChildItem -Path Cert:\\LocalMachine\\Root | Where-Object {{
+                    $_.Subject -like '*CN={ca_name}*' -and $_.Issuer -eq $_.Subject
+                }} | Select-Object -First 1
+                if ($ca) {{
                     [System.Convert]::ToBase64String($ca.Export('Cert'))
-                } else {
-                    $ca = Get-ChildItem -Path Cert:\\LocalMachine\\My | Where-Object {
-                        $_.Subject -like '*CN=ad-RootCA*'
-                    } | Select-Object -First 1
-                    if ($ca) {
+                }} else {{
+                    $ca = Get-ChildItem -Path Cert:\\LocalMachine\\My | Where-Object {{
+                        $_.Subject -like '*CN={ca_name}*'
+                    }} | Select-Object -First 1
+                    if ($ca) {{
                         [System.Convert]::ToBase64String($ca.Export('Cert'))
-                    } else {
+                    }} else {{
                         Write-Error "CA certificate not found"
                         exit 1
-                    }
-                }
+                    }}
+                }}
             """),
             raise_on_error=False,
         )
