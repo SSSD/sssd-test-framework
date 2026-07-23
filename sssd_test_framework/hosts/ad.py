@@ -100,6 +100,43 @@ class ADHost(BaseDomainHost):
 
         return self.__naming_context
 
+    def export_root_ca_certificate(self) -> str:
+        """
+        Export the AD root CA certificate in PEM format.
+
+        This method retrieves the most recent root CA certificate from the AD
+        domain controller's local machine root certificate store and exports it
+        in PEM format. The certificate is used for LDAPS (LDAP over SSL/TLS)
+        connections.
+
+        :return: PEM-formatted root CA certificate content.
+        :rtype: str
+        :raises RuntimeError: If certificate cannot be exported.
+        """
+        result = self.conn.run(
+            """
+            $cert = Get-ChildItem Cert:\\LocalMachine\\Root |
+                    Sort-Object NotBefore -Descending |
+                    Select-Object -First 1
+
+            if (-not $cert) {
+                throw "No root CA certificate found"
+            }
+
+            $pem = "-----BEGIN CERTIFICATE-----`r`n" +
+                   [Convert]::ToBase64String($cert.RawData, "InsertLineBreaks") +
+                   "`r`n-----END CERTIFICATE-----"
+
+            Write-Output $pem
+            """,
+            raise_on_error=False,
+        )
+
+        if result.rc != 0:
+            raise RuntimeError(f"Failed to export root CA certificate: {result.stderr}")
+
+        return result.stdout.strip()
+
     def disconnect(self) -> None:
         return
 
