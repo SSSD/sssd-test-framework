@@ -201,6 +201,24 @@ class KnownTopology(KnownTopologyBase):
     .. topology-mark:: KnownTopology.IPATrustSamba
     """
 
+    ALLREALMS = SSSDTopologyMark(
+        name="allrealms",
+        topology=Topology(TopologyDomain("sssd", client=1, samba=1, ipa=1, kdc=1)),
+        controller=ClientTopologyController(),
+        fixtures=dict(
+            client="sssd.client[0]",
+            samba="sssd.samba[0]",
+            ipa="sssd.ipa[0]",
+            kdc="sssd.kdc[0]",
+        ),
+    )
+    """
+    Client with Samba, IPA, and a standalone KDC — three distinct Kerberos realms.
+    Runs once (not a topology group).
+
+    .. topology-mark:: KnownTopology.ALLREALMS
+    """
+
     Keycloak = SSSDTopologyMark(
         name="keycloak",
         topology=Topology(TopologyDomain("sssd", client=1, keycloak=1)),
