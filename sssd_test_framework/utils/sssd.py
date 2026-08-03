@@ -860,12 +860,25 @@ class SSSDCommonConfiguration(object):
         Create ``local`` SSSD domain for local users.
 
         This is a proxy domain that uses nss_files and PAM system-auth service.
+
+        .. note::
+
+            ``pwfield`` is explicitly set to ``x`` to ensure that ``pam_unix``
+            can authenticate local users. When ``proxy_lib_name=files`` is used
+            with a ``proxy_pam_target`` other than ``sssd-shadowutils``, SSSD
+            returns ``*`` in the password field by default (see SSSD issue
+            `#5129 <https://github.com/SSSD/sssd/issues/5129>`_). This causes
+            ``pam_unix`` to treat the account as locked, breaking SSH and su
+            authentication for local users when ``sss`` appears before ``files``
+            in ``/etc/nsswitch.conf`` (which is the default on many RHEL
+            images).
         """
         self.sssd.dom("local").update(
             enabled="true",
             id_provider="proxy",
             proxy_lib_name="files",
             proxy_pam_target="system-auth",
+            pwfield="x",
         )
         self.sssd.default_domain = "local"
 
