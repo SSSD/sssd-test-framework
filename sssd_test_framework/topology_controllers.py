@@ -106,7 +106,17 @@ class ClientTopologyController(ProvisionedBackupTopologyController):
     Client Topology Controller.
     """
 
-    pass
+    @BackupTopologyController.restore_vanilla_on_error
+    def topology_setup(self, client: ClientHost) -> None:
+        if self.provisioned:
+            self.logger.info(f"Topology '{self.name}' is already provisioned")
+            return
+
+        # Run authselect select sssd at a minimum
+        client.conn.run("authselect select sssd --force --backup multihost.backup")
+
+        # Backup so we can restore to this state after each test
+        super().topology_setup()
 
 
 class LDAPTopologyController(ProvisionedBackupTopologyController):
@@ -114,7 +124,17 @@ class LDAPTopologyController(ProvisionedBackupTopologyController):
     LDAP Topology Controller.
     """
 
-    pass
+    @BackupTopologyController.restore_vanilla_on_error
+    def topology_setup(self, client: ClientHost, ldap: LDAPHost) -> None:
+        if self.provisioned:
+            self.logger.info(f"Topology '{self.name}' is already provisioned")
+            return
+
+        # Run authselect select sssd at a minimum
+        client.conn.run("authselect select sssd --force --backup multihost.backup")
+
+        # Backup so we can restore to this state after each test
+        super().topology_setup()
 
 
 class LDAPKRB5TopologyController(LDAPTopologyController):
