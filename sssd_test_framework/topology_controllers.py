@@ -473,3 +473,14 @@ class BigLDAPTopologyController(ProvisionedBackupTopologyController):
         ldap.start()
 
         super().topology_setup()
+
+    def topology_teardown(self, client: ClientHost, ldap: LDAPHost) -> None:
+        try:
+            # Not a big deal if this fails; teardown will just take a long time
+            # deleting the content one by one.
+            ldap.stop()
+            ldap.conn.run("dsctl `dsctl -l` bak2db base")
+            ldap.start()
+        except Exception:
+            pass
+        super().topology_teardown()
