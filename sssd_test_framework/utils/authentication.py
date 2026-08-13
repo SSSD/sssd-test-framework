@@ -895,6 +895,84 @@ class SUAuthenticationUtils(MultihostUtility[MultihostHost]):
         result = self.smartcard_with_output(username, pin, num_certs=num_certs, cert_selection=cert_selection)
         return result.rc == 0 and "PIN" in result.stderr and username in result.stdout
 
+    def vlock_smartcard_with_output(self, username: str, pin: str, wrong_pin: str = "wrongpin") -> ProcessResult:
+        """
+        Log in as ``username`` via ``su -l``, lock the terminal with ``vlock``, enter a wrong PIN
+        to confirm rejection, then enter the correct PIN to unlock the screen.
+
+        :param username: Username.
+        :type username: str
+        :param pin: Correct smart card PIN.
+        :type pin: str
+        :param wrong_pin: Incorrect PIN entered first to verify it is rejected, defaults to "wrongpin".
+        :type wrong_pin: str, optional
+        :return: Result of the expect script.
+        :rtype: ProcessResult
+        """
+        return self.host.conn.expect(
+            rf"""
+            proc exitmsg {{ msg code }} {{
+                catch close
+                lassign [wait] pid spawnid os_error_flag rc
+                puts ""
+                puts "expect result: $msg"
+                puts "expect exit code: $code"
+                puts "expect spawn exit code: $rc"
+                exit $code
+            }}
+
+            set timeout {DEFAULT_AUTHENTICATION_TIMEOUT}
+            spawn su -l {username}
+
+            expect {{
+                "$ " {{ }}
+                timeout {{exitmsg "No shell prompt after su" 201}}
+                eof {{exitmsg "Unexpected end of file after su" 202}}
+            }}
+
+            send "vlock\r"
+
+            expect {{
+                "PIN for" {{send "{wrong_pin}\r"}}
+                timeout {{exitmsg "No PIN prompt from vlock" 201}}
+                eof {{exitmsg "Unexpected end of file during vlock" 202}}
+            }}
+
+            expect {{
+                "PIN for" {{send "{pin}\r"}}
+                "$ " {{exitmsg "vlock unlocked with wrong PIN" 1}}
+                timeout {{exitmsg "No re-prompt after wrong PIN" 201}}
+                eof {{exitmsg "Unexpected end of file after wrong PIN" 202}}
+            }}
+
+            expect {{
+                "$ " {{exitmsg "vlock unlock successful" 0}}
+                timeout {{exitmsg "Timeout after vlock unlock" 201}}
+                eof {{exitmsg "Unexpected end of file after vlock" 202}}
+            }}
+
+            exitmsg "Unexpected code path" 203
+            """,
+            verbose=False,
+        )
+
+    def vlock_smartcard(self, username: str, pin: str, wrong_pin: str = "wrongpin") -> bool:
+        """
+        Log in as ``username`` via ``su -l``, lock the terminal with ``vlock``, enter a wrong PIN
+        to confirm rejection, then enter the correct PIN to unlock the screen.
+
+        :param username: Username.
+        :type username: str
+        :param pin: Correct smart card PIN.
+        :type pin: str
+        :param wrong_pin: Incorrect PIN entered first to verify it is rejected, defaults to "wrongpin".
+        :type wrong_pin: str, optional
+        :return: True if the vlock unlock was successful, False otherwise.
+        :rtype: bool
+        """
+        result = self.vlock_smartcard_with_output(username, pin, wrong_pin=wrong_pin)
+        return result.rc == 0
+
 
 class SSHAuthenticationUtils(MultihostUtility[MultihostHost]):
     """
