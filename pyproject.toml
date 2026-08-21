@@ -41,11 +41,16 @@ exclude = "docs"
 module = ["jc.*", "ldap.*"]
 ignore_missing_imports = true
 
-[tool.isort]
-line_length = 119
-profile = "black"
-add_imports = "from __future__ import annotations"
-
-[tool.black]
+[tool.ruff]
 line-length = 119
-target-version = ["py311"]
+target-version = "py311"
+
+[tool.ruff.lint]
+# E/W ≈ pycodestyle, F ≈ pyflakes/flake8, I ≈ isort; defaults are Black-compatible
+select = ["E", "W", "F", "I"]
+
+[tool.ruff.lint.pycodestyle]
+max-line-length = 119
+
+[tool.ruff.lint.isort]
+required-imports = ["from __future__ import annotations"]
