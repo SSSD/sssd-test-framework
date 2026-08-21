@@ -1,0 +1,49 @@
+name: "Static code analysis"
+on:
+  push:
+  pull_request:
+  schedule:
+    # Everyday at midnight
+    - cron: '0 0 * * *'
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  python-framework:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.x'
+
+    - name: Checkout repository
+      uses: actions/checkout@v7
+
+    - name: Setup virtual environment
+      run: |
+        sudo apt-get update
+
+        # Install dependencies for python-ldap
+        sudo apt-get install -y libsasl2-dev python3-dev libldap2-dev libssl-dev libssh-dev
+
+        pip3 install virtualenv
+        python3 -m venv .venv
+        source .venv/bin/activate
+        pip3 install -r ./requirements.txt
+        pip3 install -r ./requirements-tests.txt
+        # ruff replaces flake8, pycodestyle, isort, and black
+        pip3 install ruff mypy
+
+    - name: ruff check
+      if: always()
+      run: source .venv/bin/activate && ruff check sssd_test_framework tests
+
+    - name: ruff format
+      if: always()
+      run: source .venv/bin/activate && ruff format --check --diff sssd_test_framework tests
+
+    - name: mypy
+      if: always()
+      run: source .venv/bin/activate && mypy --install-types --non-interactive sssd_test_framework tests

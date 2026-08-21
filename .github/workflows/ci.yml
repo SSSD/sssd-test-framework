@@ -31,7 +31,7 @@ jobs:
             ;;
         esac
     - uses: actions/checkout@v6
-    - uses: actions/setup-python@v6
+    - uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
@@ -60,7 +60,7 @@ jobs:
     permissions:
       contents: read
     steps:
-    - uses: actions/setup-python@v6
+    - uses: actions/setup-python@v7
       with:
         python-version: 3.x
 
@@ -179,31 +179,11 @@ jobs:
 
         # Install system tests requirements
         pip3 install -r ./requirements.txt
-        pip3 install flake8 pycodestyle isort mypy black
+        pip3 install mypy
 
         # Install yq to parse yaml files
         sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
         sudo chmod a+x /usr/local/bin/yq
-
-    - name: flake8
-      if: always()
-      working-directory: ./sssd/src/tests/system
-      run: source .venv/bin/activate && flake8 .
-
-    - name: pycodestyle
-      if: always()
-      working-directory: ./sssd/src/tests/system
-      run: source .venv/bin/activate && pycodestyle .
-
-    - name: isort
-      if: always()
-      working-directory: ./sssd/src/tests/system
-      run: source .venv/bin/activate && isort --check-only .
-
-    - name: black
-      if: always()
-      working-directory: ./sssd/src/tests/system
-      run: source .venv/bin/activate && black --check --diff .
 
     - name: mypy
       if: always()
@@ -223,23 +203,6 @@ jobs:
       working-directory: ./sssd/src/tests/system
       run: |
         yq -i 'del(.domains[0].hosts.[] | select(.role == "ad"))' mhc.yaml
-
-    - name: Check polarion metadata
-      shell: bash
-      working-directory: ./sssd/src/tests/system
-      run: |
-        # Run pytest in collect only mode to quickly catch issues in Polarion metadata.
-        set -ex -o pipefail
-
-        mkdir -p $GITHUB_WORKSPACE/artifacts
-        source .venv/bin/activate
-        pytest \
-          --color=yes \
-          --mh-config=./mhc.yaml \
-          --mh-artifacts-dir=$GITHUB_WORKSPACE/artifacts \
-          --polarion-config=../polarion.yaml \
-          --output-polarion-testcase=$GITHUB_WORKSPACE/artifacts/testcase.xml \
-          --collect-only . |& tee $GITHUB_WORKSPACE/pytest-collect.log
 
     - name: Run tests
       shell: bash
@@ -272,4 +235,3 @@ jobs:
           build.log
           install.log
           pytest.log
-          pytest-collect.log

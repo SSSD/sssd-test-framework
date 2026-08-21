@@ -24,10 +24,7 @@ order to not introduce any breaking API changes.
 
 All tests must pass and changes must be validated with:
 
-* black
-* flake8
-* isort
+* ruff (lint and format)
 * mypy
-* pycodestyle
 
 You can run all checks using ``tox``.
