@@ -255,6 +255,18 @@ class IPA(BaseLinuxRole[IPAHost]):
         """
         return self._ca
 
+    def export_root_ca_certificate(self) -> str:
+        """
+        Export the IPA root CA certificate in PEM format.
+
+        Delegates to :meth:`~IPACertificateAuthority.export_root_ca_certificate`.
+
+        :return: PEM-formatted root CA certificate.
+        :rtype: str
+        :raises RuntimeError: If the certificate cannot be read.
+        """
+        return self.ca.export_root_ca_certificate()
+
     @property
     def naming_context(self) -> str:
         """
@@ -3359,6 +3371,21 @@ class IPACertificateAuthority(GenericCertificateAuthority):
         if result.rc != 0:
             raise ValueError(f"Certificate with serial '{serial}' not found in IPA: {result.stderr}!")
         return self._parse_cert_info(result.stdout)
+
+    def export_root_ca_certificate(self) -> str:
+        """
+        Export the IPA root CA certificate in PEM format.
+
+        Implements :meth:`GenericCertificateAuthority.export_root_ca_certificate`.
+
+        Reads the CA certificate from ``/etc/ipa/ca.crt``, which is written to
+        the IPA server during ``ipa-server-install`` and is always present.
+
+        :return: PEM-formatted root CA certificate.
+        :rtype: str
+        :raises RuntimeError: If the certificate cannot be read.
+        """
+        return self.fs.read("/etc/ipa/ca.crt")
 
     def _generate_csr(self, key_path: str, csr_path: str, subject: str, key_size: int = 2048) -> None:
         """
