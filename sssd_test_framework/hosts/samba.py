@@ -36,6 +36,9 @@ class SambaHost(BaseLDAPDomainHost, BaseLinuxHost):
         self.adminpw: str = self.config.get("adminpw", self.bindpw)
         """Password of the admin user, defaults to value of ``bindpw``."""
 
+        self.ca_cert_path: str = self.config.get("ca_cert_path", "/var/data/certs/ca.crt")
+        """Path to the CA certificate on the Samba DC, defaults to ``/var/data/certs/ca.crt``."""
+
         # Additional client configuration
         self.client.setdefault("id_provider", "ad")
         self.client.setdefault("access_provider", "ad")
