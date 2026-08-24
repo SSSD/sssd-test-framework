@@ -1225,3 +1225,46 @@ class SSSDCommonConfiguration(object):
         self.sssd.pam["pam_cert_auth"] = "True"
         self.sssd.domain["local_auth_policy"] = "enable:smartcard"
         self.sssd.start()
+
+    def use_ldaps(self, provider: GenericProvider) -> None:
+        """
+        Configure SSSD to connect to the provider over LDAPS.
+
+        Fetches the root CA certificate from the provider via
+        :meth:`~sssd_test_framework.roles.generic.GenericProvider.export_root_ca_certificate`,
+        installs it into the system trust store under
+        ``/etc/pki/ca-trust/source/anchors/``, runs ``update-ca-trust``, and sets
+        ``ldap_tls_cacert`` to that path so that SSSD uses it directly.
+
+        Provider-specific behaviour:
+
+        - **AD / Samba** (``provider.name == "ad"``): sets ``ad_use_ldaps = True``
+          so SSSD connects on port 636.
+        - **IPA**: sets ``ldap_id_use_start_tls = True`` to use STARTTLS on port 389.
+          IPA's ``ipa_server`` option does not accept LDAP URIs, so STARTTLS is the
+          correct way to enforce transport-layer encryption for the IPA provider.
+
+        Works with :data:`~sssd_test_framework.topology.KnownTopologyGroup.AnyDC`
+        so a single test covers AD, Samba, and IPA topologies.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopologyGroup.AnyDC)
+            def test_example(client: Client, provider: GenericProvider):
+                client.sssd.common.use_ldaps(provider)
+                client.sssd.start()
+
+        :param provider: Provider role to fetch the root CA certificate from.
+        :type provider: GenericProvider
+        """
+        cacert = "/etc/pki/ca-trust/source/anchors/test-ca.crt"
+        self.sssd.fs.write(cacert, provider.export_root_ca_certificate())
+        self.sssd.host.conn.run("update-ca-trust")
+        self.sssd.domain["ldap_tls_cacert"] = cacert
+        if provider.name == "ad":
+            self.sssd.domain["ad_use_ldaps"] = "True"
+        elif provider.name == "ipa":
+            # IPA provider does not support ldaps:// URIs in ipa_server; use STARTTLS on
+            # port 389 instead, which IPA supports and provides equivalent transport security.
+            self.sssd.domain["ldap_id_use_start_tls"] = "True"
