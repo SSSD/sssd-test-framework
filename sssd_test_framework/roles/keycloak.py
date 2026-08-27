@@ -370,8 +370,9 @@ class KeycloakGroup(KeycloakObject):
         :return: Self.
         :rtype: KeycloakGroup
         """
-        remove_member = f"remove-member {self.__get_member_args(members)}"
-        self.role.kcadm(remove_member)
+        for item in self.__get_member_args(members):
+            remove_member = f"delete {item}/groups/{self.id} -r master"
+            self.role.kcadm(remove_member)
         return self
 
     def __get_member_args(self, members: list[KeycloakUser | KeycloakGroup]) -> list[str]:
