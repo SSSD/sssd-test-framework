@@ -3127,7 +3127,7 @@ class IPADNSZone(IPADNSServer, GenericDNSZone):
                         _ip = [x.strip() for x in ip.split(",")] if "," in ip else [ip.strip()]
                         for y in _ip:
                             self.host.conn.run(
-                                f"ipa dnsrecord-del {zone} {short_name} " f"--aaaa-rec={y}",
+                                f"ipa dnsrecord-del {zone} {short_name} --aaaa-rec={y}",
                             )
 
                     elif _line.startswith("A record:"):
@@ -3135,7 +3135,7 @@ class IPADNSZone(IPADNSServer, GenericDNSZone):
                         _ip = [x.strip() for x in ip.split(",")] if "," in ip else [ip.strip()]
                         for y in _ip:
                             self.host.conn.run(
-                                f"ipa dnsrecord-del {zone} {short_name} " f"--a-rec={y}",
+                                f"ipa dnsrecord-del {zone} {short_name} --a-rec={y}",
                             )
                     elif _line.startswith("PTR record:"):
                         if i > 0:

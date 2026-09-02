@@ -2556,7 +2556,7 @@ class ADDNSZone(ADDNSServer, GenericDNSZone):
                     if len(ptr_record) == 1:
                         ptr_name = ptr_record[0].split()[0].strip()
                         self.host.conn.run(
-                            f"Remove-DnsServerResourceRecord -ZoneName {zone} " f"-Name {ptr_name}. -RRType PTR -Force"
+                            f"Remove-DnsServerResourceRecord -ZoneName {zone} -Name {ptr_name}. -RRType PTR -Force"
                         )
 
     def print(self) -> str:
