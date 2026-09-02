@@ -84,44 +84,8 @@ jobs:
       with:
         path: sssd-ci-containers
         tag: ${{ matrix.tag }}
-        override: |
-          services:
-            client:
-              image: ${REGISTRY}/ci-client-devel:${TAG}
-              shm_size: 4G
-              tmpfs:
-              - /dev/shm
-              volumes:
-              - ../sssd:/sssd:rw
-            ipa:
-              image: ${REGISTRY}/ci-ipa-devel:${TAG}
-              shm_size: 4G
-              tmpfs:
-              - /dev/shm
-              volumes:
-              - ../sssd:/sssd:rw
 
-    - name: Build SSSD on the client and IPA
-      uses: SSSD/sssd-ci-containers/actions/exec@master
-      with:
-        log-file: build.log
-        working-directory: /sssd
-        where: |
-          client
-          ipa
-        script: |
-          #!/bin/bash
-          set -ex
-
-          ./contrib/ci/run --deps-only
-          autoreconf -if
-
-          mkdir -p /dev/shm/sssd
-          pushd /dev/shm/sssd
-          /sssd/configure --enable-silent-rules
-          make rpms
-
-    - name: Install SSSD on the client and IPA
+    - name: Install SSSD from nightly COPR on the client and IPA
       uses: SSSD/sssd-ci-containers/actions/exec@master
       with:
         log-file: install.log
@@ -133,8 +97,8 @@ jobs:
           #!/bin/bash
           set -ex
 
-          dnf install -y /dev/shm/sssd/rpmbuild/RPMS/*/*.rpm
-          rm -fr /dev/shm/sssd
+          dnf copr enable -y --hub copr.fedorainfracloud.org @sssd/nightly
+          dnf upgrade -y 'sssd*'
 
           # We need to reenable sssd-kcm since it was disabled by removing sssd not not enabled again
           systemctl enable --now sssd-kcm.socket
