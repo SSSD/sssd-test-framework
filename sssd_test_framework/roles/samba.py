@@ -1711,8 +1711,7 @@ class SambaDNSZone(SambaDNSServer, GenericDNSZone):
                                 .rstrip(",")
                             )
                             self.host.conn.run(
-                                f"samba-tool dns delete {self.server} {zone} "
-                                f"{_name} PTR {name} {self.credentials}",
+                                f"samba-tool dns delete {self.server} {zone} {_name} PTR {name} {self.credentials}",
                             )
 
     def print(self) -> str:

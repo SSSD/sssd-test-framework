@@ -50,7 +50,8 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         authselect: AuthselectUtils,
         load_config: bool = False,
     ) -> None:
-        """
+        (
+            """
         :param host: Multihost host.
         :type host: MultihostHost
         :param fs: File system utils.
@@ -63,7 +64,9 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
             :attr:`config`, otherwise default configuration is generated,
             defaults to False
         :type load_config: bool, optional
-        """ """"""
+        """
+            """"""
+        )
         super().__init__(host)
 
         self.authselect: AuthselectUtils = authselect

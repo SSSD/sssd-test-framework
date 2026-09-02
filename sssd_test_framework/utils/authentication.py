@@ -1226,7 +1226,7 @@ class SSHPasswdUtils(MultihostUtility[MultihostHost]):
         """
         super().__init__(host)
 
-        self.opts = "-o UserKnownHostsFile=/dev/null" " -o StrictHostKeyChecking=no"
+        self.opts = "-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
 
     def password_with_output(
         self,
