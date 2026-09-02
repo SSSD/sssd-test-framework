@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from pytest_mh import MultihostHost, MultihostUtility
 from pytest_mh.conn import ProcessResult
+
+if TYPE_CHECKING:
+    from sssd_test_framework.roles.generic import GenericADProvider
 
 __all__ = [
     "AdcliUtils",
@@ -29,6 +34,46 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
        For methods requiring an authentication, --stdin-password(-W) is a default. Setting krb=True will enable
        kerberos based authentication.
     """
+
+    def _resolve_provider_params(
+        self,
+        *,
+        provider: GenericADProvider | None = None,
+        domain: str | None = None,
+        login_user: str | None = None,
+        password: str | None = None,
+    ) -> tuple[str, str, str]:
+        """
+        Resolve domain, login_user, and password from either provider object or explicit parameters.
+
+        :param provider: Provider object (optional)
+        :type provider: GenericADProvider | None
+        :param domain: Domain string (optional if provider given)
+        :type domain: str | None
+        :param login_user: Login user (optional if provider given)
+        :type login_user: str | None
+        :param password: Password (optional if provider given)
+        :type password: str | None
+        :return: Tuple of (domain, login_user, password)
+        :rtype: tuple[str, str, str]
+        :raises ValueError: If neither provider nor domain is provided, or if credentials are missing
+        """
+        if provider is not None:
+            # Provider mode - use provider's attributes, allow overrides
+            resolved_domain = domain if domain is not None else provider.domain
+            resolved_user = login_user if login_user is not None else provider.host.adminuser  # type: ignore[attr-defined]
+            resolved_password = password if password is not None else provider.host.adminpw  # type: ignore[attr-defined]
+            return resolved_domain, resolved_user, resolved_password
+        elif domain is not None:
+            # Domain string mode - require explicit credentials
+            if not login_user or not password:
+                raise ValueError(
+                    "When using domain string mode, both 'login_user' and 'password' are required. "
+                    "Consider passing a 'provider' parameter instead."
+                )
+            return domain, login_user, password
+        else:
+            raise ValueError("Either 'provider' or 'domain' parameter must be provided.")
 
     def _exec_adcli(
         self,
@@ -162,78 +207,153 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
 
     def join(
         self,
+        provider: GenericADProvider | None = None,
         *,
-        domain: str,
-        args: list[str] | None = None,
-        password: str,
-        login_user: str,
+        domain: str | None = None,
+        login_user: str | None = None,
+        password: str | None = None,
         krb: bool = False,
+        args: list[str] | None = None,
+        # Convenience parameters for common adcli options
+        host_keytab: str | None = None,
+        computer_name: str | None = None,
+        domain_ou: str | None = None,
+        verbose: bool = False,
+        show_details: bool = False,
     ) -> ProcessResult:
         """
         Create a computer account.
 
-        :param domain: Domain.
-        :type domain: str
-        :param args: Additional arguments, defaults to None
-        :type args: list[str] | None, optional
-        :param password: Password
-        :type password: str
-        :param login_user: Authenticating User
-        :type login_user: str
+        Can be called with either a Provider object (recommended) or a domain string.
+
+        **Provider mode** (recommended):
+        Uses provider's domain and admin credentials by default. Override with optional parameters.
+
+        **Domain string mode** (backward compatibility):
+        Requires explicit login_user and password.
+
+        :param provider: Provider object (optional, recommended)
+        :type provider: GenericADProvider | None
+        :param domain: Domain string (optional if provider given, required otherwise)
+        :type domain: str | None
+        :param login_user: Authenticating user (optional if provider given), defaults to provider.host.adminuser
+        :type login_user: str | None
+        :param password: Password (optional if provider given), defaults to provider.host.adminpw
+        :type password: str | None
         :param krb: Use Kerberos credentials, defaults to False
-        :type krb: bool, optional
+        :type krb: bool
+        :param args: Additional custom arguments, defaults to None
+        :type args: list[str] | None
+        :param host_keytab: Custom keytab location (--host-keytab)
+        :type host_keytab: str | None
+        :param computer_name: Custom computer name (--computer-name)
+        :type computer_name: str | None
+        :param domain_ou: Organizational Unit (--domain-ou)
+        :type domain_ou: str | None
+        :param verbose: Enable verbose output (--verbose)
+        :type verbose: bool
+        :param show_details: Show details (--show-details)
+        :type show_details: bool
         :return: Result of called command.
         :rtype: ProcessResult
+
+        .. code-block:: python
+            :caption: Provider mode example
+
+            # Simple join using provider defaults (positional)
+            client.adcli.join(provider)
+
+            # Join with custom keytab (positional provider)
+            client.adcli.join(provider, host_keytab="/tmp/custom.keytab")
+
+            # Override credentials (keyword provider also works)
+            client.adcli.join(provider=provider, login_user="special-admin", password="Secret123")
+
+        .. code-block:: python
+            :caption: Domain string mode (backward compatibility)
+
+            client.adcli.join(domain="ad.test", login_user="admin", password="Secret123")
         """
+        # Resolve domain, login_user, and password
+        resolved_domain, resolved_user, resolved_password = self._resolve_provider_params(
+            provider=provider, domain=domain, login_user=login_user, password=password
+        )
+
+        # Build args list from convenience parameters
         if args is None:
             args = []
+
+        extra_args = []
+        if verbose:
+            extra_args.append("--verbose")
+        if show_details:
+            extra_args.append("--show-details")
+        if host_keytab:
+            extra_args.append(f"--host-keytab={host_keytab}")
+        if computer_name:
+            extra_args.append(f"--computer-name={computer_name}")
+        if domain_ou:
+            extra_args.append(f"--domain-ou={domain_ou}")
+
+        # Combine custom args with convenience args
+        all_args = [*extra_args, *args]
 
         command = self._exec_adcli(
             subcommand="join",
             positional_args=[],
-            domain=domain,
-            password=password,
-            login_user=login_user,
+            domain=resolved_domain,
+            password=resolved_password,
+            login_user=resolved_user,
             krb=krb,
-            args=args,
+            args=all_args,
         )
 
         return command
 
     def delete_computer(
         self,
+        provider: GenericADProvider | None = None,
         *,
-        domain: str,
-        args: list[str] | None = None,
-        password: str,
-        login_user: str,
+        domain: str | None = None,
+        login_user: str | None = None,
+        password: str | None = None,
         krb: bool = False,
+        args: list[str] | None = None,
     ) -> ProcessResult:
         """
         Delete computer account.
 
-        :param domain: Domain.
-        :type domain: str
-        :param args: additional arguments, defaults to None.
-        :type args: list[str] | None, optional
-        :param password: Password
-        :type password: str
-        :param login_user: Authenticating User
-        :type login_user: str
+        Can be called with either a Provider object (recommended) or a domain string.
+
+        :param provider: Provider object (optional, recommended)
+        :type provider: GenericADProvider | None
+        :param domain: Domain string (optional if provider given, required otherwise)
+        :type domain: str | None
+        :param login_user: Authenticating user (optional if provider given), defaults to provider.host.adminuser
+        :type login_user: str | None
+        :param password: Password (optional if provider given), defaults to provider.host.adminpw
+        :type password: str | None
         :param krb: Use Kerberos credentials, defaults to False
-        :type krb: bool, optional
+        :type krb: bool
+        :param args: Additional arguments, defaults to None
+        :type args: list[str] | None
         :return: Result of called command.
         :rtype: ProcessResult
         """
+        # Resolve domain, login_user, and password
+        resolved_domain, resolved_user, resolved_password = self._resolve_provider_params(
+            provider=provider, domain=domain, login_user=login_user, password=password
+        )
+
         if args is None:
             args = []
 
         command = self._exec_adcli(
             subcommand="delete-computer",
             positional_args=[],
-            domain=domain,
-            password=password,
-            login_user=login_user,
+            domain=resolved_domain,
+            password=resolved_password,
+            login_user=resolved_user,
             krb=krb,
             args=args,
         )
@@ -241,38 +361,48 @@ class AdcliUtils(MultihostUtility[MultihostHost]):
 
     def show_computer(
         self,
+        provider: GenericADProvider | None = None,
         *,
-        domain: str,
-        password: str,
-        args: list[str] | None = None,
-        login_user: str,
+        domain: str | None = None,
+        login_user: str | None = None,
+        password: str | None = None,
         krb: bool = False,
+        args: list[str] | None = None,
     ) -> ProcessResult:
         """
-        Show computer.
+        Show computer account information.
 
-        :param domain: Domain.
-        :type domain: str
-        :param args: additional arguments, defaults to None
-        :type args: list[str] | None, optional
-        :param password: Password
-        :type password: str
-        :param login_user: Authenticating User
-        :type login_user: str
+        Can be called with either a Provider object (recommended) or a domain string.
+
+        :param provider: Provider object (optional, recommended)
+        :type provider: GenericADProvider | None
+        :param domain: Domain string (optional if provider given, required otherwise)
+        :type domain: str | None
+        :param login_user: Authenticating user (optional if provider given), defaults to provider.host.adminuser
+        :type login_user: str | None
+        :param password: Password (optional if provider given), defaults to provider.host.adminpw
+        :type password: str | None
         :param krb: Use Kerberos credentials, defaults to False
-        :type krb: bool, optional
+        :type krb: bool
+        :param args: Additional arguments, defaults to None
+        :type args: list[str] | None
         :return: Result of called command.
         :rtype: ProcessResult
         """
+        # Resolve domain, login_user, and password
+        resolved_domain, resolved_user, resolved_password = self._resolve_provider_params(
+            provider=provider, domain=domain, login_user=login_user, password=password
+        )
+
         if args is None:
             args = []
 
         command = self._exec_adcli(
             subcommand="show-computer",
             positional_args=[],
-            domain=domain,
-            password=password,
-            login_user=login_user,
+            domain=resolved_domain,
+            password=resolved_password,
+            login_user=resolved_user,
             krb=krb,
             args=args,
         )
