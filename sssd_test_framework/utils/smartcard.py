@@ -244,6 +244,7 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
         client.sssd.dom("local")["local_auth_policy"] = "only"
         client.sssd.section(f"certmap/local/{username}")["matchrule"] = "<SUBJECT>.*CN=Test Cert.*"
         client.sssd.pam["pam_cert_auth"] = "True"
+        client.sssd.pam["p11_child_timeout"] = "30"
 
         data = client.host.fs.read(cert)
         client.host.fs.append("/etc/sssd/pki/sssd_auth_ca_db.pem", data)
