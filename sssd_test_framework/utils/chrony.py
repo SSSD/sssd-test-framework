@@ -30,9 +30,8 @@ class ChronyUtils(MultihostUtility[MultihostHost]):
 
         @pytest.mark.topology(KnownTopology.LDAP)
         def test_clock_skew(client: Client, provider: GenericProvider, kdc: KDC):
+            client.chrony.require()
             # ... setup ...
-            if not client.chrony.is_available():
-                pytest.skip("chronyc not available")
 
             with client.chrony.time_skew(24 * 60 * 60):  # +1 day
                 auth_ok = client.auth.ssh.password("user", "Secret123")
@@ -55,6 +54,25 @@ class ChronyUtils(MultihostUtility[MultihostHost]):
         """
         result = self.host.conn.run("which chronyc", raise_on_error=False)
         return result.rc == 0
+
+    def require(self) -> None:
+        """
+        Skip the current test if chrony cannot be used.
+
+        Checks that ``chronyc`` is installed and that ``chronyd`` can be
+        restarted and enter manual mode.  Call this at the **top** of any
+        test that needs :meth:`time_skew` so the test is skipped before
+        wasting time on unrelated setup.
+        """
+        if not self.is_available():
+            pytest.skip("chronyc not available")
+
+        result = self.host.conn.run(
+            "systemctl restart chronyd && chronyc -a 'manual on' 2>&1",
+            raise_on_error=False,
+        )
+        if result.rc != 0:
+            pytest.skip(f"chronyd not running or manual mode failed: {result.stdout}")
 
     @staticmethod
     def _offset_from_seconds(seconds: int) -> str:
