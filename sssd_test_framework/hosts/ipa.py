@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import PurePosixPath
 from typing import Any
 
-from pytest_mh.conn import ProcessLogLevel
+from pytest_mh.conn import ProcessError, ProcessLogLevel, ProcessTimeoutError
 
 from ..misc.ssh import retry_command
 from .base import BaseDomainHost, BaseLinuxHost
@@ -13,6 +13,11 @@ from .base import BaseDomainHost, BaseLinuxHost
 __all__ = [
     "IPAHost",
 ]
+
+# ipa-backup/ipa-restore can take several minutes on loaded CI hosts.
+IPA_DATA_OP_TIMEOUT = 900
+# ipactl start should finish quickly; keep recovery short so it cannot mask the original error.
+IPA_RECOVERY_TIMEOUT = 60
 
 
 class IPAHost(BaseDomainHost, BaseLinuxHost):
@@ -42,7 +47,7 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
 
         Full backup and restore is supported. However, the operation relies on
         ``ipa-backup`` and ``ipa-restore`` commands which can take several
-        seconds to finish.
+        minutes to finish on loaded CI hosts.
     """
 
     def __init__(self, *args, **kwargs) -> None:
@@ -120,6 +125,30 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
         """
         self.conn.exec(["kinit", "admin"], input=self.adminpw)
 
+    def _ensure_ipa_running(self) -> None:
+        """
+        Best-effort recovery when backup/restore left IPA services stopped.
+        """
+        self.conn.run(
+            "ipactl start || systemctl start ipa",
+            log_level=ProcessLogLevel.Error,
+            raise_on_error=False,
+            timeout=IPA_RECOVERY_TIMEOUT,
+        )
+
+    def _recover_ipa_after_failure(self, operation: str) -> None:
+        """
+        Try to start IPA after a failed backup/restore without masking the original error.
+        """
+        self.logger.warning(f"IPA {operation} failed, attempting to start IPA services")
+        try:
+            self._ensure_ipa_running()
+        except Exception:
+            self.logger.warning(
+                f"Failed to start IPA services after {operation} failure",
+                exc_info=True,
+            )
+
     def start(self) -> None:
         self.svc.start("ipa.service")
 
@@ -130,8 +159,8 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
         """
         Backup all IPA server data.
 
-        This is done by calling ``ipa-backup --data --online`` on the server
-        and can take several seconds to finish.
+        This is done by calling ``ipa-backup --data`` on the server and can
+        take several minutes to finish on loaded CI hosts.
 
         :return: Backup data.
         :rtype: Any
@@ -172,18 +201,23 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
                 echo $path
                 """,
                 log_level=ProcessLogLevel.Error,
+                timeout=IPA_DATA_OP_TIMEOUT,
             )
 
         self.logger.info("Creating backup of IPA server")
-        result = _backup()
+        try:
+            result = _backup()
+        except (ProcessTimeoutError, ProcessError):
+            self._recover_ipa_after_failure("backup")
+            raise
         return PurePosixPath(result.stdout_lines[-1].strip())
 
     def restore(self, backup_data: Any | None) -> None:
         """
         Restore all IPA server data to its original state.
 
-        This is done by calling ``ipa-restore --data --online`` on the server
-        and can take several seconds to finish.
+        This is done by calling ``ipa-restore --data`` on the server and can
+        take several minutes to finish on loaded CI hosts.
 
         :return: Backup data.
         :rtype: Any
@@ -227,9 +261,14 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
                 restore "{backup_path}/lib" /var/lib/sss
                 """,
                 log_level=ProcessLogLevel.Error,
+                timeout=IPA_DATA_OP_TIMEOUT,
             )
 
         backup_path = str(backup_data)
         self.logger.info(f"Restoring IPA server from {backup_path}")
-        _restore()
+        try:
+            _restore()
+        except (ProcessTimeoutError, ProcessError):
+            self._recover_ipa_after_failure("restore")
+            raise
         self.svc.restart("sssd.service")
