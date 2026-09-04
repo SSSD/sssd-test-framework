@@ -2659,13 +2659,14 @@ class ADCertificateAuthority(GenericCertificateAuthority):
         """)
         self.host.conn.run(inf_content)
 
-        result = self.host.conn.run(f'certreq -q -new "{inf_path}" "{req_path}"', raise_on_error=False)
-        if result.rc != 0:
-            raise RuntimeError(f"certreq -new failed: {result.stderr}!")
-
+        # Before running a request, check if the template even exists:
         templates_result = self.host.conn.run("certutil -catemplates", raise_on_error=False)
         if templates_result.rc != 0 or "EnrollmentAgent" not in templates_result.stdout:
             return
+
+        result = self.host.conn.run(f'certreq -q -new "{inf_path}" "{req_path}"', raise_on_error=False)
+        if result.rc != 0:
+            raise RuntimeError(f"certreq -new failed: {result.stderr}!")
 
         try:
             result = self.host.conn.run(
