@@ -91,7 +91,7 @@ class ADHost(BaseDomainHost):
         :rtype: str
         """
         if not self.__naming_context:
-            result = self.conn.run("Write-Host (Get-ADRootDSE).rootDomainNamingContext")
+            result = self.conn.run("Write-Host (Get-ADRootDSE).defaultNamingContext")
             nc = result.stdout.strip()
             if not nc:
                 raise ValueError("Unable to find default naming context")
