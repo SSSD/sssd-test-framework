@@ -61,7 +61,8 @@ class ClientHost(BaseHost, BaseLinuxHost):
             echo "limited_enumeration" || :
             [ -f "/usr/bin/vicc" ] && echo "virtualsmartcard" || :
             [ -f "/usr/bin/umockdev-run" ] && echo "umockdev" || :
-            lsmod | grep -q "vhci_hcd" && [ -f "/opt/test_venv/bin/vfido.py" ] && echo "vfido" || :
+            modprobe vhci_hcd 2>/dev/null && lsmod | grep -q "vhci_hcd" && [ -f "/opt/test_venv/bin/vfido.py" ] && \
+            echo "vfido" || :
             """,
             log_level=ProcessLogLevel.Error,
         )
