@@ -6,6 +6,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from pytest_mh.conn import ProcessLogLevel
+from pytest_mh.conn.ssh import SSHProcessError, SSHProcessTimeoutError
 
 from ..misc.ssh import retry_command
 from .base import BaseDomainHost, BaseLinuxHost
@@ -13,6 +14,9 @@ from .base import BaseDomainHost, BaseLinuxHost
 __all__ = [
     "IPAHost",
 ]
+
+# ipa-backup/ipa-restore can take several minutes on loaded CI hosts.
+IPA_DATA_OP_TIMEOUT = 900
 
 
 class IPAHost(BaseDomainHost, BaseLinuxHost):
@@ -42,7 +46,7 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
 
         Full backup and restore is supported. However, the operation relies on
         ``ipa-backup`` and ``ipa-restore`` commands which can take several
-        seconds to finish.
+        minutes to finish on loaded CI hosts.
     """
 
     def __init__(self, *args, **kwargs) -> None:
@@ -120,6 +124,17 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
         """
         self.conn.exec(["kinit", "admin"], input=self.adminpw)
 
+    def _ensure_ipa_running(self) -> None:
+        """
+        Best-effort recovery when backup/restore left IPA services stopped.
+        """
+        self.conn.run(
+            "ipactl start || systemctl start ipa",
+            log_level=ProcessLogLevel.Error,
+            raise_on_error=False,
+            timeout=IPA_DATA_OP_TIMEOUT,
+        )
+
     def start(self) -> None:
         self.svc.start("ipa.service")
 
@@ -172,6 +187,7 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
                 echo $path
                 """,
                 log_level=ProcessLogLevel.Error,
+                timeout=IPA_DATA_OP_TIMEOUT,
             )
 
         self.logger.info("Creating backup of IPA server")
@@ -182,8 +198,8 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
         """
         Restore all IPA server data to its original state.
 
-        This is done by calling ``ipa-restore --data --online`` on the server
-        and can take several seconds to finish.
+        This is done by calling ``ipa-restore --data`` on the server and can
+        take several minutes to finish on loaded CI hosts.
 
         :return: Backup data.
         :rtype: Any
@@ -227,9 +243,15 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
                 restore "{backup_path}/lib" /var/lib/sss
                 """,
                 log_level=ProcessLogLevel.Error,
+                timeout=IPA_DATA_OP_TIMEOUT,
             )
 
         backup_path = str(backup_data)
         self.logger.info(f"Restoring IPA server from {backup_path}")
-        _restore()
+        try:
+            _restore()
+        except (SSHProcessTimeoutError, SSHProcessError):
+            self.logger.warning("IPA restore failed, attempting to start IPA services")
+            self._ensure_ipa_running()
+            raise
         self.svc.restart("sssd.service")
