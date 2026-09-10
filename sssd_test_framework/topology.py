@@ -9,6 +9,7 @@ from pytest_mh import KnownTopologyBase, KnownTopologyGroupBase, Topology, Topol
 
 from .config import SSSDTopologyMark
 from .topology_controllers import (
+    ADForestTopologyController,
     ADTopologyController,
     BigLDAPTopologyController,
     ClientTopologyController,
@@ -167,6 +168,26 @@ class KnownTopology(KnownTopologyBase):
     )
     """
     .. topology-mark:: KnownTopology.AD
+    """
+
+    ADForest = SSSDTopologyMark(
+        name="ad-forest",
+        topology=Topology(TopologyDomain("sssd", client=1, ad=3)),
+        controller=ADForestTopologyController(),
+        fixtures=dict(
+            client="sssd.client[0]",
+            ad="sssd.ad[0]",
+            ad_child="sssd.ad[1]",
+            ad_tree="sssd.ad[2]",
+        ),
+    )
+    """
+    AD forest with root, child, and tree domains (three ``ad`` hosts, ordered
+    root → child → tree). Does not enroll the client or set ``provider`` /
+    auto-import an SSSD domain — use ``join_ad_root``, ``join_ad_child``, or
+    ``join_ad_tree`` and create objects / ``import_domain`` on that role.
+
+    .. topology-mark:: KnownTopology.ADForest
     """
 
     Samba = SSSDTopologyMark(
