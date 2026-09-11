@@ -253,6 +253,26 @@ class AD(BaseWindowsRole[ADHost]):
         """
         return self._ca
 
+    def export_root_ca_certificate(self) -> str:
+        """
+        Export the AD root CA certificate in PEM format.
+
+        Uses ``certutil.exe`` to export the root CA certificate from the AD certificate
+        store to a temporary DER file, then converts it to PEM format.
+
+        :return: PEM-formatted root CA certificate.
+        :rtype: str
+        :raises RuntimeError: If the root CA certificate cannot be exported or read.
+        """
+        self.host.conn.run('certutil.exe -f -"ca.cert" C:\\temp\\ca.crt', raise_on_error=False)
+        self.host.conn.run("certutil.exe -f -encode C:\\temp\\ca.crt C:\\temp\\ca.pem", raise_on_error=False)
+        result = self.host.conn.run("Get-Content C:\\temp\\ca.pem -Raw", raise_on_error=False)
+
+        if result.rc != 0:
+            raise RuntimeError(f"Failed to export root CA certificate: {result.stderr}")
+
+        return result.stdout.strip() + "\n"
+
     @property
     def naming_context(self) -> str:
         """
@@ -3102,3 +3122,15 @@ class ADCertificateAuthority(GenericCertificateAuthority):
 
         ca_cert_lines = [ca_cert_b64[i : i + 64] for i in range(0, len(ca_cert_b64), 64)]
         return "-----BEGIN CERTIFICATE-----\n" + "\n".join(ca_cert_lines) + "\n-----END CERTIFICATE-----\n"
+
+    def export_root_ca_certificate(self) -> str:
+        """
+        Export the AD root CA certificate in PEM format.
+
+        Implements :meth:`GenericCertificateAuthority.export_root_ca_certificate`.
+
+        :return: PEM-formatted root CA certificate.
+        :rtype: str
+        :raises RuntimeError: If CA certificate cannot be retrieved.
+        """
+        return self.get_ca_cert()
