@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from pytest_mh.conn import ProcessResult
 
 from ..hosts.client import ClientHost
@@ -27,6 +29,7 @@ from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
 from ..utils.vfido import Vfido
 from .base import BaseLinuxRole
+from .generic import GenericProvider
 
 __all__ = [
     "Client",
@@ -222,3 +225,138 @@ class Client(BaseLinuxRole[ClientHost]):
         """
 
         return self.local.sudorule(name)
+
+    def install_ca_cert(
+        self,
+        provider: GenericProvider,
+        name: str = "test-ca.crt",
+        cert_path: str | None = None,
+    ) -> str:
+        """
+        Install a CA certificate into the system trust store.
+
+        Fetches the root CA certificate from ``provider``, writes it to the system
+        trust anchor directory (``/etc/pki/ca-trust/source/anchors/<name>``),
+        runs ``update-ca-trust``, and configures ``/etc/openldap/ldap.conf``
+        so that OpenLDAP clients (adcli, realmd, ldapsearch, etc.) use the
+        system trust store.
+
+        All changes are tracked by the test framework and restored automatically
+        after the test.
+
+        :param provider: Provider role to fetch the root CA certificate from.
+        :type provider: ~sssd_test_framework.roles.generic.GenericProvider
+        :param name: Certificate filename under ``/etc/pki/ca-trust/source/anchors/``.
+            Ignored when ``cert_path`` is set.
+        :type name: str
+        :param cert_path: Full destination path on the client, overrides the default.
+        :type cert_path: str | None
+        :return: Path where the certificate was written on the client.
+        :rtype: str
+        """
+        ca_cert = provider.export_root_ca_certificate()
+
+        if cert_path is None:
+            cert_path = f"/etc/pki/ca-trust/source/anchors/{name}"
+
+        parent = os.path.dirname(cert_path)
+        if parent and len(parent.split("/")) > 2:
+            self.fs.mkdir_p(parent)
+
+        self.fs.write(cert_path, ca_cert)
+        self.host.conn.run("update-ca-trust")
+        self._configure_tls_cacert()
+
+        return cert_path
+
+    def install_ca_cert_from_server(
+        self,
+        hostname: str,
+        port: int = 636,
+        name: str = "test-ca.crt",
+        cert_path: str | None = None,
+    ) -> str:
+        """
+        Install a CA certificate by fetching it directly from a TLS server.
+
+        Connects to ``hostname:port`` with ``openssl s_client``, captures the
+        certificate the server presents, writes it to the system trust anchor
+        directory, runs ``update-ca-trust``, and points ``TLS_CACERT`` in
+        ``/etc/openldap/ldap.conf`` at the updated system bundle. Useful when
+        the server uses a self-signed certificate that is difficult to export
+        from the host (e.g. AD DC with no AD CS).
+
+        All changes are tracked by the test framework and restored automatically
+        after the test.
+
+        :param hostname: Hostname or IP of the TLS server.
+        :type hostname: str
+        :param port: TLS port, defaults to 636.
+        :type port: int
+        :param name: Certificate filename under ``/etc/pki/ca-trust/source/anchors/``.
+            Ignored when ``cert_path`` is set.
+        :type name: str
+        :param cert_path: Full destination path on the client, overrides the default.
+        :type cert_path: str | None
+        :return: Path where the certificate was written on the client.
+        :rtype: str
+        :raises RuntimeError: If the certificate cannot be fetched from the server.
+        """
+        result = self.host.conn.run(
+            f"openssl s_client -connect {hostname}:{port} -showcerts </dev/null 2>/dev/null",
+            raise_on_error=False,
+        )
+
+        certs = []
+        current: list[str] = []
+        for line in result.stdout.splitlines():
+            if "-----BEGIN CERTIFICATE-----" in line:
+                current = [line]
+            elif "-----END CERTIFICATE-----" in line:
+                current.append(line)
+                certs.append("\n".join(current))
+                current = []
+            elif current:
+                current.append(line)
+
+        if not certs:
+            raise RuntimeError(f"Failed to fetch certificate from {hostname}:{port}: {result.stderr}")
+
+        pem = certs[-1]
+
+        if cert_path is None:
+            cert_path = f"/etc/pki/ca-trust/source/anchors/{name}"
+
+        parent = os.path.dirname(cert_path)
+        if parent and len(parent.split("/")) > 2:
+            self.fs.mkdir_p(parent)
+
+        self.fs.write(cert_path, pem)
+        self.host.conn.run("update-ca-trust")
+        self._configure_tls_cacert()
+
+        return cert_path
+
+    def _configure_tls_cacert(self) -> None:
+        """
+        Configure ``/etc/openldap/ldap.conf`` for system CA trust and channel binding.
+
+        Removes any explicit ``TLS_CACERT`` and ``TLS_CACERTDIR`` directives so
+        libldap falls back to its compiled-in defaults (the system trust store).
+        Sets ``SASL_CBINDING tls-endpoint`` for channel binding support.
+        """
+        ldap_conf = "/etc/openldap/ldap.conf"
+
+        result = self.host.conn.run(f"cat {ldap_conf}", raise_on_error=False)
+        current = result.stdout if result.rc == 0 else ""
+
+        lines = [
+            line
+            for line in current.splitlines()
+            if not line.startswith("TLS_CACERT")
+            and not line.startswith("TLS_CACERTDIR")
+            and not line.startswith("SASL_CBINDING")
+        ]
+        lines.append("SASL_CBINDING tls-endpoint")
+
+        self.fs.write(ldap_conf, "\n".join(lines) + "\n")
