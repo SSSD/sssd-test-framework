@@ -388,7 +388,7 @@ class GenericProvider(ABC, MultihostRole[BaseHost]):
         Export the root CA certificate in PEM format.
 
         Used to install the CA certificate on the client for LDAPS connections via
-        :meth:`~sssd_test_framework.utils.cert.CertUtils.install_ca` or
+        :meth:`~sssd_test_framework.roles.client.Client.install_ca_cert` or
         :meth:`~sssd_test_framework.utils.sssd.SSSDCommonConfiguration.use_ldaps`.
 
         .. code-block:: python
@@ -396,7 +396,7 @@ class GenericProvider(ABC, MultihostRole[BaseHost]):
 
             @pytest.mark.topology(KnownTopologyGroup.AnyDC)
             def test_example(client: Client, provider: GenericProvider):
-                client.cert.install_ca(provider)
+                client.install_ca_cert(provider)
                 client.firewall.outbound.drop_port(389)
                 # ... join or LDAPS operation
 
