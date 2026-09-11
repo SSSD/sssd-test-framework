@@ -2787,9 +2787,9 @@ class ADCertificateAuthority(GenericCertificateAuthority):
         if enrollment_agent_hash is None:
             return self.request_basic(template, subject)
 
-        requester_name = f"{self.host.domain.upper()}\\Administrator"
-
         base = subject.split(",")[0].split("=")[1]
+        netbios_domain = self.host.conn.run("Write-Host (Get-ADDomain).NetBIOSName").stdout.strip()
+        requester_name = f"{netbios_domain}\\{base}"
         inf_path = os.path.join(self.temp_dir, f"{base}.inf")
         req_path = os.path.join(self.temp_dir, f"{base}.req")
         signed_req_path = os.path.join(self.temp_dir, f"{base}_signed.req")
