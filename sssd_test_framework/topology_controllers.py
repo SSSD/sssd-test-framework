@@ -23,6 +23,7 @@ __all__ = [
     "BigLDAPTopologyController",
     "IPATopologyController",
     "ADTopologyController",
+    "ADForestTopologyController",
     "SambaTopologyController",
     "IPATrustADTopologyController",
     "IPATrustSambaTopologyController",
@@ -292,6 +293,30 @@ class ADTopologyController(ProvisionedBackupTopologyController):
         self.join_domain(client, provider)
 
         # Backup so we can restore to this state after each test
+        super().topology_setup()
+
+
+class ADForestTopologyController(ProvisionedBackupTopologyController):
+    """
+    AD forest topology: root, child, and tree domain controllers.
+
+    Multihost hosts with role ``ad`` must be ordered root, child, tree.
+    Does not enroll the client; use ``join_ad_root``, ``join_ad_child``, or
+    ``join_ad_tree`` fixtures. Forest trusts must already exist (lab / IdM-CI).
+    """
+
+    @BackupTopologyController.restore_vanilla_on_error
+    def topology_setup(
+        self,
+        client: ClientHost,
+        ad: ADHost,
+        ad_child: ADHost,
+        ad_tree: ADHost,
+    ) -> None:
+        self.logger.info(f"AD forest: root={ad.domain}, child={ad_child.domain}, tree={ad_tree.domain}")
+        if self.provisioned:
+            self.logger.info(f"Topology '{self.name}' is already provisioned")
+            return
         super().topology_setup()
 
 
