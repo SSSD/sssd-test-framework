@@ -382,6 +382,30 @@ class GenericProvider(ABC, MultihostRole[BaseHost]):
         """
         pass
 
+    @abstractmethod
+    def export_root_ca_certificate(self) -> str:
+        """
+        Export the root CA certificate in PEM format.
+
+        Used to install the CA certificate on the client for LDAPS connections via
+        :meth:`~sssd_test_framework.roles.client.Client.install_ca_cert` or
+        :meth:`~sssd_test_framework.utils.sssd.SSSDCommonConfiguration.use_ldaps`.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopologyGroup.AnyDC)
+            def test_example(client: Client, provider: GenericProvider):
+                client.install_ca_cert(provider)
+                client.firewall.outbound.drop_port(389)
+                # ... join or LDAPS operation
+
+        :return: PEM-formatted root CA certificate.
+        :rtype: str
+        :raises RuntimeError: If the certificate cannot be exported.
+        """
+        pass
+
 
 class GenericADProvider(GenericProvider):
     """
@@ -1692,5 +1716,16 @@ class GenericCertificateAuthority(ABC):
         :type cert_path: str
         :returns: A dictionary of certificate attributes.
         :rtype: dict[str, list[str]]
+        """
+        pass
+
+    @abstractmethod
+    def export_root_ca_certificate(self) -> str:
+        """
+        Export the root CA certificate in PEM format.
+
+        :return: PEM-formatted root CA certificate.
+        :rtype: str
+        :raises RuntimeError: If the certificate cannot be exported.
         """
         pass
