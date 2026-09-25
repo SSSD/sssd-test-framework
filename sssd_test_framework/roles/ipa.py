@@ -949,7 +949,7 @@ class IPAUser(IPAObject, GenericUser):
         }
 
         if not require_password_reset:
-            attrs["password-expiration"] = (self.cli.option.VALUE, "20380101120000Z")
+            attrs["password-expiration"] = (self.cli.option.VALUE, "20370101120000Z")
 
         self._add(attrs, input=password or None)
         return self
@@ -1051,7 +1051,7 @@ class IPAUser(IPAObject, GenericUser):
         """
         pwinput = f"{password}\n{password}"
         self.role.host.conn.run(f"ipa passwd {self.name}", input=pwinput)
-        self.expire("20380101120000Z")
+        self.expire("20370101120000Z")
 
         return self
 
