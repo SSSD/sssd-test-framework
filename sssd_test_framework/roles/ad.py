@@ -6,11 +6,10 @@ import os
 import re
 import textwrap
 import uuid
-from datetime import datetime
 from typing import Any, TypeAlias, cast
 
 from pytest_mh.cli import CLIBuilderArgs
-from pytest_mh.conn import ProcessResult
+from pytest_mh.conn import ProcessError, ProcessResult
 
 from ..hosts.ad import ADHost
 from ..misc import (
@@ -523,6 +522,42 @@ class AD(BaseWindowsRole[ADHost]):
         """
         return GPO(self, name)
 
+    def scrub_orphan_gpo_links(self, site: str = "Default-First-Site-Name") -> None:
+        """
+        Drop gPLink entries that still reference deleted GPO objects.
+
+        Remove-GPLink cannot unlink after the GPO container is gone; rewrite
+        gPLink on the domain and the given AD site instead.
+        """
+        site_escaped = site.replace("'", "''")
+        self.host.conn.run(
+            f"""
+            Import-Module ActiveDirectory
+            function Set-CleanGPLink([string]$targetDn) {{
+                $obj = Get-ADObject -Identity $targetDn -Properties gPLink -ErrorAction SilentlyContinue
+                if (-not $obj -or -not $obj.gPLink) {{ return }}
+                $kept = @()
+                foreach ($chunk in [regex]::Matches($obj.gPLink, '\\[(.*?)\\]')) {{
+                    $entry = $chunk.Groups[1].Value
+                    if ($entry -match 'CN=\\{{[^}}]+\\}},CN=Policies,CN=System,[^;]+') {{
+                        $gpoDn = $Matches[0]
+                        if (Get-ADObject -Identity $gpoDn -ErrorAction SilentlyContinue) {{
+                            $kept += "[$entry]"
+                        }}
+                    }}
+                }}
+                Set-ADObject -Identity $targetDn -Replace @{{gPLink=($kept -join '')}}
+            }}
+            $domain = (Get-ADDomain).DistinguishedName
+            Set-CleanGPLink $domain
+            $configNc = (Get-ADRootDSE).configurationNamingContext
+            $siteName = '{site_escaped}'
+            $siteDn = "CN=$siteName,CN=Sites," + $configNc
+            Set-CleanGPLink $siteDn
+            """,
+            raise_on_error=False,
+        )
+
     def sudorule(self, name: str, basedn: ADObject | str | None = "ou=sudoers") -> ADSudoRule:
         """
         Get sudo rule object.
@@ -679,7 +714,12 @@ class ADObject(BaseObject[ADHost, AD]):
         return f"{basedn},{self.role.host.naming_context}"
 
     def _exec(
-        self, op: str, args: list[str] | str | None = None, *, format_with: str | None = None, **kwargs
+        self,
+        op: str,
+        args: list[str] | str | None = None,
+        *,
+        format_with: str | None = None,
+        **kwargs,
     ) -> ProcessResult:
         """
         Execute AD command.
@@ -757,7 +797,11 @@ class ADObject(BaseObject[ADHost, AD]):
         :rtype: dict[str, list[str]] | None
         """
         _ = opattrs
-        cmd = self._exec("Get", self.cli.args(self._identity, quote_value=True), format_with="Format-List")
+        cmd = self._exec(
+            "Get",
+            self.cli.args(self._identity, quote_value=True),
+            format_with="Format-List",
+        )
         return attrs_parse(cmd.stdout_lines, attrs)
 
     @property
@@ -827,7 +871,12 @@ class ADSite(ADObject, GenericSite):
     :class:`ADSite` implements :class:`GenericSite` for static typing and provider-agnostic tests.
     """
 
-    def __init__(self, role: AD, name: str, basedn: ADObject | str | None = "cn=sites,cn=configuration") -> None:
+    def __init__(
+        self,
+        role: AD,
+        name: str,
+        basedn: ADObject | str | None = "cn=sites,cn=configuration",
+    ) -> None:
         """
         :param role: AD role object.
         :type role: AD
@@ -971,7 +1020,10 @@ class ADUser(ADObject, GenericUser):
 
         attrs: CLIBuilderArgs = {
             "Name": (self.cli.option.VALUE, self.name),
-            "AccountPassword": (self.cli.option.PLAIN, f'(ConvertTo-SecureString "{password}" -AsPlainText -force)'),
+            "AccountPassword": (
+                self.cli.option.PLAIN,
+                f'(ConvertTo-SecureString "{password}" -AsPlainText -force)',
+            ),
             "OtherAttributes": (self.cli.option.PLAIN, attrs_to_hash(unix_attrs)),
             "Enabled": (self.cli.option.PLAIN, "$True"),
             "Path": (self.cli.option.VALUE, self.path),
@@ -1078,7 +1130,10 @@ class ADUser(ADObject, GenericUser):
         attrs: CLIBuilderArgs = {
             **self._identity,
             "Reset": (self.cli.option.SWITCH, True),
-            "NewPassword": (self.cli.option.PLAIN, f'(ConvertTo-SecureString "{password}" -AsPlainText -force)'),
+            "NewPassword": (
+                self.cli.option.PLAIN,
+                f'(ConvertTo-SecureString "{password}" -AsPlainText -force)',
+            ),
         }
 
         args = " ".join(self.cli.args(attrs, quote_value=True))
@@ -1086,25 +1141,21 @@ class ADUser(ADObject, GenericUser):
 
         return self
 
-    def expire(self, expiration: str | None = "19700101000000") -> ADUser:
+    def expire(self, expiration: str | None = "129465018000000000") -> ADUser:
         """
-        Set user password expiration date and time.
+        Expire the user account.
 
-        :param expiration: Date and time for user password expiration, defaults to 19700101000000
-        :type expiration: str | None, optional
+        Sets ``accountExpires`` directly (legacy ad_forest ``ad_set_expire_user``).
+
+        :param expiration: ``accountExpires`` value in Windows filetime (100-ns
+            intervals since 1601-01-01 UTC). Default is 2009-12-31.
+        :type expiration: str | None
         :return: Self.
         :rtype: ADUser
         """
         if expiration is None:
-            expiration = "19700101000000"
-        expire = datetime.strptime(expiration, "%Y%m%d%H%M%S")
-        expire_format = expire.strftime("%m/%d/%Y %H:%M:%S")
-
-        attrs: CLIBuilderArgs = {**self._identity, "DateTime": (self.cli.option.VALUE, f"{expire_format}")}
-
-        args = " ".join(self.cli.args(attrs, quote_value=True))
-        self.role.host.conn.run(f"Set-ADAccountExpiration {args}")
-
+            expiration = "129465018000000000"
+        self.role.host.conn.run(f"Set-ADUser -Identity '{self.dn}' -Replace @{{accountExpires={expiration}}}")
         return self
 
     def password_change_at_logon(self, **kwargs) -> ADUser:
@@ -1129,7 +1180,10 @@ class ADUser(ADObject, GenericUser):
         """
         attrs: CLIBuilderArgs = {
             **self._identity,
-            "Add": (self.cli.option.PLAIN, attrs_to_hash({"altSecurityIdentities": passkey_mapping})),
+            "Add": (
+                self.cli.option.PLAIN,
+                attrs_to_hash({"altSecurityIdentities": passkey_mapping}),
+            ),
         }
         self._modify(attrs)
         return self
@@ -1145,7 +1199,10 @@ class ADUser(ADObject, GenericUser):
         """
         attrs: CLIBuilderArgs = {
             **self._identity,
-            "Remove": (self.cli.option.PLAIN, attrs_to_hash({"altSecurityIdentities": passkey_mapping})),
+            "Remove": (
+                self.cli.option.PLAIN,
+                attrs_to_hash({"altSecurityIdentities": passkey_mapping}),
+            ),
         }
         self._modify(attrs)
         return self
@@ -1264,15 +1321,70 @@ class ADGroup(ADObject, GenericGroup):
         """
         Add multiple group members.
 
+        Same-domain members use ``Add-ADGroupMember``. Cross-domain Universal
+        members use ``DirectoryEntry.Invoke('Add')`` with a server-qualified
+        LDAP URL (``LDAP://dc.other.domain/CN=...``) and retries — bare DNs
+        fail with ``0x80072030`` for tree domains when the local DC cannot
+        resolve the object.
+
         :param members: List of users or groups to add as members.
         :type members: list[GroupMemberField]
         :return: Self.
         :rtype: ADGroup
         """
-        self.role.host.conn.run(f"""
-            Import-Module ActiveDirectory
-            Add-ADGroupMember -Identity '{self.dn}' -Members {self.__get_members(members)}
-        """)
+        naming_context = self.role.host.naming_context.lower()
+        same_domain: list[str] = []
+        cross_domain: list[GroupMemberField] = []
+        for member in members:
+            dn = self.__member_dn(member)
+            if self.__member_naming_context(member).lower() == naming_context:
+                same_domain.append(dn)
+            else:
+                cross_domain.append(member)
+
+        if same_domain:
+            members_ps = ",".join(f'"{dn}"' for dn in same_domain)
+            self.role.host.conn.run(f"""
+                Import-Module ActiveDirectory
+                Add-ADGroupMember -Identity '{self.dn}' -Members {members_ps}
+                """)
+
+        if cross_domain:
+            cross_urls: list[str] = []
+            for member in cross_domain:
+                dn = self.__member_dn(member)
+                if isinstance(member, ADObject):
+                    cross_urls.append(f"LDAP://{member.role.host.hostname}/{dn}")
+                else:
+                    cross_urls.append(f"LDAP://{dn}")
+            member_list = ",".join(f"'{url}'" for url in cross_urls)
+            self.role.host.conn.run(f"""
+                $ErrorActionPreference = 'Stop'
+                foreach ($m in @({member_list})) {{
+                    $added = $false
+                    $last = $null
+                    for ($i = 0; $i -lt 20; $i++) {{
+                        try {{
+                            $group = New-Object System.DirectoryServices.DirectoryEntry('LDAP://{self.dn}')
+                            $group.Invoke('Add', $m)
+                            $group.CommitChanges()
+                            $group.Dispose()
+                            $added = $true
+                            break
+                        }} catch {{
+                            $last = $_
+                            if ("$last" -match 'already a member of the group|ATTRIBUTE_OR_VALUE_EXISTS') {{
+                                $added = $true
+                                break
+                            }}
+                            Start-Sleep -Seconds 15
+                        }}
+                    }}
+                    if (-not $added) {{
+                        throw "Failed to add member $m to '{self.dn}': $last"
+                    }}
+                }}
+                """)
         return self
 
     def remove_member(self, member: GroupMemberField) -> ADGroup:
@@ -1295,10 +1407,11 @@ class ADGroup(ADObject, GenericGroup):
         :return: Self.
         :rtype: ADGroup
         """
+        members_ps = ",".join(f'"{self.__member_dn(x)}"' for x in members)
         self.role.host.conn.run(f"""
             Import-Module ActiveDirectory
-            Remove-ADGroupMember -Confirm:$False -Identity '{self.dn}' -Members {self.__get_members(members)}
-        """)
+            Remove-ADGroupMember -Confirm:$False -Identity '{self.dn}' -Members {members_ps}
+            """)
         return self
 
     def __member_dn(self, member: GroupMemberField) -> str:
@@ -1308,8 +1421,13 @@ class ADGroup(ADObject, GenericGroup):
             return member
         return member.name
 
-    def __get_members(self, members: list[GroupMemberField]) -> str:
-        return ",".join([f'"{self.__member_dn(x)}"' for x in members])
+    def __member_naming_context(self, member: GroupMemberField) -> str:
+        """Domain NC of ``member`` (not a parent-domain suffix match)."""
+        if isinstance(member, ADObject):
+            return member.role.host.naming_context
+        dn = self.__member_dn(member)
+        dc_parts = [part for part in dn.split(",") if part.lower().startswith("dc=")]
+        return ",".join(dc_parts) if dc_parts else dn
 
 
 class ADNetgroup(ADObject, GenericNetgroup):
@@ -2270,6 +2388,25 @@ class GPO(GenericGPO):
 
         return self
 
+    @classmethod
+    def cleanup(cls, *gpos: GPO | None) -> None:
+        """Unlink and delete GPOs, then scrub orphan gPLink entries on the domain."""
+        ad: AD | None = None
+        for gpo in gpos:
+            if gpo is None:
+                continue
+            ad = gpo.role
+            try:
+                gpo.unlink()
+            except ProcessError:
+                pass
+            try:
+                gpo.delete()
+            except ProcessError:
+                pass
+        if ad is not None:
+            ad.scrub_orphan_gpo_links()
+
 
 class ADPasswordPolicy(GenericPasswordPolicy):
     """
@@ -2926,7 +3063,11 @@ class ADCertificateAuthority(GenericCertificateAuthority):
         return attrs_ad_parse(result.stdout)
 
     def export_pfx(
-        self, cert_path: str, pfx_path: str, password: str = "Secret123", include_chain: bool = False
+        self,
+        cert_path: str,
+        pfx_path: str,
+        password: str = "Secret123",
+        include_chain: bool = False,
     ) -> None:
         """
         Export certificate as PFX file.
