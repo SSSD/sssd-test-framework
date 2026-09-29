@@ -4,6 +4,7 @@ How-To Guides
 .. toctree::
 
    skipping-conditional-tests
+   testing-adforest
    testing-authentication
    testing-autofs
    testing-dbus

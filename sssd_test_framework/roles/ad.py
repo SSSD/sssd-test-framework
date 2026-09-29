@@ -5,12 +5,13 @@ from __future__ import annotations
 import os
 import re
 import textwrap
+import time
 import uuid
 from datetime import datetime
 from typing import Any, TypeAlias, cast
 
 from pytest_mh.cli import CLIBuilderArgs
-from pytest_mh.conn import ProcessResult
+from pytest_mh.conn import ProcessError, ProcessResult
 
 from ..hosts.ad import ADHost
 from ..misc import (
@@ -411,7 +412,7 @@ class AD(BaseWindowsRole[ADHost]):
         """
         return ADOrganizationalUnit(self, name, basedn)
 
-    def site(self, name: str, basedn: ADObject | str | None = "cn=sites,cn=configuration") -> ADSite:
+    def site(self, name: str, basedn: ADObject | str | None = "cn=sites") -> ADSite:
         """
         Get site object.
 
@@ -423,9 +424,17 @@ class AD(BaseWindowsRole[ADHost]):
                 # Create New Site, this name cannot contain spaces
                 site = ad.site('New-Site').add()
 
+        Sites live in the forest's Configuration naming context, which is
+        shared by every domain in the forest. Unlike other objects on this
+        role, ``basedn`` is therefore resolved relative to
+        :attr:`ADHost.configuration_naming_context`, not
+        :attr:`ADHost.naming_context` -- see :class:`ADSite`. This works the
+        same way regardless of which domain's :class:`AD` role you call it
+        on (root, child, or tree).
+
         :param name: Site name.
         :type name: str, cannot contain spaces
-        :param basedn: Base dn, defaults to "cn=sites,cn=configuration"
+        :param basedn: Base dn, defaults to "cn=sites"
         :type basedn: ADObject | str | None, optional
         :return: New site object.
         :rtype: ADSite
@@ -522,6 +531,27 @@ class AD(BaseWindowsRole[ADHost]):
         :type name: str
         """
         return GPO(self, name)
+
+    def scrub_orphan_gpo_links(self, site: str = "Default-First-Site-Name") -> None:
+        """
+        Drop ``gPLink`` entries that still reference a deleted GPO.
+
+        ``Remove-GPLink`` cannot unlink a GPO after its container object is
+        already gone, so this rewrites ``gPLink`` on the domain and the given
+        site directly. :meth:`GPO.cleanup` calls this after unlinking/deleting
+        a GPO; call it directly if a GPO was removed some other way and a
+        later test fails with a stale ``gPLink`` reference.
+
+        This is a thin wrapper around :meth:`ADHost.scrub_orphan_gpo_links`,
+        which is also called automatically at the end of every
+        :meth:`ADHost.restore`, so in most cases you should not need to call
+        this directly -- it mainly exists for a test that wants the cleanup
+        to happen immediately rather than at teardown.
+
+        :param site: AD site whose ``gPLink`` should also be scrubbed, defaults to ``Default-First-Site-Name``
+        :type site: str, optional
+        """
+        self.host.scrub_orphan_gpo_links(site)
 
     def sudorule(self, name: str, basedn: ADObject | str | None = "ou=sudoers") -> ADSudoRule:
         """
@@ -824,19 +854,48 @@ class ADSite(ADObject, GenericSite):
     """
     AD site management.
 
+    Sites are not domain objects: they live in the forest's Configuration
+    naming context, a single partition shared by every domain in the
+    forest and always rooted at the forest root (see
+    :attr:`ADHost.configuration_naming_context`). ``_dn``/``_path`` are
+    therefore overridden here to resolve ``basedn`` relative to it instead
+    of the (per-domain) :attr:`ADHost.naming_context` that every other
+    :class:`ADObject` uses -- otherwise creating a site through a forest
+    child or tree domain's :class:`AD` role would build a DN that does not
+    exist (e.g. ``CN=Sites,CN=Configuration,DC=child,DC=root,DC=test``
+    instead of ``CN=Sites,CN=Configuration,DC=root,DC=test``).
+
     :class:`ADSite` implements :class:`GenericSite` for static typing and provider-agnostic tests.
     """
 
-    def __init__(self, role: AD, name: str, basedn: ADObject | str | None = "cn=sites,cn=configuration") -> None:
+    def __init__(self, role: AD, name: str, basedn: ADObject | str | None = "cn=sites") -> None:
         """
         :param role: AD role object.
         :type role: AD
         :param name: Site name, cannot contain spaces.
         :type name: str
-        :param basedn: Base dn, defaults to "cn=sites,cn=configuration"
+        :param basedn: Base dn, defaults to "cn=sites"
         :type basedn: ADObject | str | None, optional
         """
         super().__init__(role, "ReplicationSite", name, f"cn={name}", basedn)
+
+    def _dn(self, rdn: str, basedn: ADObject | str | None = None) -> str:
+        if isinstance(basedn, ADObject):
+            return f"{rdn},{basedn.dn}"
+
+        if not basedn:
+            return f"{rdn},{self.role.host.configuration_naming_context}"
+
+        return f"{rdn},{basedn},{self.role.host.configuration_naming_context}"
+
+    def _path(self, basedn: ADObject | str | None = None) -> str:
+        if isinstance(basedn, ADObject):
+            return basedn.dn
+
+        if not basedn:
+            return self.role.host.configuration_naming_context
+
+        return f"{basedn},{self.role.host.configuration_naming_context}"
 
     def add(self) -> ADSite:
         """
@@ -1264,16 +1323,69 @@ class ADGroup(ADObject, GenericGroup):
         """
         Add multiple group members.
 
+        Same-domain members use ``Add-ADGroupMember``. A member from a
+        different forest domain (e.g. this group is on the forest root and
+        the member is a user in the child or tree domain) uses
+        ``DirectoryEntry.Invoke('Add')`` with a server-qualified LDAP URL
+        instead -- ``Add-ADGroupMember`` cannot resolve a bare DN from another
+        domain, and cross-domain adds can trail replication briefly, so this
+        retries for a short time before giving up.
+
         :param members: List of users or groups to add as members.
         :type members: list[GroupMemberField]
         :return: Self.
         :rtype: ADGroup
         """
-        self.role.host.conn.run(f"""
-            Import-Module ActiveDirectory
-            Add-ADGroupMember -Identity '{self.dn}' -Members {self.__get_members(members)}
-        """)
+        own_naming_context = self.role.host.naming_context.lower()
+        same_domain: list[GroupMemberField] = []
+        cross_domain: list[GroupMemberField] = []
+        for member in members:
+            if self.__member_naming_context(member) == own_naming_context:
+                same_domain.append(member)
+            else:
+                cross_domain.append(member)
+
+        if same_domain:
+            self.role.host.conn.run(f"""
+                Import-Module ActiveDirectory
+                Add-ADGroupMember -Identity '{self.dn}' -Members {self.__get_members(same_domain)}
+            """)
+
+        for member in cross_domain:
+            self.__add_cross_domain_member(member)
+
         return self
+
+    def __add_cross_domain_member(self, member: GroupMemberField, *, retries: int = 6, delay: int = 10) -> None:
+        """Add one cross-domain member via ADSI, retrying briefly for replication lag."""
+        dn = self.__member_dn(member)
+        url = f"LDAP://{member.role.host.hostname}/{dn}" if isinstance(member, ADObject) else f"LDAP://{dn}"
+
+        last: ProcessError | None = None
+        for attempt in range(1, retries + 1):
+            try:
+                self.role.host.conn.run(f"""
+                    $ErrorActionPreference = 'Stop'
+                    $group = New-Object System.DirectoryServices.DirectoryEntry('LDAP://{self.dn}')
+                    $group.Invoke('Add', '{url}')
+                    $group.CommitChanges()
+                    $group.Dispose()
+                """)
+                return
+            except ProcessError as error:
+                if "already a member of the group" in str(error) or "ATTRIBUTE_OR_VALUE_EXISTS" in str(error):
+                    return
+                last = error
+                self.role.logger.info(
+                    f"Add cross-domain member {url} to '{self.dn}' failed "
+                    f"(attempt {attempt}/{retries}), retrying in {delay}s: {error}"
+                )
+                if attempt < retries:
+                    time.sleep(delay)
+
+        raise RuntimeError(
+            f"Failed to add cross-domain member {url} to '{self.dn}' after {retries} attempts"
+        ) from last
 
     def remove_member(self, member: GroupMemberField) -> ADGroup:
         """
@@ -1307,6 +1419,14 @@ class ADGroup(ADObject, GenericGroup):
         if isinstance(member, str):
             return member
         return member.name
+
+    def __member_naming_context(self, member: GroupMemberField) -> str:
+        """Domain naming context of ``member`` (not a parent-domain suffix match)."""
+        if isinstance(member, ADObject):
+            return member.role.host.naming_context.lower()
+        dn = self.__member_dn(member)
+        dc_parts = [part for part in dn.split(",") if part.lower().startswith("dc=")]
+        return ",".join(dc_parts).lower() if dc_parts else dn.lower()
 
     def __get_members(self, members: list[GroupMemberField]) -> str:
         return ",".join([f'"{self.__member_dn(x)}"' for x in members])
@@ -2122,6 +2242,42 @@ class GPO(GenericGPO):
         Implements :meth:`GenericGPO.unlink`.
         """
         self.role.host.conn.run(f'Remove-GPLink -Guid "{self.cn}" -Target "{self.target}"')
+
+    @classmethod
+    def cleanup(cls, *gpos: GPO | None) -> None:
+        """
+        Unlink and delete GPOs, then scrub orphan ``gPLink`` entries left on the domain.
+
+        :meth:`ADHost.restore` already scrubs orphan ``gPLink`` entries on
+        every AD host's own domain root and on the (shared) site at the end
+        of every test/topology teardown, so this happens automatically even
+        if a test never calls :meth:`cleanup`. Call this explicitly instead
+        when a test wants the GPO gone *immediately* -- e.g. to assert on
+        behavior after removal within the same test, or to unlink/delete a
+        GPO from an OU other than the domain root or default site, which the
+        automatic restore-time scrub does not reach.
+
+        :param gpos: GPOs to remove. ``None`` entries are ignored so callers
+            can pass optional GPOs without a preceding check.
+        :type gpos: GPO | None
+        """
+        ad: AD | None = None
+        for gpo in gpos:
+            if gpo is None:
+                continue
+
+            ad = gpo.role
+            try:
+                gpo.unlink()
+            except ProcessError as error:
+                gpo.host.logger.info(f"GPO.cleanup: unlink '{gpo.name}' failed, continuing: {error}")
+            try:
+                gpo.delete()
+            except ProcessError as error:
+                gpo.host.logger.info(f"GPO.cleanup: delete '{gpo.name}' failed, continuing: {error}")
+
+        if ad is not None:
+            ad.scrub_orphan_gpo_links()
 
     def permissions(self, target: str, permission_level: str, target_type: str | None = "Group") -> GPO:
         """

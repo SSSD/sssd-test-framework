@@ -40,6 +40,15 @@ class ADHost(BaseDomainHost):
 
         self._features: dict[str, bool] | None = None
 
+        self.forest_root: ADHost | None = None
+        """
+        Forest root domain controller, if this host is a forest child or tree
+        domain. ``None`` for the forest root itself and for hosts outside a
+        forest topology. Set by
+        :class:`~sssd_test_framework.topology_controllers.ADForestTopologyController`,
+        not by test code.
+        """
+
         self.adminpw: str = self.config.get("adminpw", "Secret123")
         """Password of the Administrator user, defaults to ``Secret123``."""
 
@@ -62,6 +71,7 @@ class ADHost(BaseDomainHost):
 
         # Lazy properties
         self.__naming_context: str | None = None
+        self.__configuration_naming_context: str | None = None
 
     @property
     def features(self) -> dict[str, bool]:
@@ -85,13 +95,20 @@ class ADHost(BaseDomainHost):
     @property
     def naming_context(self) -> str:
         """
-        Default naming context.
+        Default naming context, i.e. the distinguished name of *this* domain
+        (``defaultNamingContext``, not ``rootDomainNamingContext``).
+
+        A forest child or tree domain has its own naming context distinct from
+        the forest root; :meth:`backup`/:meth:`restore` and every default
+        ``basedn`` in this role are scoped to it. Using the root's naming
+        context here would point object creation and backup/restore at the
+        wrong domain whenever this host is not the forest root.
 
         :raises ValueError: If default naming context can not be obtained.
         :rtype: str
         """
         if not self.__naming_context:
-            result = self.conn.run("Write-Host (Get-ADRootDSE).rootDomainNamingContext")
+            result = self.conn.run("Write-Host (Get-ADRootDSE).defaultNamingContext")
             nc = result.stdout.strip()
             if not nc:
                 raise ValueError("Unable to find default naming context")
@@ -99,6 +116,84 @@ class ADHost(BaseDomainHost):
             self.__naming_context = nc
 
         return self.__naming_context
+
+    @property
+    def configuration_naming_context(self) -> str:
+        """
+        Distinguished name of the forest's Configuration naming context
+        (``configurationNamingContext``).
+
+        Unlike :attr:`naming_context`, this is a *single* partition shared by
+        every domain in the forest and is always rooted at the forest root
+        (e.g. ``CN=Configuration,DC=root,DC=test``), even when queried from a
+        child or tree domain controller. Sites live here
+        (``CN=Sites,<configuration_naming_context>``), so this must be used
+        instead of ``naming_context`` when building a site DN -- otherwise a
+        child/tree domain would build a non-existent path such as
+        ``CN=Sites,CN=Configuration,DC=child,DC=root,DC=test``.
+
+        :raises ValueError: If the configuration naming context can not be obtained.
+        :rtype: str
+        """
+        if not self.__configuration_naming_context:
+            result = self.conn.run("Write-Host (Get-ADRootDSE).configurationNamingContext")
+            nc = result.stdout.strip()
+            if not nc:
+                raise ValueError("Unable to find configuration naming context")
+
+            self.__configuration_naming_context = nc
+
+        return self.__configuration_naming_context
+
+    def scrub_orphan_gpo_links(self, site: str = "Default-First-Site-Name") -> None:
+        """
+        Drop ``gPLink`` entries on this domain's root object and on the given
+        site that still reference a GPO which no longer exists.
+
+        ``Remove-GPLink`` (and the GPO cleanup performed by :meth:`restore`)
+        can only unlink a GPO while its ``groupPolicyContainer`` object still
+        exists. In a forest, a GPO created on one domain can be linked onto a
+        *different* domain's object (or a site, which is forest-wide); once
+        the GPO is deleted, that other domain's own :meth:`restore` never
+        looks at it, since it never enumerates GPOs outside its own
+        :attr:`naming_context`, so the stale reference is never cleared. This
+        rewrites ``gPLink`` directly, keeping only entries whose referenced
+        GPO still resolves.
+
+        Called automatically at the end of :meth:`restore` on every AD host
+        so a forest's worth of restores together cover the domain root of
+        every domain plus the (shared) site. Call directly if a GPO was
+        removed some other way and a later test fails because of a stale
+        ``gPLink`` reference.
+
+        :param site: AD site whose ``gPLink`` should also be scrubbed, defaults to ``Default-First-Site-Name``
+        :type site: str, optional
+        """
+        site_escaped = site.replace("'", "''")
+        self.conn.run(
+            f"""
+            Import-Module ActiveDirectory
+            function Set-CleanGPLink([string]$targetDn) {{
+                $obj = Get-ADObject -Identity $targetDn -Properties gPLink -ErrorAction SilentlyContinue
+                if (-not $obj -or -not $obj.gPLink) {{ return }}
+                $kept = @()
+                foreach ($chunk in [regex]::Matches($obj.gPLink, '\\[(.*?)\\]')) {{
+                    $entry = $chunk.Groups[1].Value
+                    if ($entry -match 'CN=\\{{[^}}]+\\}},CN=Policies,CN=System,[^;]+') {{
+                        $gpoDn = $Matches[0]
+                        if (Get-ADObject -Identity $gpoDn -ErrorAction SilentlyContinue) {{
+                            $kept += "[$entry]"
+                        }}
+                    }}
+                }}
+                Set-ADObject -Identity $targetDn -Replace @{{gPLink=($kept -join '')}}
+            }}
+            Set-CleanGPLink '{self.naming_context}'
+            $siteDn = "CN={site_escaped},CN=Sites,{self.configuration_naming_context}"
+            Set-CleanGPLink $siteDn
+            """,
+            raise_on_error=False,
+        )
 
     def disconnect(self) -> None:
         return
@@ -124,7 +219,7 @@ class ADHost(BaseDomainHost):
         result = self.conn.run(
             rf"""
             $basedn = '{self.naming_context}'
-            $sitesdn = "cn=sites,cn=configuration,$basedn"
+            $sitesdn = 'cn=sites,{self.configuration_naming_context}'
 
             # Create temporary directory to store backups
             $tmpdir = New-TemporaryFile | % {{ Remove-Item $_; New-Item -ItemType Directory -Path $_ }}
@@ -186,6 +281,11 @@ class ADHost(BaseDomainHost):
         There is a check to ensure that the object is in 'cn=computers' otherwise
         the object will be deleted when attempting to restore the computer state.
 
+        Finally, :meth:`scrub_orphan_gpo_links` is called to clear any
+        ``gPLink`` reference left dangling by a GPO whose container object
+        is already gone (e.g. deleted by a different domain's restore in a
+        forest topology).
+
         :return: Backup data.
         :rtype: Any
         """
@@ -201,7 +301,7 @@ class ADHost(BaseDomainHost):
         self.conn.run(
             rf"""
             $basedn = '{self.naming_context}'
-            $sitesdn = "cn=sites,cn=configuration,$basedn"
+            $sitesdn = 'cn=sites,{self.configuration_naming_context}'
             $tmpdir = '{backup_path}'
 
             # Restore computers
@@ -318,3 +418,10 @@ class ADHost(BaseDomainHost):
             """,
             log_level=ProcessLogLevel.Error,
         )
+
+        # Best-effort safety net: clear gPLink references left dangling by a
+        # GPO that was deleted (by this restore or, in a forest, by another
+        # domain's restore) after the link was created. See
+        # scrub_orphan_gpo_links for why this can not be folded into the
+        # loop above.
+        self.scrub_orphan_gpo_links()

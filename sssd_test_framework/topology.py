@@ -9,6 +9,7 @@ from pytest_mh import KnownTopologyBase, KnownTopologyGroupBase, Topology, Topol
 
 from .config import SSSDTopologyMark
 from .topology_controllers import (
+    ADForestTopologyController,
     ADTopologyController,
     BigLDAPTopologyController,
     ClientTopologyController,
@@ -167,6 +168,31 @@ class KnownTopology(KnownTopologyBase):
     )
     """
     .. topology-mark:: KnownTopology.AD
+    """
+
+    ADForest = SSSDTopologyMark(
+        name="ad-forest",
+        topology=Topology(TopologyDomain("sssd", client=3, ad=3)),
+        controller=ADForestTopologyController(),
+        fixtures=dict(
+            client="sssd.client[0]",
+            client_child="sssd.client[1]",
+            client_tree="sssd.client[2]",
+            ad="sssd.ad[0]",
+            ad_child="sssd.ad[1]",
+            ad_tree="sssd.ad[2]",
+        ),
+    )
+    """
+    AD forest with root, child, and tree domains: three ``ad`` hosts (ordered
+    root, child, tree) and **three dedicated clients**, one per domain. Each
+    client is enrolled once, in :class:`~sssd_test_framework.topology_controllers.ADForestTopologyController`,
+    and stays joined for the whole topology -- there is no per-test leave/rejoin.
+    Does not import an SSSD domain or start SSSD; use
+    ``client.sssd.import_domain(...)`` and ``client.sssd.start()`` on whichever
+    client/domain pair the test needs, the same as every other topology.
+
+    .. topology-mark:: KnownTopology.ADForest
     """
 
     Samba = SSSDTopologyMark(

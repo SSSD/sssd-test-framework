@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import tempfile
 import textwrap
+from concurrent.futures import ThreadPoolExecutor
 
 from pytest_mh import BackupTopologyController
 from pytest_mh.conn import ProcessResult
@@ -23,6 +24,7 @@ __all__ = [
     "BigLDAPTopologyController",
     "IPATopologyController",
     "ADTopologyController",
+    "ADForestTopologyController",
     "SambaTopologyController",
     "IPATrustADTopologyController",
     "IPATrustSambaTopologyController",
@@ -301,6 +303,112 @@ class SambaTopologyController(ADTopologyController):
     """
 
     pass
+
+
+class ADForestTopologyController(ProvisionedBackupTopologyController):
+    """
+    AD forest topology: root, child, and tree domain controllers, each with
+    its own dedicated client.
+
+    Multihost hosts with role ``ad`` must be ordered root, child, tree, and
+    hosts with role ``client`` the same way. Forest trusts must already exist
+    (lab / IdM-CI provisioning); this controller does not create them, only
+    enrolls clients into it.
+
+    All three clients join **once**, in parallel, here in :meth:`topology_setup`
+    -- there is no per-test leave/rejoin. Each client stays a member of its
+    domain for the whole topology, exactly like :class:`ADTopologyController`
+    joins a single client once. Tests use whichever client/domain pair they
+    need and configure SSSD themselves with ``client.sssd.import_domain(...)``
+    and ``client.sssd.start()``, the same as every other topology.
+    """
+
+    @staticmethod
+    def _short_hostname(client: ClientHost) -> str:
+        return client.conn.run("hostname").stdout.split(".")[0].strip()
+
+    @classmethod
+    def _remove_stale_computer(cls, forest: tuple[ADHost, ...], short_hostname: str) -> None:
+        """
+        Remove a leftover computer account for ``short_hostname`` on every forest DC.
+
+        A previous run's failed teardown can leave a stale computer object
+        behind; realm join then fails with "Insufficient permissions to join
+        the domain" because it cannot reuse it.
+        """
+        for domain in forest:
+            domain.conn.run(
+                f"""
+                Import-Module ActiveDirectory
+                Get-ADComputer -Identity '{short_hostname}' -ErrorAction SilentlyContinue |
+                    Remove-ADComputer -Confirm:$false
+                """,
+                raise_on_error=False,
+            )
+
+    def _enroll(self, client: ClientHost, target: ADHost, forest: tuple[ADHost, ...]) -> None:
+        short_hostname = self._short_hostname(client)
+        hostname = f"{short_hostname}.{target.domain}"
+
+        client.fs.backup("/etc/hostname")
+        client.conn.run(f"echo {hostname} > /etc/hostname")
+        self.logger.info(f"Changing {client.hostname} hostname to {hostname}")
+        client.conn.run(f"hostname {hostname}")
+
+        self._remove_stale_computer(forest, short_hostname)
+        self.join_domain(client, target)
+
+    @staticmethod
+    def _assert_forest_shape(ad: ADHost, ad_child: ADHost, ad_tree: ADHost) -> None:
+        if not ad_child.domain.endswith(f".{ad.domain}"):
+            raise ValueError(
+                f"ad_forest: 'ad_child' ({ad_child.domain}) is not a subdomain of 'ad' ({ad.domain}); "
+                "check mhc.yaml 'ad' host order (must be root, child, tree)"
+            )
+
+        if ad_tree.domain == ad.domain or ad_tree.domain.endswith(f".{ad.domain}"):
+            raise ValueError(
+                f"ad_forest: 'ad_tree' ({ad_tree.domain}) is a subdomain of 'ad' ({ad.domain}), "
+                "expected a separate tree domain; check mhc.yaml 'ad' host order (must be root, child, tree)"
+            )
+
+    @BackupTopologyController.restore_vanilla_on_error
+    def topology_setup(
+        self,
+        client: ClientHost,
+        client_child: ClientHost,
+        client_tree: ClientHost,
+        ad: ADHost,
+        ad_child: ADHost,
+        ad_tree: ADHost,
+    ) -> None:
+        self._assert_forest_shape(ad, ad_child, ad_tree)
+        ad_child.forest_root = ad
+        ad_tree.forest_root = ad
+
+        self.logger.info(f"AD forest: root={ad.domain}, child={ad_child.domain}, tree={ad_tree.domain}")
+
+        if self.provisioned:
+            self.logger.info(f"Topology '{self.name}' is already provisioned")
+            return
+
+        forest = (ad, ad_child, ad_tree)
+        pairs = ((client, ad), (client_child, ad_child), (client_tree, ad_tree))
+
+        errors: list[Exception] = []
+        with ThreadPoolExecutor(max_workers=len(pairs)) as pool:
+            futures = {pool.submit(self._enroll, c, t, forest): c for c, t in pairs}
+            for future in futures:
+                try:
+                    future.result()
+                except Exception as exc:
+                    errors.append(exc)
+
+        if errors:
+            raise ExceptionGroup(f"ad_forest: realm join failed for {len(errors)} client(s)", errors)
+
+        # Backup so we can restore to this state (joined, hostnames set) after each test.
+        super().topology_setup()
 
 
 class IPATrustADTopologyController(ProvisionedBackupTopologyController):
