@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from pytest_mh import MultihostHost, MultihostUtility
@@ -86,6 +87,9 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
         self.host.conn.run(
             self.cli.command("softhsm2-util --init-token", args), env={"SOFTHSM2_CONF": self.SOFTHSM2_CONF_PATH}
         )
+        # SoftHSM's on-disk token store must be durable before any follow-up operation
+        # (e.g. initializing a second token right behind this one) reads it again.
+        self.host.conn.run("sync")
 
     def add_cert(
         self,
@@ -131,6 +135,7 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
         if label is not None:
             args["label"] = (self.cli.option.VALUE, label)
         self.host.conn.run(self.cli.command("pkcs11-tool", args), env={"SOFTHSM2_CONF": self.SOFTHSM2_CONF_PATH})
+        self.host.conn.run("sync")
 
     def add_key(
         self,
@@ -205,6 +210,59 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
         }
         self.host.conn.run(self.cli.command("openssl req", args))
         return key_path, cert_path
+
+    def token_slot_order(self, module: str = "/usr/lib64/pkcs11/libsofthsm2.so") -> list[str]:
+        """
+        Return initialized token labels in PKCS#11 slot enumeration order.
+
+        SoftHSM assigns slot numbers based on the order in which its
+        (randomly named) token directories are read from disk, not on the
+        order in which tokens were created or initialized; see `SoftHSM2
+        issue #334 <https://github.com/softhsm/SoftHSMv2/issues/334>`_ and
+        `#143 <https://github.com/softhsm/SoftHSMv2/issues/143>`_. Any
+        numbered certificate-selection menu (e.g. the one ``p11_child``
+        presents during authentication) enumerates slots the same way, so
+        when more than one token is present, a token's menu position must
+        be looked up at runtime rather than assumed from creation order.
+
+        :param module: Path to the PKCS#11 module to query, defaults to
+            SoftHSM's module.
+        :type module: str, optional
+        :return: Initialized token labels, in slot/menu order.
+        :rtype: list[str]
+        """
+        args: CLIBuilderArgs = {
+            "module": (self.cli.option.VALUE, module),
+            "list-token-slots": (self.cli.option.SWITCH, True),
+        }
+        result = self.host.conn.run(
+            self.cli.command("pkcs11-tool", args), env={"SOFTHSM2_CONF": self.SOFTHSM2_CONF_PATH}
+        )
+        return re.findall(r"token label\s*:\s*(\S+)", result.stdout)
+
+    def find_slot(self, label: str, module: str = "/usr/lib64/pkcs11/libsofthsm2.so") -> int:
+        """
+        Return the 1-based menu/slot position of the token labeled *label*.
+
+        This is the number a caller should send to a numbered certificate
+        selection menu (e.g. the one ``p11_child`` presents during
+        multi-certificate authentication) to pick this specific token.
+        See :meth:`token_slot_order` for why this cannot be assumed from
+        token creation order and must be looked up at runtime.
+
+        :param label: Token label to find.
+        :type label: str
+        :param module: Path to the PKCS#11 module to query, defaults to
+            SoftHSM's module.
+        :type module: str, optional
+        :raises ValueError: If no initialized token with *label* is found.
+        :return: 1-based position of the token in the slot/menu order.
+        :rtype: int
+        """
+        order = self.token_slot_order(module=module)
+        if label not in order:
+            raise ValueError(f"Token '{label}' not found in PKCS#11 slot list: {order}")
+        return order.index(label) + 1
 
     def insert_card(self) -> None:
         """
