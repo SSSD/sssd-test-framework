@@ -13,6 +13,7 @@ __all__ = [
     "Keycloak",
     "KeycloakUser",
     "KeycloakGroup",
+    "KeycloakIdpClient",
 ]
 
 
@@ -69,6 +70,17 @@ class Keycloak(BaseLinuxRole[KeycloakHost]):
         :rtype: KeycloakGroup
         """
         return KeycloakGroup(self, name)
+
+    def idp_client(self, name: str) -> KeycloakIdpClient:
+        """
+        Get user object.
+
+        :param name: User name.
+        :type name: str
+        :return: New user object.
+        :rtype: KeycloakUser
+        """
+        return KeycloakIdpClient(self, name)
 
 
 class KeycloakObject(BaseObject[KeycloakHost, Keycloak]):
@@ -379,3 +391,65 @@ class KeycloakGroup(KeycloakObject):
         users = [x for item in members if isinstance(item, KeycloakUser) for x in (f"users/{item.id}",)]
         groups = [x for item in members if isinstance(item, KeycloakGroup) for x in (f"groups/{item.id}",)]
         return [*users, *groups]
+
+
+class KeycloakIdpClient(KeycloakObject):
+    """
+    Keycloak client management.
+    """
+
+    def __init__(self, role: Keycloak, name: str) -> None:
+        """
+        :param role: Keycloak role object.
+        :type role: Keycloak
+        :param name: Client name.
+        :type name: str
+        """
+        super().__init__(role, name)
+
+    def add(self, *, client_secret: str | None = "ClientSecret123") -> None:
+        self.host.conn.run(
+            f"/opt/keycloak/bin/kcadm.sh create clients -r master "
+            f'-b \'{{"clientId": "{self.name}", "clientAuthenticatorType": "client-secret", '
+            f'"secret": "{client_secret}", "serviceAccountsEnabled": true, '
+            f'"attributes": {{"oauth2.device.authorization.grant.enabled": "true"}}}}\' '
+        )
+        self.host.conn.run(
+            "/opt/keycloak/bin/kcadm.sh add-roles -r master "
+            "--cclientid account --rolename view-groups --uusername service-account-myclient"
+        )
+        self.host.conn.run(
+            "/opt/keycloak/bin/kcadm.sh add-roles -r master "
+            "--cclientid master-realm --rolename view-users --uusername service-account-myclient"
+        )
+        self.host.conn.run(
+            "/opt/keycloak/bin/kcadm.sh add-roles -r master "
+            "--cclientid master-realm --rolename query-users --uusername service-account-myclient"
+        )
+        self.host.conn.run(
+            "/opt/keycloak/bin/kcadm.sh add-roles -r master "
+            "--cclientid master-realm --rolename query-groups --uusername service-account-myclient"
+        )
+
+    def get(self) -> dict[str, list[str]]:
+        """
+        Get Keycloak client details.
+
+        :return: Dict of client info
+        :rtype: Dict
+        """
+        get_client = f"get clients -q clientId={self.name}"
+        result = self.role.kcadm(get_client)
+
+        out: dict[str, list[str]] = {}
+        if not result.stdout or result.stdout == "[ ]":
+            return out
+
+        json1 = json.loads(result.stdout)[0]
+        for key in json1.keys():
+            out.setdefault(key, [])
+            out[key].append(json1[key])
+
+        self.id = out["id"][0]
+
+        return out

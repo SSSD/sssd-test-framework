@@ -44,6 +44,16 @@ class KnownTopology(KnownTopologyBase):
             assert True
     """
 
+    IdpClient = SSSDTopologyMark(
+        name="idp_client",
+        topology=Topology(TopologyDomain("sssd", client=1, keycloak=1)),
+        controller=ClientTopologyController(),
+        fixtures=dict(client="sssd.client[0]", provider="sssd.client[0]", keycloak="sssd.keycloak[0]"),
+    )
+    """
+    .. topology-mark:: KnownTopology.IdpClient
+    """
+
     BareClient = SSSDTopologyMark(
         name="bare_client",
         topology=Topology(TopologyDomain("sssd", client=1)),
