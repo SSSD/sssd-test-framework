@@ -1235,7 +1235,7 @@ class SSSDCommonConfiguration(object):
     def ssl_tls(
         self,
         provider: GenericProvider,
-        cacert: str = "/etc/pki/ca-trust/source/anchors/test-ca.crt",
+        cacert: str | None = None,
     ) -> None:
         """
         Configure SSSD to connect to the provider over an encrypted LDAP channel.
@@ -1256,15 +1256,23 @@ class SSSDCommonConfiguration(object):
             :caption: Example usage
 
             @pytest.mark.topology(KnownTopologyGroup.AnyDC)
-            def test_example(client: Client, provider: GenericProvider):
+            def test_ldaps__user_lookup_over_encrypted_channel(client: Client, provider: GenericProvider):
+                u = provider.user("tuser").add()
                 client.sssd.common.ssl_tls(provider)
                 client.sssd.start()
+                result = client.tools.id("tuser")
+                assert result is not None
 
         :param provider: Provider role to determine the SSSD option to set.
         :type provider: ~sssd_test_framework.roles.generic.GenericProvider
-        :param cacert: Path to the CA certificate on the client.
-        :type cacert: str
+        :param cacert: Path to the CA certificate on the client. Defaults to the
+            topology-specific cert installed by the topology controller.
+        :type cacert: str | None
         """
+        if cacert is None:
+            _cert_names = {"ipa": "ipa-ca.crt", "samba": "samba-ca.crt", "ad": "ad-ca.crt"}
+            _provider_type = type(provider).__name__.lower()
+            cacert = f"/etc/pki/ca-trust/source/anchors/{_cert_names.get(_provider_type, 'test-ca.crt')}"
         self.sssd.domain["ldap_tls_cacert"] = cacert
         if provider.name == "ad":
             self.sssd.domain["ad_use_ldaps"] = "True"

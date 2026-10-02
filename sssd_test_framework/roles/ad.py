@@ -256,22 +256,13 @@ class AD(BaseWindowsRole[ADHost]):
         """
         Export the AD root CA certificate in PEM format.
 
-        Uses ``certutil.exe`` to export the root CA certificate from the AD
-        Certificate Services store (requires AD CS to be installed on the DC).
+        Delegates to :meth:`~sssd_test_framework.hosts.ad.ADHost.get_ca_cert`.
 
         :return: PEM-formatted root CA certificate.
         :rtype: str
         :raises RuntimeError: If the root CA certificate cannot be exported.
         """
-        tmp = "C:\\Windows\\Temp"
-        self.host.conn.run(f'certutil.exe -f -"ca.cert" {tmp}\\ca.crt', raise_on_error=False)
-        self.host.conn.run(f"certutil.exe -f -encode {tmp}\\ca.crt {tmp}\\ca.pem", raise_on_error=False)
-        result = self.host.conn.run(f"Get-Content {tmp}\\ca.pem -Raw", raise_on_error=False)
-
-        if result.rc != 0 or not result.stdout.strip():
-            raise RuntimeError(f"Failed to export root CA certificate: {result.stderr}")
-
-        return result.stdout.strip() + "\n"
+        return self.host.get_ca_cert()
 
     @property
     def naming_context(self) -> str:

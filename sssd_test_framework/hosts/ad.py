@@ -337,31 +337,17 @@ class ADHost(BaseDomainHost):
 
     def get_ca_cert(self) -> str:
         """
-        Get the CA certificate in PEM format by querying the Windows certificate store.
+        Get the CA certificate in PEM format using certutil.
 
         :return: CA certificate in PEM format.
         :rtype: str
         :raises RuntimeError: If CA certificate cannot be retrieved.
         """
-        ca_name = self.get_ca_config().split("\\", 1)[1].strip('"')
         result = self.conn.run(
-            textwrap.dedent(f"""\
-                $ca = Get-ChildItem -Path Cert:\\LocalMachine\\Root | Where-Object {{
-                    $_.Subject -like '*CN={ca_name}*' -and $_.Issuer -eq $_.Subject
-                }} | Select-Object -First 1
-                if ($ca) {{
-                    [System.Convert]::ToBase64String($ca.Export('Cert'))
-                }} else {{
-                    $ca = Get-ChildItem -Path Cert:\\LocalMachine\\My | Where-Object {{
-                        $_.Subject -like '*CN={ca_name}*'
-                    }} | Select-Object -First 1
-                    if ($ca) {{
-                        [System.Convert]::ToBase64String($ca.Export('Cert'))
-                    }} else {{
-                        Write-Error "CA certificate not found"
-                        exit 1
-                    }}
-                }}
+            textwrap.dedent("""\
+                certutil.exe -f -"ca.cert" C:\\Windows\\Temp\\ca.crt
+                certutil.exe -f -encode C:\\Windows\\Temp\\ca.crt C:\\Windows\\Temp\\ca.pem
+                Get-Content C:\\Windows\\Temp\\ca.pem -Raw
             """),
             raise_on_error=False,
         )
@@ -369,10 +355,8 @@ class ADHost(BaseDomainHost):
         if result.rc != 0:
             raise RuntimeError(f"Failed to get CA certificate: {result.stderr}!")
 
-        ca_cert_b64 = result.stdout.strip()
+        cert_pem = result.stdout.strip()
+        if not cert_pem or "-----BEGIN CERTIFICATE-----" not in cert_pem:
+            raise RuntimeError("CA certificate not found in certutil output!")
 
-        if not ca_cert_b64:
-            raise RuntimeError("CA certificate not found in certificate stores!")
-
-        ca_cert_lines = [ca_cert_b64[i : i + 64] for i in range(0, len(ca_cert_b64), 64)]
-        return "-----BEGIN CERTIFICATE-----\n" + "\n".join(ca_cert_lines) + "\n-----END CERTIFICATE-----\n"
+        return cert_pem + "\n"

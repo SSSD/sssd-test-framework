@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, Sequence
 
 import jc
@@ -1211,10 +1212,13 @@ class OpenSSLUtils:
         :return: Path where the certificate was written on the client.
         :rtype: str
         """
-        import os
-
         if cert_path is None:
             cert_path = f"/etc/pki/ca-trust/source/anchors/{name}"
+
+        if self.fs.exists(cert_path) and self.fs.read(cert_path).strip() == cert_pem.strip():
+            return cert_path
+
+        self.fs.backup(cert_path)
 
         parent = os.path.dirname(cert_path)
         if parent and len(parent.split("/")) > 2:
@@ -1222,7 +1226,7 @@ class OpenSSLUtils:
 
         self.fs.write(cert_path, cert_pem)
         self.host.conn.run("update-ca-trust")
-        self._configure_tls_cacert()
+        self._configure_openldap()
 
         return cert_path
 
@@ -1278,7 +1282,7 @@ class OpenSSLUtils:
 
         return self.install_ca_cert(certs[-1], name=name, cert_path=cert_path)
 
-    def _configure_tls_cacert(self) -> None:
+    def _configure_openldap(self) -> None:
         """
         Configure ``/etc/openldap/ldap.conf`` for system CA trust and channel binding.
 
@@ -1288,6 +1292,7 @@ class OpenSSLUtils:
         """
         ldap_conf = "/etc/openldap/ldap.conf"
 
+        self.fs.backup(ldap_conf)
         result = self.host.conn.run(f"cat {ldap_conf}", raise_on_error=False)
         current = result.stdout if result.rc == 0 else ""
 
