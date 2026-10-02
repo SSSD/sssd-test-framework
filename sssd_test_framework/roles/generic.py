@@ -120,7 +120,7 @@ class GenericProvider(ABC, MultihostRole[BaseHost]):
             :caption: Example usage
 
             @pytest.mark.topology(KnownTopologyGroup.Any)
-            def test_example(client: Client, provider: GenericProvider):
+            def test_password_policy__lockout(client: Client, provider: GenericProvider):
                 # Enable password complexity
                 provider.password_policy.complexity(enable=True)
 
@@ -395,7 +395,7 @@ class GenericProvider(ABC, MultihostRole[BaseHost]):
             :caption: Example usage
 
             @pytest.mark.topology(KnownTopologyGroup.AnyDC)
-            def test_example(client: Client, provider: GenericProvider):
+            def test_ldaps__certificate_install(client: Client, provider: GenericProvider):
                 client.install_ca_cert(provider)
                 client.firewall.outbound.drop_port(389)
                 # ... join or LDAPS operation
