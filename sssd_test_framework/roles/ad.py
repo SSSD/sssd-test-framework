@@ -2691,7 +2691,7 @@ class ADCertificateAuthority(GenericCertificateAuthority):
 
         try:
             result = self.host.conn.run(
-                f'certreq -submit -config "{self._get_ca_config()}" "{req_path}" "{cert_path}"',
+                f'certreq -submit -config "{self.host.get_ca_config()}" "{req_path}" "{cert_path}"',
                 raise_on_error=False,
                 timeout=30,
             )
@@ -2771,7 +2771,7 @@ class ADCertificateAuthority(GenericCertificateAuthority):
 
         self.host.conn.run(f'certreq -q -new "{inf_path}" "{req_path}"')
 
-        self.host.conn.run(f'certreq -submit -config "{self._get_ca_config()}" "{req_path}" "{cert_path}"')
+        self.host.conn.run(f'certreq -submit -config "{self.host.get_ca_config()}" "{req_path}" "{cert_path}"')
 
         self.export_pfx(cert_path, pfx_path, password=password)
 
@@ -2841,7 +2841,7 @@ class ADCertificateAuthority(GenericCertificateAuthority):
 
         self.host.conn.run(f'certreq -q -sign -cert "{enrollment_agent_hash}" "{req_path}" "{signed_req_path}"')
 
-        self.host.conn.run(f'certreq -submit -config "{self._get_ca_config()}" "{signed_req_path}" "{cert_path}"')
+        self.host.conn.run(f'certreq -submit -config "{self.host.get_ca_config()}" "{signed_req_path}" "{cert_path}"')
 
         self.export_pfx(cert_path, pfx_path)
 
@@ -2905,7 +2905,7 @@ class ADCertificateAuthority(GenericCertificateAuthority):
         serial = self._get_cert_serial(cert_path)
         reason_code = self._revocation_reason_to_code(reason)
 
-        self.host.conn.run(f'certutil -config "{self._get_ca_config()}" -revoke {serial} {reason_code}')
+        self.host.conn.run(f'certutil -config "{self.host.get_ca_config()}" -revoke {serial} {reason_code}')
 
     def revoke_hold(self, cert_path: str) -> None:
         """
@@ -2929,7 +2929,7 @@ class ADCertificateAuthority(GenericCertificateAuthority):
         """
         serial = self._get_cert_serial(cert_path)
 
-        self.host.conn.run(f'certutil -config "{self._get_ca_config()}" -revoke {serial} 8')  # 8 = removeFromCRL
+        self.host.conn.run(f'certutil -config "{self.host.get_ca_config()}" -revoke {serial} 8')  # 8 = removeFromCRL
 
     def get(self, cert_path: str) -> dict[str, list[str]]:
         """
@@ -2995,15 +2995,6 @@ class ADCertificateAuthority(GenericCertificateAuthority):
         result = self.host.conn.run(cmd)
 
         return attrs_ad_parse(result.stdout)
-
-    def _get_ca_config(self) -> str:
-        """
-        Get CA configuration string.
-
-        :return: CA configuration string.
-        :rtype: str
-        """
-        return self.host._get_ca_config()
 
     def _get_cert_serial(self, cert_path: str) -> str:
         """

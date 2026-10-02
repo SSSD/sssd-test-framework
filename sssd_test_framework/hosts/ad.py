@@ -320,7 +320,7 @@ class ADHost(BaseDomainHost):
             log_level=ProcessLogLevel.Error,
         )
 
-    def _get_ca_config(self) -> str:
+    def get_ca_config(self) -> str:
         """
         Get CA configuration string.
 
@@ -343,7 +343,7 @@ class ADHost(BaseDomainHost):
         :rtype: str
         :raises RuntimeError: If CA certificate cannot be retrieved.
         """
-        ca_name = self._get_ca_config().split("\\", 1)[1].strip('"')
+        ca_name = self.get_ca_config().split("\\", 1)[1].strip('"')
         result = self.conn.run(
             textwrap.dedent(f"""\
                 $ca = Get-ChildItem -Path Cert:\\LocalMachine\\Root | Where-Object {{
