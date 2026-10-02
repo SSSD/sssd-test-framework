@@ -16,6 +16,7 @@ from .hosts.keycloak import KeycloakHost
 from .hosts.ldap import LDAPHost
 from .hosts.samba import SambaHost
 from .misc.ssh import retry_command
+from .utils.tools import OpenSSLUtils
 
 __all__ = [
     "LDAPTopologyController",
@@ -251,6 +252,11 @@ class IPATopologyController(ProvisionedBackupTopologyController):
 
         client.fs.backup("/etc/resolv.conf")
 
+        # Install IPA CA certificate so LDAPS/STARTTLS tests can use it without per-test setup.
+        # Done before the provisioned check so it runs even on already-provisioned containers.
+        cert_pem = ipa.fs.read("/etc/ipa/ca.crt")
+        OpenSSLUtils(client, client.fs).install_ca_cert(cert_pem)
+
         if self.provisioned:
             self.logger.info(f"Topology '{self.name}' is already provisioned")
             return
@@ -283,6 +289,24 @@ class ADTopologyController(ProvisionedBackupTopologyController):
             if "127.0.0.1" not in provider.fs.read("/etc/resolv.conf"):
                 provider.fs.backup("/etc/resolv.conf")
                 provider.fs.write("/etc/resolv.conf", f"search {provider.domain}\nnameserver 127.0.0.1\n\n")
+
+        # Install CA certificate so LDAPS tests can use it without per-test setup.
+        # Done before the provisioned check so it runs even on already-provisioned containers.
+        if isinstance(provider, SambaHost):
+            ca_cert_path = provider.config.get("ca_cert_path", "/var/data/certs/ca.crt")
+            result = provider.conn.run(f"cat {ca_cert_path}", raise_on_error=False)
+            if result.rc == 0 and result.stdout.strip():
+                OpenSSLUtils(client, client.fs).install_ca_cert(result.stdout)
+        elif isinstance(provider, ADHost):
+            try:
+                cert_pem = provider.get_ca_cert()
+                OpenSSLUtils(client, client.fs).install_ca_cert(cert_pem)
+            except RuntimeError:
+                self.logger.warning("AD CA certificate not found via cert store, falling back to openssl s_client")
+                try:
+                    OpenSSLUtils(client, client.fs).install_ca_cert_from_server(provider.hostname)
+                except Exception:
+                    self.logger.warning("Could not install AD CA cert; LDAPS tests will need per-test cert install")
 
         if self.provisioned:
             self.logger.info(f"Topology '{self.name}' is already provisioned")

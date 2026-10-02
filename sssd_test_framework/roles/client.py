@@ -25,6 +25,7 @@ from ..utils.smartcard import SmartCardUtils
 from ..utils.sss_override import SSSOverrideUtils
 from ..utils.sssctl import SSSCTLUtils
 from ..utils.sssd import SSSDUtils
+from ..utils.tools import OpenSSLUtils
 from ..utils.vfido import Vfido
 from .base import BaseLinuxRole
 
@@ -116,6 +117,11 @@ class Client(BaseLinuxRole[ClientHost]):
         self.vfido: Vfido = Vfido(self.host)
         """
         Managing virtual passkey device and service
+        """
+
+        self.ssl: OpenSSLUtils = OpenSSLUtils(self.host, self.fs)
+        """
+        Managing CA certificates and TLS configuration on the client.
         """
 
     def setup(self) -> None:

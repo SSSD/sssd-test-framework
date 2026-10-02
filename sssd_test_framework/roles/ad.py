@@ -253,6 +253,27 @@ class AD(BaseWindowsRole[ADHost]):
         """
         return self._ca
 
+    def export_root_ca_certificate(self) -> str:
+        """
+        Export the AD root CA certificate in PEM format.
+
+        Uses ``certutil.exe`` to export the root CA certificate from the AD
+        Certificate Services store (requires AD CS to be installed on the DC).
+
+        :return: PEM-formatted root CA certificate.
+        :rtype: str
+        :raises RuntimeError: If the root CA certificate cannot be exported.
+        """
+        tmp = "C:\\Windows\\Temp"
+        self.host.conn.run(f'certutil.exe -f -"ca.cert" {tmp}\\ca.crt', raise_on_error=False)
+        self.host.conn.run(f"certutil.exe -f -encode {tmp}\\ca.crt {tmp}\\ca.pem", raise_on_error=False)
+        result = self.host.conn.run(f"Get-Content {tmp}\\ca.pem -Raw", raise_on_error=False)
+
+        if result.rc != 0 or not result.stdout.strip():
+            raise RuntimeError(f"Failed to export root CA certificate: {result.stderr}")
+
+        return result.stdout.strip() + "\n"
+
     @property
     def naming_context(self) -> str:
         """
@@ -2670,7 +2691,7 @@ class ADCertificateAuthority(GenericCertificateAuthority):
 
         try:
             result = self.host.conn.run(
-                f'certreq -submit -config "{self._get_ca_config()}" "{req_path}" "{cert_path}"',
+                f'certreq -submit -config "{self.host.get_ca_config()}" "{req_path}" "{cert_path}"',
                 raise_on_error=False,
                 timeout=30,
             )
@@ -2750,7 +2771,7 @@ class ADCertificateAuthority(GenericCertificateAuthority):
 
         self.host.conn.run(f'certreq -q -new "{inf_path}" "{req_path}"')
 
-        self.host.conn.run(f'certreq -submit -config "{self._get_ca_config()}" "{req_path}" "{cert_path}"')
+        self.host.conn.run(f'certreq -submit -config "{self.host.get_ca_config()}" "{req_path}" "{cert_path}"')
 
         self.export_pfx(cert_path, pfx_path, password=password)
 
@@ -2820,7 +2841,7 @@ class ADCertificateAuthority(GenericCertificateAuthority):
 
         self.host.conn.run(f'certreq -q -sign -cert "{enrollment_agent_hash}" "{req_path}" "{signed_req_path}"')
 
-        self.host.conn.run(f'certreq -submit -config "{self._get_ca_config()}" "{signed_req_path}" "{cert_path}"')
+        self.host.conn.run(f'certreq -submit -config "{self.host.get_ca_config()}" "{signed_req_path}" "{cert_path}"')
 
         self.export_pfx(cert_path, pfx_path)
 
@@ -2884,7 +2905,7 @@ class ADCertificateAuthority(GenericCertificateAuthority):
         serial = self._get_cert_serial(cert_path)
         reason_code = self._revocation_reason_to_code(reason)
 
-        self.host.conn.run(f'certutil -config "{self._get_ca_config()}" -revoke {serial} {reason_code}')
+        self.host.conn.run(f'certutil -config "{self.host.get_ca_config()}" -revoke {serial} {reason_code}')
 
     def revoke_hold(self, cert_path: str) -> None:
         """
@@ -2908,7 +2929,7 @@ class ADCertificateAuthority(GenericCertificateAuthority):
         """
         serial = self._get_cert_serial(cert_path)
 
-        self.host.conn.run(f'certutil -config "{self._get_ca_config()}" -revoke {serial} 8')  # 8 = removeFromCRL
+        self.host.conn.run(f'certutil -config "{self.host.get_ca_config()}" -revoke {serial} 8')  # 8 = removeFromCRL
 
     def get(self, cert_path: str) -> dict[str, list[str]]:
         """
@@ -2974,21 +2995,6 @@ class ADCertificateAuthority(GenericCertificateAuthority):
         result = self.host.conn.run(cmd)
 
         return attrs_ad_parse(result.stdout)
-
-    def _get_ca_config(self) -> str:
-        """
-        Get CA configuration string.
-
-        :return: CA configuration string.
-        :rtype: str
-        """
-        result = self.host.conn.run("certutil -dump", raise_on_error=False)
-        if result.rc == 0:
-            for line in result.stdout_lines:
-                if "Config:" in line:
-                    return line.split(":", 1)[1].strip()
-
-        return f"{self.host.hostname}\\{self.host.domain}-CA"
 
     def _get_cert_serial(self, cert_path: str) -> str:
         """
@@ -3069,36 +3075,16 @@ class ADCertificateAuthority(GenericCertificateAuthority):
         :rtype: str
         :raises RuntimeError: If CA certificate cannot be retrieved.
         """
-        ca_name = self._get_ca_config().split("\\", 1)[1].strip('"')
-        result = self.host.conn.run(
-            textwrap.dedent(f"""\
-                $ca = Get-ChildItem -Path Cert:\\LocalMachine\\Root | Where-Object {{
-                    $_.Subject -like '*CN={ca_name}*' -and $_.Issuer -eq $_.Subject
-                }} | Select-Object -First 1
-                if ($ca) {{
-                    [System.Convert]::ToBase64String($ca.Export('Cert'))
-                }} else {{
-                    $ca = Get-ChildItem -Path Cert:\\LocalMachine\\My | Where-Object {{
-                        $_.Subject -like '*CN={ca_name}*'
-                    }} | Select-Object -First 1
-                    if ($ca) {{
-                        [System.Convert]::ToBase64String($ca.Export('Cert'))
-                    }} else {{
-                        Write-Error "CA certificate not found"
-                        exit 1
-                    }}
-                }}
-            """),
-            raise_on_error=False,
-        )
+        return self.host.get_ca_cert()
 
-        if result.rc != 0:
-            raise RuntimeError(f"Failed to get CA certificate: {result.stderr}!")
+    def export_root_ca_certificate(self) -> str:
+        """
+        Export the AD root CA certificate in PEM format.
 
-        ca_cert_b64 = result.stdout.strip()
+        Implements :meth:`GenericCertificateAuthority.export_root_ca_certificate`.
 
-        if not ca_cert_b64:
-            raise RuntimeError("CA certificate not found in certificate stores!")
-
-        ca_cert_lines = [ca_cert_b64[i : i + 64] for i in range(0, len(ca_cert_b64), 64)]
-        return "-----BEGIN CERTIFICATE-----\n" + "\n".join(ca_cert_lines) + "\n-----END CERTIFICATE-----\n"
+        :return: PEM-formatted root CA certificate.
+        :rtype: str
+        :raises RuntimeError: If CA certificate cannot be retrieved.
+        """
+        return self.get_ca_cert()
