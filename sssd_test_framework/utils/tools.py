@@ -1216,6 +1216,9 @@ class OpenSSLUtils:
         if cert_path is None:
             cert_path = f"/etc/pki/ca-trust/source/anchors/{name}"
 
+        if self.fs.exists(cert_path) and self.fs.read(cert_path).strip() == cert_pem.strip():
+            return cert_path
+
         parent = os.path.dirname(cert_path)
         if parent and len(parent.split("/")) > 2:
             self.fs.mkdir_p(parent)
