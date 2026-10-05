@@ -5,19 +5,13 @@ from __future__ import annotations
 from pathlib import PurePosixPath
 from typing import Any
 
-from pytest_mh.conn import ProcessError, ProcessLogLevel, ProcessTimeoutError
+from pytest_mh.conn import ProcessLogLevel
 
-from ..misc.ssh import retry_command
 from .base import BaseDomainHost, BaseLinuxHost
 
 __all__ = [
     "IPAHost",
 ]
-
-# ipa-backup/ipa-restore can take several minutes on loaded CI hosts.
-IPA_DATA_OP_TIMEOUT = 900
-# ipactl start should finish quickly; keep recovery short so it cannot mask the original error.
-IPA_RECOVERY_TIMEOUT = 60
 
 
 class IPAHost(BaseDomainHost, BaseLinuxHost):
@@ -125,30 +119,6 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
         """
         self.conn.exec(["kinit", "admin"], input=self.adminpw)
 
-    def _ensure_ipa_running(self) -> None:
-        """
-        Best-effort recovery when backup/restore left IPA services stopped.
-        """
-        self.conn.run(
-            "ipactl start || systemctl start ipa",
-            log_level=ProcessLogLevel.Error,
-            raise_on_error=False,
-            timeout=IPA_RECOVERY_TIMEOUT,
-        )
-
-    def _recover_ipa_after_failure(self, operation: str) -> None:
-        """
-        Try to start IPA after a failed backup/restore without masking the original error.
-        """
-        self.logger.warning(f"IPA {operation} failed, attempting to start IPA services")
-        try:
-            self._ensure_ipa_running()
-        except Exception:
-            self.logger.warning(
-                f"Failed to start IPA services after {operation} failure",
-                exc_info=True,
-            )
-
     def start(self) -> None:
         self.svc.start("ipa.service")
 
@@ -159,15 +129,10 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
         """
         Backup all IPA server data.
 
-        This is done by calling ``ipa-backup --data`` on the server and can
-        take several minutes to finish on loaded CI hosts.
-
         :return: Backup data.
         :rtype: Any
         """
 
-        # Race condition: https://pagure.io/freeipa/issue/9584
-        @retry_command(delay=0, match_stderr="Unable to add LDIF task: This entry already exists")
         def _backup():
             return self.conn.run(
                 """
@@ -179,19 +144,15 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
                     fi
                 }
 
-                rm --force /var/log/ipabackup.log
-                ipa-backup --data
-                ret=$?
-                if [ $ret -ne 0 ]; then
-                    echo "Printing ipa-backup logs..."
-                    cat /var/log/ipabackup.log
-                    exit $ret
-                fi
-
                 set -e
 
                 path=`mktemp -d`
-                mv `find /var/lib/ipa/backup -maxdepth 1 -type d | tail -n 1` $path/ipa
+
+                systemctl stop dirsrv.target
+                backup /etc/dirsrv "$path/dirsrv-etc"
+                backup /var/lib/dirsrv "$path/dirsrv-lib"
+                systemctl start dirsrv.target
+
                 backup /etc/krb5.conf "$path/krb5.conf"
                 backup /etc/krb5.keytab "$path/krb5.keytab"
                 backup /etc/sssd "$path/config"
@@ -201,23 +162,16 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
                 echo $path
                 """,
                 log_level=ProcessLogLevel.Error,
-                timeout=IPA_DATA_OP_TIMEOUT,
             )
 
         self.logger.info("Creating backup of IPA server")
-        try:
-            result = _backup()
-        except (ProcessTimeoutError, ProcessError):
-            self._recover_ipa_after_failure("backup")
-            raise
+        result = _backup()
+
         return PurePosixPath(result.stdout_lines[-1].strip())
 
     def restore(self, backup_data: Any | None) -> None:
         """
         Restore all IPA server data to its original state.
-
-        This is done by calling ``ipa-restore --data`` on the server and can
-        take several minutes to finish on loaded CI hosts.
 
         :return: Backup data.
         :rtype: Any
@@ -228,8 +182,6 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
         if not isinstance(backup_data, PurePosixPath):
             raise TypeError(f"Expected PurePosixPath, got {type(backup_data)}")
 
-        # Bind sometimes fails: https://pagure.io/freeipa/issue/9669
-        @retry_command(delay=0, match_stderr="Unable to bind to LDAP server", check_rc=False)
         def _restore():
             return self.conn.run(
                 f"""
@@ -242,16 +194,12 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
                     fi
                 }}
 
-                rm --force /var/log/iparestore.log
-                ipa-restore --unattended --password "{self.adminpw}" --data "{backup_path}/ipa"
-                ret=$?
-                if [ $ret -ne 0 ]; then
-                    echo "Printing ipa-restore logs..."
-                    cat /var/log/iparestore.log
-                    exit $ret
-                fi
-
                 set -e
+
+                systemctl stop dirsrv.target
+                restore "{backup_path}/dirsrv-etc" /etc/dirsrv
+                restore "{backup_path}/dirsrv-lib" /var/lib/dirsrv
+                systemctl start dirsrv.target
 
                 rm --force --recursive /etc/sssd /var/lib/sss /var/log/sssd
                 restore "{backup_path}/krb5.conf" /etc/krb5.conf
@@ -261,14 +209,9 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
                 restore "{backup_path}/lib" /var/lib/sss
                 """,
                 log_level=ProcessLogLevel.Error,
-                timeout=IPA_DATA_OP_TIMEOUT,
             )
 
         backup_path = str(backup_data)
         self.logger.info(f"Restoring IPA server from {backup_path}")
-        try:
-            _restore()
-        except (ProcessTimeoutError, ProcessError):
-            self._recover_ipa_after_failure("restore")
-            raise
+        _restore()
         self.svc.restart("sssd.service")
