@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import textwrap
+import time
 import uuid
 from datetime import datetime
 from typing import Any, TypeAlias, cast
@@ -2463,10 +2464,30 @@ class ADDNSZone(ADDNSServer, GenericDNSZone):
         """
         Create new zone.
 
+        Zone creation with ``-ReplicationScope Forest`` is AD-integrated and
+        asynchronous: the cmdlet returns as soon as the zone is registered.
+
+        NSUpdate SOA query can walk past the brand-new zone to a parent zone
+        (e.g. in-addr.arpa resolving externally), causing GSS-TSIG to fail against the
+        wrong server even though the zone "exists" per the management API.
         :return: Self.
         :rtype: ADDNSZone
         """
-        self.host.conn.run(f"Add-DnsServerPrimaryZone -Name {self.zone_name} -ReplicationScope Forest -Passthru")
+        self.host.conn.run(
+            f"Add-DnsServerPrimaryZone -Name {self.zone_name} -ReplicationScope Forest -DynamicUpdate Secure -Passthru"
+        )
+
+        for _ in range(30):
+            result = self.host.conn.run(
+                f'Resolve-DnsName -Name "{self.zone_name}" -Type SOA -Server 127.0.0.1 -ErrorAction SilentlyContinue',
+                raise_on_error=False,
+            )
+            if result.rc == 0 and self.zone_name.lower() in result.stdout.lower():
+                break
+            time.sleep(1)
+        else:
+            raise TimeoutError(f"Zone '{self.zone_name}' did not become resolvable within 30 seconds!")
+
         return self
 
     def delete(self) -> None:
