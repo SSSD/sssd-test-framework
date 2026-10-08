@@ -655,6 +655,33 @@ class LocalGroup(GenericGroup):
         """
         return self.add_members([member])
 
+    def _group_member_add_cmd(self, member: GroupMemberField) -> str:
+        """Build shell to add one member; groupmems was removed from recent Fedora."""
+        name = self._member_principal_name(member)
+        group = self._name
+        if isinstance(member, LocalGroup):
+            return (
+                f"current=$(getent group '{group}' | cut -d: -f4); "
+                f'case ",$current," in *,"{name}",*) ;; '
+                f"*) "
+                f'if [ -n "$current" ]; then gpasswd -M "$current,{name}" \'{group}\'; '
+                f"else gpasswd -M '{name}' '{group}'; fi ;; "
+                f"esac"
+            )
+        return f"gpasswd -a '{name}' '{group}'"
+
+    def _group_member_remove_cmd(self, member: GroupMemberField) -> str:
+        """Build shell to remove one member; groupmems was removed from recent Fedora."""
+        name = self._member_principal_name(member)
+        group = self._name
+        if isinstance(member, LocalGroup):
+            return (
+                f"current=$(getent group '{group}' | cut -d: -f4); "
+                f"new=$(printf '%s\\n' \"${{current//,/ }}\" | grep -vxF '{name}' | paste -sd,); "
+                f"gpasswd -M \"$new\" '{group}'"
+            )
+        return f"gpasswd -d '{name}' '{group}'"
+
     def add_members(self, members: list[GroupMemberField]) -> LocalGroup:
         """
         Add multiple group members.
@@ -669,9 +696,7 @@ class LocalGroup(GenericGroup):
         if not members:
             return self
 
-        cmd = "\n".join(
-            [f"groupmems --group '{self._name}' --add '{self._member_principal_name(x)}'" for x in members]
-        )
+        cmd = "\n".join([self._group_member_add_cmd(x) for x in members])
         self.util.host.conn.run("set -ex\n" + cmd, log_level=ProcessLogLevel.Error)
 
         return self
@@ -701,9 +726,7 @@ class LocalGroup(GenericGroup):
         if not members:
             return self
 
-        cmd = "\n".join(
-            [f"groupmems --group '{self._name}' --delete '{self._member_principal_name(x)}'" for x in members]
-        )
+        cmd = "\n".join([self._group_member_remove_cmd(x) for x in members])
         self.util.host.conn.run("set -ex\n" + cmd, log_level=ProcessLogLevel.Error)
 
         return self
