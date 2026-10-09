@@ -865,6 +865,7 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP], GenericUser):
         shadowMax: int | None = None,
         shadowWarning: int | None = None,
         shadowLastChange: int | None = None,
+        shadowExpire: int | None = None,
         sn: str | None = None,
         givenName: str | None = None,
         mail: str | None = None,  # Remove later once tests are using the email attribute instead of mail
@@ -896,6 +897,8 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP], GenericUser):
         :type shadowWarning: int | None, optional
         :param shadowLastChange: shadowlastchage LDAP attribute, defaults to None
         :type shadowLastChange: int | None, optional
+        :param shadowExpire: shadowexpire LDAP attribute, defaults to None
+        :type shadowExpire: int | None, optional
         :param sn: surname LDAP attribute, defaults to None
         :type sn: str | None, optional
         :param givenName: givenName LDAP attribute, defaults to None
@@ -929,12 +932,13 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP], GenericUser):
             "shadowMax": shadowMax,
             "shadowWarning": shadowWarning,
             "shadowLastChange": shadowLastChange,
+            "shadowExpire": shadowExpire,
             "sn": sn,
             "givenName": givenName,
             "mail": mail or email,
         }
 
-        if to_list_without_none([shadowMin, shadowMax, shadowWarning, shadowLastChange]):
+        if to_list_without_none([shadowMin, shadowMax, shadowWarning, shadowLastChange, shadowExpire]):
             attrs["objectClass"].append("shadowAccount")
 
         if to_list_without_none([sn, mail, email]):
@@ -957,6 +961,7 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP], GenericUser):
         shadowMax: int | DeleteAttribute | None = None,
         shadowWarning: int | DeleteAttribute | None = None,
         shadowLastChange: int | DeleteAttribute | None = None,
+        shadowExpire: int | DeleteAttribute | None = None,
         cn: str | DeleteAttribute | None = None,
         sn: str | DeleteAttribute | None = None,
         givenName: str | DeleteAttribute | None = None,
@@ -989,6 +994,8 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP], GenericUser):
         :type shadowWarning: int | DeleteAttribute | None, optional
         :param shadowLastChange: shadowlastchage LDAP attribute, defaults to None
         :type shadowLastChange: int | DeleteAttribute | None, optional
+        :param shadowExpire: shadowexpire LDAP attribute, defaults to None
+        :type shadowExpire: int | DeleteAttribute | None, optional
         :param cn: common name LDAP attribute, defaults to None
         :type cn: str | DeleteAttribute | None, optional
         :param sn: surname LDAP attribute, defaults to None
@@ -1014,6 +1021,7 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP], GenericUser):
             "shadowMax": shadowMax,
             "shadowWarning": shadowWarning,
             "shadowLastChange": shadowLastChange,
+            "shadowExpire": shadowExpire,
             "cn": cn,
             "sn": sn,
             "givenName": givenName,
