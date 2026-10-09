@@ -300,9 +300,8 @@ class ADTopologyController(ProvisionedBackupTopologyController):
         if isinstance(provider, SambaHost):
             if not client.fs.exists("/etc/pki/ca-trust/source/anchors/samba-ca.crt"):
                 ca_cert_path = provider.config.get("ca_cert_path", "/var/data/certs/ca.crt")
-                result = provider.conn.run(f"cat {ca_cert_path}", raise_on_error=False)
-                if result.rc == 0 and result.stdout.strip():
-                    openssl.install_ca_cert(result.stdout, name="samba-ca.crt")
+                if provider.fs.exists(ca_cert_path):
+                    openssl.install_ca_cert(provider.fs.read(ca_cert_path), name="samba-ca.crt")
         elif isinstance(provider, ADHost):
             if not client.fs.exists("/etc/pki/ca-trust/source/anchors/ad-ca.crt"):
                 try:

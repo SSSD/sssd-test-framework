@@ -1293,8 +1293,7 @@ class OpenSSLUtils:
         ldap_conf = "/etc/openldap/ldap.conf"
 
         self.fs.backup(ldap_conf)
-        result = self.host.conn.run(f"cat {ldap_conf}", raise_on_error=False)
-        current = result.stdout if result.rc == 0 else ""
+        current = self.fs.read(ldap_conf) if self.fs.exists(ldap_conf) else ""
 
         lines = [
             line
