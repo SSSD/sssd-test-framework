@@ -2896,7 +2896,20 @@ class ADCertificateAuthority(GenericCertificateAuthority):
         enrollment_agent_hash = self._get_enrollment_agent_hash()
 
         if enrollment_agent_hash is None:
-            return self.request_basic(template, subject)
+            # Basic path (no enrollment agent): request_basic returns a PFX bundle.
+            # Extract the private key and map the certificate to the user here, so
+            # callers always receive a (cert, key) pair and never need to know the
+            # internal PFX password.
+            cert_path, pfx_path, req_path = self.request_basic(template, subject)
+            key_path = os.path.join(self.temp_dir, f"{os.path.splitext(os.path.basename(pfx_path))[0]}.key")
+            self.host.conn.run(
+                f'"Secret123" | & openssl pkcs12 -in "{pfx_path}" -nocerts -nodes -out "{key_path}" -passin stdin'
+            )
+            self.host.conn.run(
+                f'$cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2("{cert_path}"); '
+                f'Set-ADUser -Identity "{user_dn}" -Replace @{{userCertificate = $cert.RawData}}'
+            )
+            return cert_path, key_path, req_path
 
         base = subject.split(",")[0].split("=")[1]
         netbios_domain = self.host.conn.run("Write-Host (Get-ADDomain).NetBIOSName").stdout.strip()
