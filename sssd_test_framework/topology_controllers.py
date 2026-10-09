@@ -16,6 +16,7 @@ from .hosts.keycloak import KeycloakHost
 from .hosts.ldap import LDAPHost
 from .hosts.samba import SambaHost
 from .misc.ssh import retry_command
+from .utils.tools import OpenSSLUtils
 
 __all__ = [
     "LDAPTopologyController",
@@ -252,6 +253,13 @@ class IPATopologyController(ProvisionedBackupTopologyController):
 
         client.fs.backup("/etc/resolv.conf")
 
+        # Install IPA CA certificate so LDAPS/STARTTLS tests can use it without per-test setup.
+        # Done before the provisioned check so it runs even on already-provisioned containers.
+        # Check the client first to avoid fetching the cert from the IPA server unnecessarily.
+        openssl = OpenSSLUtils(client, client.fs)
+        if not client.fs.exists("/etc/pki/ca-trust/source/anchors/ipa-ca.crt"):
+            openssl.install_ca_cert(ipa.fs.read("/etc/ipa/ca.crt"), name="ipa-ca.crt")
+
         if self.provisioned:
             self.logger.info(f"Topology '{self.name}' is already provisioned")
             return
@@ -284,6 +292,25 @@ class ADTopologyController(ProvisionedBackupTopologyController):
             if "127.0.0.1" not in provider.fs.read("/etc/resolv.conf"):
                 provider.fs.backup("/etc/resolv.conf")
                 provider.fs.write("/etc/resolv.conf", f"search {provider.domain}\nnameserver 127.0.0.1\n\n")
+
+        # Install the provider's CA certificate on the client so LDAPS tests can use it
+        # without per-test setup. Done before the provisioned check so it runs even on
+        # already-provisioned containers.
+        openssl = OpenSSLUtils(client, client.fs)
+        if isinstance(provider, SambaHost):
+            if not client.fs.exists("/etc/pki/ca-trust/source/anchors/samba-ca.crt"):
+                ca_cert_path = provider.config.get("ca_cert_path", "/var/data/certs/ca.crt")
+                if provider.fs.exists(ca_cert_path):
+                    openssl.install_ca_cert(provider.fs.read(ca_cert_path), name="samba-ca.crt")
+        elif isinstance(provider, ADHost):
+            if not client.fs.exists("/etc/pki/ca-trust/source/anchors/ad-ca.crt"):
+                try:
+                    openssl.install_ca_cert(provider.get_ca_cert(), name="ad-ca.crt")
+                except RuntimeError:
+                    try:
+                        openssl.install_ca_cert_from_server(provider.hostname, name="ad-ca.crt")
+                    except Exception as e:
+                        self.logger.warning(f"Unable to install AD CA certificate on {client.hostname}: {e}")
 
         if self.provisioned:
             self.logger.info(f"Topology '{self.name}' is already provisioned")

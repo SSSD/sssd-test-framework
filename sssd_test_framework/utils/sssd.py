@@ -1231,3 +1231,52 @@ class SSSDCommonConfiguration(object):
         self.sssd.pam["pam_cert_auth"] = "True"
         self.sssd.domain["local_auth_policy"] = "enable:smartcard"
         self.sssd.start()
+
+    def ssl_tls(
+        self,
+        provider: GenericProvider,
+        cacert: str | None = None,
+    ) -> None:
+        """
+        Configure SSSD to connect to the provider over an encrypted LDAP channel.
+
+        The CA certificate must already be installed on the client (e.g. by
+        :meth:`~sssd_test_framework.utils.tools.OpenSSLUtils.install_ca_cert` or
+        automatically by the topology controller during setup).
+
+        Sets the appropriate SSSD domain option based on the provider type:
+
+        - **AD / Samba**: sets ``ad_use_ldaps = True`` (port 636).
+        - **IPA**: sets ``ldap_id_use_start_tls = True`` (STARTTLS on port 389).
+
+        Works with :data:`~sssd_test_framework.topology.KnownTopologyGroup.AnyDC`
+        so a single test covers AD, Samba, and IPA topologies.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopologyGroup.AnyDC)
+            def test_ldaps__user_lookup_over_encrypted_channel(client: Client, provider: GenericProvider):
+                u = provider.user("tuser").add()
+                client.sssd.common.ssl_tls(provider)
+                client.sssd.start()
+                result = client.tools.id("tuser")
+                assert result is not None
+
+        :param provider: Provider role to determine the SSSD option to set.
+        :type provider: ~sssd_test_framework.roles.generic.GenericProvider
+        :param cacert: Path to the CA certificate on the client. Defaults to the
+            topology-specific cert installed by the topology controller.
+        :type cacert: str | None
+        """
+        if cacert is None:
+            _cert_names = {"ipa": "ipa-ca.crt", "samba": "samba-ca.crt", "ad": "ad-ca.crt"}
+            _provider_type = type(provider).__name__.lower()
+            cacert = f"/etc/pki/ca-trust/source/anchors/{_cert_names.get(_provider_type, 'test-ca.crt')}"
+        self.sssd.domain["ldap_tls_cacert"] = cacert
+        if provider.name == "ad":
+            self.sssd.domain["ad_use_ldaps"] = "True"
+        elif provider.name == "ipa":
+            # IPA provider does not support ldaps:// URIs in ipa_server; use STARTTLS on
+            # port 389 instead, which IPA supports and provides equivalent transport security.
+            self.sssd.domain["ldap_id_use_start_tls"] = "True"
