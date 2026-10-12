@@ -7,7 +7,10 @@ from pytest_mh.cli import CLIBuilder, CLIBuilderArgs
 from pytest_mh.utils.fs import LinuxFileSystem
 from pytest_mh.utils.services import SystemdServices
 
+from ..hosts.ad import ADHost
+
 if TYPE_CHECKING:
+    from ..roles.base import BaseRole
     from ..roles.client import Client
     from ..roles.ipa import IPA
 
@@ -155,6 +158,76 @@ class SmartCardUtils(MultihostUtility[MultihostHost]):
         :type label: str | None, optional
         """
         self.add_cert(cert_path=key_path, cert_id=key_id, pin=pin, private=True, token_label=token_label, label=label)
+
+    def add_cert_key_by_path(
+        self,
+        cert_path: str,
+        key_path: str,
+        source: BaseRole | None = None,
+        name: str = "sc",
+        dest_dir: str = "/opt/test_ca",
+        object_id: str = "01",
+        pin: str = "123456",
+        initialize: bool = True,
+        token_label: str | None = None,
+        label: str | None = None,
+    ) -> None:
+        """
+        Load a certificate and its matching private key onto the smart card.
+
+        Combines :meth:`initialize_card`, :meth:`add_key` and :meth:`add_cert`,
+        which are commonly called together when enrolling a certificate/key pair.
+
+        When *source* is given, *cert_path* and *key_path* are read from that
+        host (the CA host returned by ``provider.ca.request()``) and copied to
+        ``{dest_dir}/{name}.crt`` and ``{dest_dir}/{name}.key`` on this host
+        first.  A Windows (AD) source is read with ``Get-Content``; any other
+        source is read through its filesystem utility.
+
+        :param cert_path: Path to the certificate file (on *source* if given,
+            otherwise on this host).
+        :type cert_path: str
+        :param key_path: Path to the matching private key file (on *source* if
+            given, otherwise on this host).
+        :type key_path: str
+        :param source: Role holding the certificate and key. When ``None`` (the
+            default) the files are assumed to already be on this host.
+        :type source: BaseRole | None, optional
+        :param name: Base file name used when copying from *source*, defaults to "sc"
+        :type name: str, optional
+        :param dest_dir: Target directory when copying from *source*, defaults to "/opt/test_ca"
+        :type dest_dir: str, optional
+        :param object_id: PKCS#11 object id shared by the cert and key, defaults to "01"
+        :type object_id: str, optional
+        :param pin: User PIN, defaults to "123456"
+        :type pin: str, optional
+        :param initialize: Initialize (reset) the token first, defaults to True
+        :type initialize: bool, optional
+        :param token_label: Label of the target token (see :meth:`add_cert`).
+        :type token_label: str | None, optional
+        :param label: Label for the PKCS#11 objects (see :meth:`add_cert`).
+        :type label: str | None, optional
+        """
+        local_cert_path = cert_path
+        local_key_path = key_path
+        if source is not None:
+            if isinstance(source.host, ADHost):
+                cert_content = source.host.conn.run(f'Get-Content "{cert_path}" -Raw').stdout
+                key_content = source.host.conn.run(f'Get-Content "{key_path}" -Raw').stdout
+            else:
+                source_fs = LinuxFileSystem(source.host)
+                cert_content = source_fs.read(cert_path)
+                key_content = source_fs.read(key_path)
+
+            local_cert_path = f"{dest_dir}/{name}.crt"
+            local_key_path = f"{dest_dir}/{name}.key"
+            self.fs.write(local_cert_path, cert_content)
+            self.fs.write(local_key_path, key_content)
+
+        if initialize:
+            self.initialize_card()
+        self.add_key(local_key_path, key_id=object_id, pin=pin, token_label=token_label, label=label)
+        self.add_cert(local_cert_path, cert_id=object_id, pin=pin, token_label=token_label, label=label)
 
     def generate_cert(
         self,
