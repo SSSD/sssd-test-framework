@@ -216,7 +216,7 @@ class BaseLinuxRole(BaseRole[HostType]):
         """
 
         coredumpd_config = self.host.config.get("coredumpd", {})
-        coredumpd_mode = coredumpd_config.get("mode", "ignore")
+        coredumpd_mode = coredumpd_config.get("default_action", "ignore")
         coredumpd_filter = coredumpd_config.get("filter", None)
 
         self.coredumpd: Coredumpd = Coredumpd(self.host, self.fs, mode=coredumpd_mode, filter=coredumpd_filter)
