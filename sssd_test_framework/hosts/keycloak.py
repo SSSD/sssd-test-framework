@@ -104,34 +104,38 @@ class KeycloakHost(BaseDomainHost, BaseLinuxHost):
         """
         Backup all Keycloak server data.
 
-        This is done by calling ``kc.sh export`` on the server
-        and can take several seconds to finish.
-
         :return: Backup data.
         :rtype: Any
         """
         self.logger.info("Creating backup of Keycloak")
 
-        self.stop()
         cmd = self.conn.run(
             """
-            set -e
+            set -ex
+
+            function backup {
+                if [ -d "$1" ] || [ -f "$1" ]; then
+                    cp --force --archive "$1" "$2"
+                fi
+            }
+
             path=`mktemp -d`
-            /opt/keycloak/bin/kc.sh export --dir "$path"
+
+            systemctl stop keycloak.service
+            backup /opt/keycloak/conf "$path/keycloak-conf"
+            backup /opt/keycloak/data "$path/keycloak-data"
+            systemctl start keycloak.service
+
             echo $path
             """,
             log_level=ProcessLogLevel.Error,
         )
-        self.start()
 
         return PurePosixPath(cmd.stdout_lines[-1].strip())
 
     def restore(self, backup_data: Any | None) -> None:
         """
         Restore all Keycloak server data to its original state.
-
-        This is done by calling ``kc.sh import`` on the server
-        and can take several seconds to finish.
 
         :return: Backup data.
         :rtype: Any
@@ -145,12 +149,21 @@ class KeycloakHost(BaseDomainHost, BaseLinuxHost):
         backup_path = str(backup_data)
         self.logger.info(f"Restoring Keycloak from {backup_path}")
 
-        self.stop()
         self.conn.run(
             f"""
-            set -e
-            /opt/keycloak/bin/kc.sh import --dir '{backup_path}'
+            set -ex
+
+            function restore {{
+                rm --force --recursive "$2"
+                if [ -d "$1" ] || [ -f "$1" ]; then
+                    cp --force --archive "$1" "$2"
+                fi
+            }}
+
+            systemctl stop keycloak.service
+            restore "{backup_path}/keycloak-conf" /opt/keycloak/conf
+            restore "{backup_path}/keycloak-data" /opt/keycloak/data
+            systemctl start keycloak.service
             """,
             log_level=ProcessLogLevel.Error,
         )
-        self.start()
