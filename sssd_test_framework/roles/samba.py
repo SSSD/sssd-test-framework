@@ -186,6 +186,23 @@ class Samba(BaseLinuxLDAPRole[SambaHost]):
         """
         return self._password_policy
 
+    def export_root_ca_certificate(self) -> str:
+        """
+        Export the Samba root CA certificate in PEM format.
+
+        Reads the CA certificate from the path configured by ``ca_cert_path`` in
+        the host's ``mhc.yaml`` config section, defaulting to ``/var/data/certs/ca.crt``.
+
+        :return: PEM-formatted root CA certificate.
+        :rtype: str
+        :raises RuntimeError: If the certificate cannot be read.
+        """
+        ca_cert_path = self.host.config.get("ca_cert_path", "/var/data/certs/ca.crt")
+        result = self.host.conn.run(f"cat {ca_cert_path}", raise_on_error=False)
+        if result.rc != 0:
+            raise RuntimeError(f"Failed to export root CA certificate: {result.stderr}")
+        return result.stdout.strip()
+
     @property
     def naming_context(self) -> str:
         """

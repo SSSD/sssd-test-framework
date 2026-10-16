@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import textwrap
 from pathlib import PureWindowsPath
 from typing import Any
 
@@ -318,3 +319,44 @@ class ADHost(BaseDomainHost):
             """,
             log_level=ProcessLogLevel.Error,
         )
+
+    def get_ca_config(self) -> str:
+        """
+        Get CA configuration string.
+
+        :return: CA configuration string.
+        :rtype: str
+        """
+        result = self.conn.run("certutil -dump", raise_on_error=False)
+        if result.rc == 0:
+            for line in result.stdout_lines:
+                if "Config:" in line:
+                    return line.split(":", 1)[1].strip()
+
+        return f"{self.hostname}\\{self.domain}-CA"
+
+    def get_ca_cert(self) -> str:
+        """
+        Get the CA certificate in PEM format using certutil.
+
+        :return: CA certificate in PEM format.
+        :rtype: str
+        :raises RuntimeError: If CA certificate cannot be retrieved.
+        """
+        result = self.conn.run(
+            textwrap.dedent("""\
+                certutil.exe -f -"ca.cert" C:\\Windows\\Temp\\ca.crt
+                certutil.exe -f -encode C:\\Windows\\Temp\\ca.crt C:\\Windows\\Temp\\ca.pem
+                Get-Content C:\\Windows\\Temp\\ca.pem -Raw
+            """),
+            raise_on_error=False,
+        )
+
+        if result.rc != 0:
+            raise RuntimeError(f"Failed to get CA certificate: {result.stderr}!")
+
+        cert_pem = result.stdout.strip()
+        if not cert_pem or "-----BEGIN CERTIFICATE-----" not in cert_pem:
+            raise RuntimeError("CA certificate not found in certutil output!")
+
+        return cert_pem + "\n"
