@@ -984,11 +984,9 @@ class SSSDCommonConfiguration(object):
         :type device: str
         """
         self.sssd.domain["dyndns_update"] = "True"
-        # Note: The default value is False for IPA.The IPA server updates the PTR record itself.
         self.sssd.domain["dyndns_update_ptr"] = "True"
         self.sssd.domain["dyndns_iface"] = device
-        self.sssd.domain["dyndns_refresh_interval"] = "1"
-        self.sssd.domain["dyndns_refresh_interval_offset"] = "5"
+        self.sssd.domain["dyndns_refresh_interval_offset"] = "0"
 
     def ldap_provider(
         self,
