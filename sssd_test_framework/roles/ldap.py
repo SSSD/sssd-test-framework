@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import base64
+from contextlib import contextmanager
 from datetime import datetime
 from enum import Enum
-from typing import Any, Generic, TypeAlias, TypeVar, cast
+from typing import Any, Generator, Generic, TypeAlias, TypeVar, cast
 
 import ldap
 import ldap.ldapobject
@@ -202,6 +203,84 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
         Naming context.
         """
         return self.ldap.naming_context
+
+    def add_extra_naming_context(self, suffix: str = "dc=other,dc=test", be_name: str = "otherRoot") -> str:
+        """
+        Create an additional 389-ds backend/suffix so rootDSE advertises multiple naming contexts.
+
+        :param suffix: LDAP suffix / naming context to create, defaults to ``dc=other,dc=test``.
+        :type suffix: str, optional
+        :param be_name: Backend name, defaults to ``otherRoot``.
+        :type be_name: str, optional
+        :return: Created naming context (suffix).
+        :rtype: str
+        """
+        if suffix in self.host.extra_naming_contexts:
+            return suffix
+
+        self.host.conn.run(
+            f'dsconf -D "{self.host.binddn}" -w "{self.host.bindpw}" ldap://localhost backend create '
+            f'--suffix "{suffix}" --be-name "{be_name}" --create-suffix'
+        )
+
+        # Allow anonymous read so NSS lookups work against the new suffix.
+        aci = (
+            '(targetattr=*)(version 3.0; acl "Enable anyone read"; '
+            'allow (read, search, compare)(userdn="ldap:///anyone");)'
+        )
+        try:
+            self.ldap.modify(suffix, add={"aci": aci})
+        except ldap.TYPE_OR_VALUE_EXISTS:
+            pass
+
+        self.host.extra_naming_contexts.add(suffix)
+        return suffix
+
+    def remove_extra_naming_context(self, suffix: str = "dc=other,dc=test", be_name: str = "otherRoot") -> None:
+        """
+        Remove an additional naming context previously created by :meth:`add_extra_naming_context`.
+
+        :param suffix: LDAP suffix / naming context to remove, defaults to ``dc=other,dc=test``.
+        :type suffix: str, optional
+        :param be_name: Backend name, defaults to ``otherRoot``.
+        :type be_name: str, optional
+        """
+        # Best-effort delete of leftover entries, then remove the backend.
+        bind = f'-D "{self.host.binddn}" -w "{self.host.bindpw}"'
+        self.host.conn.run(
+            f'ldapdelete -x {bind} -H ldap://localhost -r "{suffix}" || true\n'
+            f'dsconf {bind} ldap://localhost backend delete "{be_name}" || true\n'
+        )
+        self.host.extra_naming_contexts.discard(suffix)
+
+    @contextmanager
+    def extra_naming_context(
+        self, suffix: str = "dc=other,dc=test", be_name: str = "otherRoot"
+    ) -> Generator[str, None, None]:
+        """
+        Context manager that creates an extra naming context and removes it afterwards.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.LDAP)
+            def test_example(client: Client, ldap: LDAP):
+                with ldap.extra_naming_context() as extra:
+                    ou = ldap.ou("Users", basedn=extra).add()
+                    ldap.user("u1", basedn=ou).add()
+
+        :param suffix: LDAP suffix / naming context to create, defaults to ``dc=other,dc=test``.
+        :type suffix: str, optional
+        :param be_name: Backend name, defaults to ``otherRoot``.
+        :type be_name: str, optional
+        :yield: Created naming context (suffix).
+        :rtype: Generator[str, None, None]
+        """
+        created = self.add_extra_naming_context(suffix=suffix, be_name=be_name)
+        try:
+            yield created
+        finally:
+            self.remove_extra_naming_context(suffix=created, be_name=be_name)
 
     def _generate_uid(self) -> int:
         """
