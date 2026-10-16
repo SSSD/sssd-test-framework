@@ -30,6 +30,10 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
 
         self._features: dict[str, bool] | None = None
         self._ldap_service_name = self.config.get("ldap_service_name", "dirsrv@localhost.service")
+        self.extra_naming_contexts: set[str] = set()
+        """Additional naming contexts created for tests (multi-suffix rootDSE)."""
+        self.saved_default_naming_context: str | None = None
+        """Original nsslapd-defaultnamingcontext, restored when extra NCs are removed."""
 
         # Additional client configuration
         self.client.setdefault("id_provider", "ldap")
