@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import csv
-import re
 from typing import Any, Generator
 
 import ldap
@@ -14,7 +13,7 @@ from pytest_mh.utils.fs import LinuxFileSystem
 from pytest_mh.utils.services import SystemdServices
 
 from ..config import SSSDMultihostDomain
-from ..misc import retry
+from ..misc import parse_package_version, retry
 
 __all__ = [
     "BaseHost",
@@ -207,6 +206,7 @@ class BaseLinuxHost(MultihostHost[SSSDMultihostDomain]):
         self.svc: SystemdServices = SystemdServices(self)
         self._os_release: dict = {}
         self._distro_name: str = "unknown"
+        self._distro_id: str = "unknown"
         self._distro_major: int = 0
         self._distro_minor: int = 0
 
@@ -219,6 +219,8 @@ class BaseLinuxHost(MultihostHost[SSSDMultihostDomain]):
         self._os_release = dict(csv.reader([x for x in os_release.splitlines() if x], delimiter="="))
         if "NAME" in self._os_release:
             self._distro_name = self._os_release["NAME"]
+        if "ID" in self._os_release:
+            self._distro_id = self._os_release["ID"]
         if "VERSION_ID" not in self._os_release:
             return
         if "." in self._os_release["VERSION_ID"]:
@@ -239,6 +241,18 @@ class BaseLinuxHost(MultihostHost[SSSDMultihostDomain]):
         if not self._os_release:
             self._distro_information()
         return self._distro_name
+
+    @property
+    def distro_id(self) -> str:
+        """
+        Host distribution id from ``/etc/os-release`` ``ID`` (e.g. ``rhel``, ``centos``, ``fedora``).
+
+        :return: Distribution id or ``"unknown"``
+        :rtype: str
+        """
+        if not self._os_release:
+            self._distro_information()
+        return self._distro_id
 
     @property
     def distro_major(self) -> int:
@@ -298,23 +312,12 @@ class BaseLinuxHost(MultihostHost[SSSDMultihostDomain]):
                 raise OSError(f"Package {package} not found!")
             return vers
 
-        v_match = re.match(
-            r"([0-9]+)(?:\.)?([0-9]+)?(?:\.)?([0-9]+)?(?:~)?([a-z0-9]+)?[\.-]?([0-9]+)?(?:\.)?(.*)?",
-            ver,
-            re.IGNORECASE,
-        )
-
-        if v_match is None:
+        try:
+            return parse_package_version(ver.strip())
+        except ValueError:
             if raise_on_error:
                 raise OSError(f"Package {package} version could not be parsed!")
             return vers
-        vers["major"] = int(v_match.group(1))
-        vers["minor"] = int(v_match.group(2)) if v_match.group(2) else 0
-        vers["patch"] = int(v_match.group(3)) if v_match.group(3) else 0
-        vers["prerelease"] = v_match.group(4) if v_match.group(4) else ""
-        vers["update"] = int(v_match.group(5)) if v_match.group(5) else 0
-        vers["release"] = v_match.group(6) if v_match.group(6) else ""
-        return vers
 
     def compare_package_version(self, other_version: dict, package: str = "sssd") -> int:
         """
@@ -346,6 +349,29 @@ class BaseLinuxHost(MultihostHost[SSSDMultihostDomain]):
             return 1
         else:
             return 0
+
+    def package_version_at_least(
+        self,
+        version: str | dict,
+        package: str = "sssd",
+        *,
+        distro_ids: tuple[str, ...] | list[str] | None = None,
+    ) -> bool:
+        """
+        Return True if the installed package version is greater than or equal to ``version``.
+
+        :param version: Minimum version as a string (``"2.13.1-3"``) or version dict.
+        :param package: Package name (default: sssd).
+        :param distro_ids: If set (e.g. ``("rhel",)``), only hosts whose
+            ``/etc/os-release`` ``ID`` is in this list are version-checked.
+            Other distros (CentOS upstream PRCI, Fedora, …) are treated as
+            meeting the requirement. ``None`` compares on every distro.
+        :return: Whether the installed package meets the minimum version.
+        """
+        min_version = parse_package_version(version) if isinstance(version, str) else version
+        if distro_ids is not None and self.distro_id not in distro_ids:
+            return True
+        return self.compare_package_version(min_version, package) >= 0
 
     @contextlib.contextmanager
     def selinux_permissive_for_test(self) -> Generator[None, None, None]:

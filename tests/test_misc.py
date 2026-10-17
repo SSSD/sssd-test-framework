@@ -17,6 +17,7 @@ from sssd_test_framework.misc import (
     ip_to_ptr,
     ip_version,
     parse_ldif,
+    parse_package_version,
     retry,
     seconds_to_timespan,
     to_list,
@@ -471,3 +472,33 @@ def test_get_attr(get_attr_sample_data, key, expected, check_membership):
 def test_attrs_ad_parse(value, expected):
     value = textwrap.dedent(value).strip()
     assert attrs_ad_parse(value) == expected
+
+
+@pytest.mark.parametrize(
+    "version,expected",
+    [
+        (
+            "2.13.1-3",
+            {"major": 2, "minor": 13, "patch": 1, "prerelease": "", "update": 3, "release": ""},
+        ),
+        (
+            "2.13.1-2.el10",
+            {"major": 2, "minor": 13, "patch": 1, "prerelease": "", "update": 2, "release": "el10"},
+        ),
+        (
+            "2.13.1-3.el10_3",
+            {"major": 2, "minor": 13, "patch": 1, "prerelease": "", "update": 3, "release": "el10_3"},
+        ),
+        (
+            "2.9.9",
+            {"major": 2, "minor": 9, "patch": 9, "prerelease": "", "update": 0, "release": ""},
+        ),
+    ],
+)
+def test_parse_package_version(version, expected):
+    assert parse_package_version(version) == expected
+
+
+def test_parse_package_version__invalid():
+    with pytest.raises(ValueError, match="Invalid package version"):
+        parse_package_version("not-a-version")
