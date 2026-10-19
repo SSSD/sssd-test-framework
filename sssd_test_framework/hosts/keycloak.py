@@ -59,7 +59,7 @@ class KeycloakHost(BaseDomainHost, BaseLinuxHost):
         )
         self.client.setdefault(
             "idp_device_auth_endpoint",
-            "https://{self.hostname}:8443/auth/realms/master/protocol/openid-connect/auth/device",
+            f"https://{self.hostname}:8443/auth/realms/master/protocol/openid-connect/auth/device",
         )
         self.client.setdefault("idp_id_scope", "profile")
         self.client.setdefault("idp_auth_scope", "openid profile email")
