@@ -214,144 +214,28 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
         """
         Best-effort removal of a backend, its data, and mapping tree.
 
-        Modern ``dsconf backend delete`` is a no-op without ``--do-it``, and may
-        still prompt unless ``-j`` is used. Prefer direct ldapdelete of the
-        mapping-tree and backend entries (same approach as the legacy bash tests).
+        ``dsconf backend delete`` needs ``--do-it`` (and ``-j`` to skip the
+        interactive confirm) on modern 389-ds; also ldapdelete the mapping-tree
+        and backend entries directly so leftovers cannot break the next create.
         """
         bind = f'-D "{self.host.binddn}" -w "{self.host.bindpw}"'
-        # 389-ds mapping-tree RDN uses a quoted suffix value.
         mapping_dn = f'cn="{suffix}",cn=mapping tree,cn=config'
         backend_dn = f"cn={be_name},cn=ldbm database,cn=plugins,cn=config"
 
-        # Drop suffix data while the mapping tree still routes to the backend.
         self.host.conn.run(
-            f"ldapdelete -x {bind} -H ldap://localhost -r '{suffix}' || true",
-            raise_on_error=False,
-        )
-        # Remove mapping tree + backend config entries directly.
-        self.host.conn.run(
+            f"ldapdelete -x {bind} -H ldap://localhost -r '{suffix}' || true\n"
             f"ldapdelete -x {bind} -H ldap://localhost '{mapping_dn}' || true\n"
             f"ldapdelete -x {bind} -H ldap://localhost '{backend_dn}' || true\n",
             raise_on_error=False,
         )
-        # Fallback for versions where dsconf owns the cleanup path.
-        # ``-j`` skips the interactive "Yes I am sure" prompt; ``--do-it`` is
-        # required on 389-ds 2.x+ or delete is a silent no-op.
         self._dsconf("backend", "delete", f'"{be_name}"', "--do-it", json=True, raise_on_error=False)
         self._dsconf("mappingtree", "delete", f'"{suffix}"', raise_on_error=False)
-
-    def _rootdse_attr(self, name: str) -> list[bytes]:
-        """Return rootDSE attribute values (case-insensitive attr lookup)."""
-        result = self.host.ldap_conn.search_s("", ldap.SCOPE_BASE, attrlist=[name])
-        if not result:
-            return []
-        _, attrs = result[0]
-        for key, values in attrs.items():
-            if key.lower() == name.lower():
-                return values
-        return []
-
-    def _reconnect_ldap(self) -> None:
-        """Drop cached LDAP binds after dirsrv restart or cn=config changes."""
-        self.host.disconnect()
-
-    def _clear_default_naming_context(self) -> None:
-        """
-        Remove nsslapd-defaultnamingcontext so SSSD cannot prefer a single NC.
-
-        With multiple namingContexts and no defaultNamingContext, SSSD's
-        get_naming_context() fails (``More than one value found.``).
-
-        Note: ``dsconf config delete`` restores the attribute to the built-in
-        default user suffix, so we must delete via LDAP modify instead.
-        """
-        if self.host.saved_default_naming_context is None:
-            result = self.host.ldap_conn.search_s(
-                "cn=config", ldap.SCOPE_BASE, attrlist=["nsslapd-defaultnamingcontext"]
-            )
-            if result:
-                _, attrs = result[0]
-                values = attrs.get("nsslapd-defaultnamingcontext")
-                if values:
-                    self.host.saved_default_naming_context = values[0].decode("utf-8")
-
-        saved = self.host.saved_default_naming_context
-        if saved is not None:
-            # Prefer LDAP delete: dsconf config delete reverts to the default
-            # user suffix, which keeps defaultNamingContext on the rootDSE.
-            try:
-                self.ldap.modify("cn=config", delete={"nsslapd-defaultnamingcontext": saved})
-            except (ldap.NO_SUCH_ATTRIBUTE, ldap.NO_SUCH_OBJECT):
-                pass
-
-            if self._rootdse_attr("defaultNamingContext"):
-                # Empty replace can suppress the rootDSE attribute on some builds.
-                try:
-                    self.ldap.modify("cn=config", replace={"nsslapd-defaultnamingcontext": ""})
-                except ldap.LDAPError:
-                    pass
-
-            # Some 389-ds builds only refresh rootDSE after a service bounce.
-            if self._rootdse_attr("defaultNamingContext"):
-                self.host.stop()
-                self.host.start()
-                self._reconnect_ldap()
-
-        # Fail loudly if SSSD would still discover a single default NC.
-        # A non-empty defaultNamingContext makes SSSD ignore multi-valued
-        # namingContexts entirely (lookup succeeds via the default NC).
-        dnc = [v.decode("utf-8") for v in self._rootdse_attr("defaultNamingContext") if v]
-        if dnc:
-            raise RuntimeError(
-                "Failed to clear rootDSE defaultNamingContext "
-                f"(still {dnc!r}); multi-NC tests would not exercise "
-                "get_naming_context failure"
-            )
-
-        naming_contexts = self._rootdse_attr("namingContexts")
-        if len(naming_contexts) < 2:
-            decoded = [v.decode("utf-8") for v in naming_contexts]
-            raise RuntimeError(f"Expected multiple namingContexts after setup, got: {decoded}")
-
-    def _restore_default_naming_context(self) -> None:
-        """Restore nsslapd-defaultnamingcontext after extra naming contexts are gone."""
-        saved = self.host.saved_default_naming_context
-        if saved is None:
-            return
-
-        try:
-            self.ldap.modify("cn=config", replace={"nsslapd-defaultnamingcontext": saved})
-        except ldap.NO_SUCH_ATTRIBUTE:
-            try:
-                self.ldap.modify("cn=config", add={"nsslapd-defaultnamingcontext": saved})
-            except ldap.LDAPError:
-                self._dsconf(
-                    "config",
-                    "replace",
-                    f"nsslapd-defaultnamingcontext={saved}",
-                    raise_on_error=False,
-                )
-        except ldap.LDAPError:
-            self._dsconf(
-                "config",
-                "replace",
-                f"nsslapd-defaultnamingcontext={saved}",
-                raise_on_error=False,
-            )
-
-        if not self._rootdse_attr("defaultNamingContext"):
-            self.host.stop()
-            self.host.start()
-            self._reconnect_ldap()
-
-        self.host.saved_default_naming_context = None
 
     def add_extra_naming_context(self, suffix: str = "dc=other,dc=test", be_name: str = "otherRoot") -> str:
         """
         Create an additional 389-ds backend/suffix so rootDSE advertises multiple naming contexts.
 
-        Also clears ``nsslapd-defaultnamingcontext`` so SSSD cannot fall back to a single
-        default NC (required to exercise the multi-NC failure path).
+        Uses ``dsconf backend create --suffix ... --be-name ... --create-suffix``.
 
         :param suffix: LDAP suffix / naming context to create, defaults to ``dc=other,dc=test``.
         :type suffix: str, optional
@@ -383,7 +267,6 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
         except ldap.TYPE_OR_VALUE_EXISTS:
             pass
 
-        self._clear_default_naming_context()
         self.host.extra_naming_contexts.add(suffix)
         return suffix
 
@@ -398,8 +281,6 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
         """
         self._delete_backend_and_mapping_tree(suffix, be_name)
         self.host.extra_naming_contexts.discard(suffix)
-        if not self.host.extra_naming_contexts:
-            self._restore_default_naming_context()
 
     @contextmanager
     def extra_naming_context(
