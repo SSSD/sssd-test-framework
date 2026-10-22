@@ -74,6 +74,10 @@ class LDAPUtils(MultihostUtility[BaseLDAPDomainHost]):
         if not basedn:
             return f"{rdn},{self.naming_context}"
 
+        naming_contexts = {self.naming_context, *getattr(self.host, "extra_naming_contexts", set())}
+        if basedn in naming_contexts or any(basedn == nc or basedn.endswith(f",{nc}") for nc in naming_contexts):
+            return f"{rdn},{basedn}"
+
         return f"{rdn},{basedn},{self.naming_context}"
 
     def add(self, dn: str, attrs: LDAPRecordAttributes) -> None:
