@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import partial
+from typing import Callable
 
 import pytest
 from pytest_mh import MultihostItemData, Topology
@@ -23,6 +24,44 @@ def pytest_configure(config: pytest.Config):
         "markers",
         "builtwith(feature): Run test only if SSSD was built with given feature",
     )
+
+
+def require_sssd_version(
+    version: str,
+    *,
+    distro_ids: tuple[str, ...] | list[str] | None = ("rhel",),
+    package: str = "sssd",
+) -> Callable[..., bool]:
+    """
+    Build a condition for ``@pytest.mark.require``.
+
+    Skips the test when the client's installed package is older than ``version``.
+
+    By default the check applies only on RHEL (``/etc/os-release`` ``ID=rhel``):
+    downstream gating, nightlies, and signoff. Upstream PRCI on CentOS, Fedora,
+    and other distros are not skipped. Pass ``distro_ids=None`` to compare on
+    every distro.
+
+    Example::
+
+        from sssd_test_framework.markers import require_sssd_version
+
+        @pytest.mark.require(
+            require_sssd_version("2.13.1-3", distro_ids=("rhel",)),
+            "Needs sssd >= 2.13.1-3 on RHEL (RHEL-248164)",
+        )
+        def test_something(client):
+            ...
+    """
+
+    def _check(client) -> bool:
+        return client.host.package_version_at_least(
+            version,
+            package=package,
+            distro_ids=distro_ids,
+        )
+
+    return _check
 
 
 def builtwith(item: pytest.Function, requirements: dict[str, str], **kwargs: BaseRole):
