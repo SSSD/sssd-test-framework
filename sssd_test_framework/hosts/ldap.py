@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import textwrap
 from typing import Any
 
 import ldap
@@ -30,6 +31,7 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
 
         self._features: dict[str, bool] | None = None
         self._ldap_service_name = self.config.get("ldap_service_name", "dirsrv@localhost.service")
+        self._ldap_cert_dir = self.config.get("ldap_cert_dir", "/var/data/certs")
 
         # Additional client configuration
         self.client.setdefault("id_provider", "ldap")
@@ -71,6 +73,213 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         self.logger.info("Detected features:", extra={"data": {"Features": self._features}})
 
         return self._features
+
+    def create_additional_instance(
+        self,
+        name: str,
+        *,
+        hostname: str,
+        port: int,
+        secure_port: int,
+        suffix: str | None = None,
+    ) -> None:
+        """
+        Create, configure and start an additional 389ds instance on this host.
+
+        The primary instance is provisioned when the host image is built, this
+        only ever adds further instances alongside it.
+
+        The instance shares the host's bind credentials and TLS certificate, so
+        it can be used as a second, distinct LDAP server in failover topologies.
+        SSSD keys its failover server list on the hostname, therefore ``hostname``
+        must differ from the primary instance's name for the two to be treated
+        as separate servers, even though they share an address.
+
+        The operation is idempotent, an existing instance of the same name is
+        left untouched.
+
+        .. code-block:: python
+            :caption: Example usage in a topology controller
+
+            class MultiLDAPTopologyController(ProvisionedBackupTopologyController):
+                def topology_setup(self, client: ClientHost, ldap: LDAPHost) -> None:
+                    ldap.create_additional_instance(
+                        "master2", hostname="master2.ldap.test", port=2389, secure_port=2636
+                    )
+                    super().topology_setup()
+
+                def topology_teardown(self, client: ClientHost, ldap: LDAPHost) -> None:
+                    ldap.remove_additional_instance("master2")
+                    super().topology_teardown()
+
+        The second server is then addressable from a test as
+        ``ldap://master2.ldap.test:2389``, for example as ``ldap_backup_uri``.
+
+        :param name: Instance name, the resulting unit is ``dirsrv@<name>.service``.
+        :type name: str
+        :param hostname: Fully qualified name the instance is reachable under.
+        :type hostname: str
+        :param port: LDAP port.
+        :type port: int
+        :param secure_port: LDAPS port.
+        :type secure_port: int
+        :param suffix: Naming context, defaults to the primary instance's suffix.
+        :type suffix: str | None, optional
+        """
+        if suffix is None:
+            suffix = self.naming_context
+
+        self.logger.info(f"Creating 389ds instance '{name}' on {self.hostname} as {hostname}:{port}")
+
+        self.conn.run(
+            textwrap.dedent(f"""
+            set -ex
+
+            # Nothing to do if the instance already exists.
+            if dsctl -l | grep -qx 'slapd-{name}'; then
+                exit 0
+            fi
+
+            # The extra ports are not part of ldap_port_t, so a confined
+            # ns-slapd cannot bind them until they are labelled, and they must
+            # be opened in the firewall. Both are skipped where the tooling is
+            # absent or inactive, such as containers run with SELinux disabled.
+            if command -v semanage > /dev/null && selinuxenabled 2> /dev/null; then
+                for extra_port in {port} {secure_port}; do
+                    semanage port -a -t ldap_port_t -p tcp "$extra_port" 2> /dev/null \
+                        || semanage port -m -t ldap_port_t -p tcp "$extra_port"
+                done
+            fi
+
+            # Permanent, because the instance has to outlive the individual
+            # tests and pytest_mh's Firewalld utility reloads firewalld in its
+            # per test setup and teardown, which drops runtime only rules.
+            if command -v firewall-cmd > /dev/null && firewall-cmd --state > /dev/null 2>&1; then
+                firewall-cmd --permanent --add-port={port}/tcp --add-port={secure_port}/tcp
+                firewall-cmd --reload
+            fi
+
+            cat > '/root/{name}.inf' <<EOF
+            [general]
+            config_version = 2
+            full_machine_name = {hostname}
+
+            [slapd]
+            instance_name = {name}
+            port = {port}
+            secure_port = {secure_port}
+            root_dn = {self.binddn}
+            root_password = {self.bindpw}
+
+            [backend-userroot]
+            suffix = {suffix}
+            create_suffix_entry = True
+            EOF
+
+            dscreate from-file '/root/{name}.inf'
+
+            # Share the primary instance's certificate. It carries the alias as a
+            # subjectAltName, so TLS to the second name passes hostname validation.
+            dsconf '{name}' security ca-certificate add --file '{self._ldap_cert_dir}/ca.crt' --name 'sssd-ca'
+            dsconf '{name}' security ca-certificate set-trust-flags 'sssd-ca' --flags 'CT,,'
+
+            ARGS=
+            # Workaround for https://github.com/389ds/389-ds-base/issues/7470
+            if dsctl '{name}' tls import-server-key-cert --help 2>&1 | grep -q -- '--nickname'; then
+                ARGS='--nickname Server-Cert'
+            fi
+            dsctl '{name}' tls import-server-key-cert $ARGS \
+                '{self._ldap_cert_dir}/{self.hostname}.crt' '{self._ldap_cert_dir}/{self.hostname}.key'
+
+            systemctl restart 'dirsrv@{name}.service'
+
+            # The unit returning does not mean the instance is already
+            # answering, wait for it so that callers and the modify below do
+            # not race against startup. The final search is unguarded on
+            # purpose, so that an instance that never comes up fails here
+            # rather than somewhere less obvious.
+            for _ in $(seq 30); do
+                ldapsearch -x -H 'ldap://localhost:{port}' -b '' -s base > /dev/null 2>&1 && break
+                sleep 1
+            done
+            ldapsearch -x -H 'ldap://localhost:{port}' -b '' -s base > /dev/null
+            """),
+            log_level=ProcessLogLevel.Error,
+        )
+
+        # Match the primary instance, which grants anonymous read access.
+        result = self.conn.run(
+            f"""ldapmodify -D '{self.binddn}' -w '{self.bindpw}' -H 'ldap://localhost:{port}' -x""",
+            input=(
+                f"dn: {suffix}\n"
+                "changetype: modify\n"
+                "add: aci\n"
+                'aci: (targetattr=*)(version 3.0; acl "Enable anyone read"; '
+                'allow (read, search, compare)(userdn="ldap:///anyone");)\n'
+            ),
+            log_level=ProcessLogLevel.Error,
+            raise_on_error=False,
+        )
+
+        # The aci is already there if the instance is being reused, anything
+        # else is a real failure and must not pass silently.
+        if result.rc != 0 and "Type or value exists" not in result.stderr:
+            result.throw()
+
+    def remove_additional_instance(self, name: str) -> None:
+        """
+        Stop and remove an instance created by :func:`create_additional_instance`.
+
+        The operation is idempotent, removing a non existent instance is a no-op.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            ldap.remove_additional_instance("master2")
+
+        :param name: Instance name.
+        :type name: str
+        """
+        self.logger.info(f"Removing 389ds instance '{name}' from {self.hostname}")
+
+        self.conn.run(
+            textwrap.dedent(f"""
+            set -ex
+
+            dse='/etc/dirsrv/slapd-{name}/dse.ldif'
+            extra_ports=
+            if [ -f "$dse" ]; then
+                # Recover the ports from the instance itself so the host is
+                # left as it was found, rather than trusting the caller to
+                # pass the same values again.
+                extra_ports=$(sed -n 's/^nsslapd-\\(secure\\)\\?[Pp]ort: *//p' "$dse" | sort -u)
+            fi
+
+            if dsctl -l | grep -qx 'slapd-{name}'; then
+                dsctl '{name}' remove --do-it
+            fi
+
+            rm --force '/root/{name}.inf'
+
+            for extra_port in $extra_ports; do
+                if command -v firewall-cmd > /dev/null && firewall-cmd --state > /dev/null 2>&1; then
+                    firewall-cmd --permanent --remove-port="$extra_port"/tcp || :
+                fi
+
+                # Only removes a locally added label, entries that come from
+                # the base policy are left alone.
+                if command -v semanage > /dev/null && selinuxenabled 2> /dev/null; then
+                    semanage port -d -t ldap_port_t -p tcp "$extra_port" 2> /dev/null || :
+                fi
+            done
+
+            if [ -n "$extra_ports" ] \
+                && command -v firewall-cmd > /dev/null && firewall-cmd --state > /dev/null 2>&1; then
+                firewall-cmd --reload
+            fi
+            """),
+            log_level=ProcessLogLevel.Error,
+        )
 
     def remove_backup(self, backup_data: Any | None) -> None:
         """
