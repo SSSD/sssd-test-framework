@@ -30,6 +30,8 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
 
         self._features: dict[str, bool] | None = None
         self._ldap_service_name = self.config.get("ldap_service_name", "dirsrv@localhost.service")
+        self.extra_naming_contexts: set[str] = set()
+        """Additional naming contexts created for tests (multi-suffix rootDSE)."""
 
         # Additional client configuration
         self.client.setdefault("id_provider", "ldap")
@@ -132,6 +134,10 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         if not isinstance(backup_data, dict):
             raise TypeError(f"Expected dict, got {type(backup_data)}")
 
+        # Extra backends/suffixes are outside the default naming-context backup
+        # scope. Tear them down so later tests are not polluted.
+        self._cleanup_extra_naming_contexts()
+
         data = self.ldap_conn.search_s(self.naming_context, ldap.SCOPE_SUBTREE)
         config = self.ldap_conn.search_s("cn=config", ldap.SCOPE_BASE)
         nc = self.ldap_conn.search_s(self.naming_context, ldap.SCOPE_BASE, attrlist=["aci"])
@@ -184,3 +190,34 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
             result.append((op, attr, value))
 
         return result
+
+    def _cleanup_extra_naming_contexts(self) -> None:
+        """
+        Remove extra backends/suffixes created by tests.
+
+        Backup/restore only covers the primary naming context and ``cn=config``
+        base, so leftover ``dc=other,dc=test`` mapping trees otherwise survive
+        between tests and break the next ``backend create``.
+        """
+        bind = f'-D "{self.binddn}" -w "{self.bindpw}"'
+        suffixes = set(self.extra_naming_contexts) | {"dc=other,dc=test"}
+        be_names = {"otherRoot"}
+
+        for suffix in suffixes:
+            mapping_dn = f'cn="{suffix}",cn=mapping tree,cn=config'
+            self.conn.run(
+                f"ldapdelete -x {bind} -H ldap://localhost -r '{suffix}' || true\n"
+                f"ldapdelete -x {bind} -H ldap://localhost '{mapping_dn}' || true\n",
+                raise_on_error=False,
+            )
+
+        for be_name in be_names:
+            backend_dn = f"cn={be_name},cn=ldbm database,cn=plugins,cn=config"
+            self.conn.run(
+                f"ldapdelete -x {bind} -H ldap://localhost '{backend_dn}' || true\n"
+                f'dsconf -j -D "{self.binddn}" -w "{self.bindpw}" ldap://localhost '
+                f'backend delete "{be_name}" --do-it || true\n',
+                raise_on_error=False,
+            )
+
+        self.extra_naming_contexts.clear()
