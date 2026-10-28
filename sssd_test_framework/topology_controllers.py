@@ -9,6 +9,7 @@ from pytest_mh.conn import ProcessResult
 
 from .config import SSSDMultihostConfig
 from .hosts.ad import ADHost
+from .hosts.base import BaseLinuxHost
 from .hosts.client import ClientHost
 from .hosts.ipa import IPAHost
 from .hosts.kdc import KDCHost
@@ -171,11 +172,16 @@ class LDAPKRB5TopologyController(LDAPTopologyController):
     * Ensure ``host/<client fqdn>`` exists in the KDC database
     * Export it to a keytab on the KDC, copy to the client as ``/etc/krb5.keytab``
     * Set ``ldap_krb5_keytab`` on the LDAP provider client defaults (unless already set)
+    * Ensure ``ldap/<ldap fqdn>`` exists in the KDC database and give the directory
+      server its keytab, so that a SASL GSSAPI bind can be used against it
 
     """
 
     _KDC_KEYTAB_STAGING = "/root/.sssd-test-framework-host.keytab"
     _CLIENT_KEYTAB_PATH = "/etc/krb5.keytab"
+    _LDAP_KEYTAB_STAGING = "/root/.sssd-test-framework-ldap.keytab"
+    _LDAP_KEYTAB_PATH = "/etc/dirsrv/ds.keytab"
+    _LDAP_SASL_PROXY_CN = "sssd-gssapi"
 
     @staticmethod
     def _kadmin_local(kdc: KDCHost, command: str) -> ProcessResult:
@@ -185,7 +191,7 @@ class LDAPKRB5TopologyController(LDAPTopologyController):
             result.stdout = "\n".join(result.stdout_lines)
         return result
 
-    def _ensure_host_principal(self, kdc: KDCHost, principal: str) -> None:
+    def _ensure_principal(self, kdc: KDCHost, principal: str) -> None:
         getp = self._kadmin_local(kdc, f'getprinc "{principal}"')
         # kadmin.local often returns exit code 0 even when the principal is missing
         # (error text only on stderr); do not rely on rc alone.
@@ -196,26 +202,143 @@ class LDAPKRB5TopologyController(LDAPTopologyController):
         if getp.rc != 0:
             self._kadmin_local(kdc, f'addprinc -randkey "{principal}"')
 
+    def _export_keytab(self, kdc: KDCHost, principal: str, staging: str, host: BaseLinuxHost, path: str) -> None:
+        """
+        Create the principal in the KDC if needed and place its keytab on a host.
+
+        :param kdc: KDC host.
+        :type kdc: KDCHost
+        :param principal: Principal to export, without the realm.
+        :type principal: str
+        :param staging: Path used for the keytab on the KDC before it is copied.
+        :type staging: str
+        :param host: Host that receives the keytab.
+        :type host: BaseLinuxHost
+        :param path: Destination path of the keytab.
+        :type path: str
+        """
+        self._ensure_principal(kdc, principal)
+
+        kdc.conn.run(f"rm -f {staging}", raise_on_error=False)
+        self._kadmin_local(kdc, f'ktadd -k {staging} -norandkey "{principal}"')
+
+        with tempfile.NamedTemporaryFile() as tmp:
+            kdc.fs.download(staging, tmp.name)
+            host.fs.upload(tmp.name, path)
+
+        kdc.conn.run(f"rm -f {staging}", raise_on_error=False)
+
     def _provision_client_host_keytab(self, client: ClientHost, ldap: LDAPHost, kdc: KDCHost) -> None:
         principal = f"host/{client.hostname}"
         self.logger.info(f"Provisioning host keytab for {principal} -> {self._CLIENT_KEYTAB_PATH}")
 
-        self._ensure_host_principal(kdc, principal)
+        self._export_keytab(kdc, principal, self._KDC_KEYTAB_STAGING, client, self._CLIENT_KEYTAB_PATH)
 
-        kdc.conn.run(f"rm -f {self._KDC_KEYTAB_STAGING}", raise_on_error=False)
-        self._kadmin_local(kdc, f'ktadd -k {self._KDC_KEYTAB_STAGING} -norandkey "{principal}"')
-
-        with tempfile.NamedTemporaryFile() as tmp:
-            kdc.fs.download(self._KDC_KEYTAB_STAGING, tmp.name)
-            client.fs.upload(tmp.name, self._CLIENT_KEYTAB_PATH)
-
-        kdc.conn.run(f"rm -f {self._KDC_KEYTAB_STAGING}", raise_on_error=False)
         client.conn.run(
             f"chmod 600 {self._CLIENT_KEYTAB_PATH} && chown root:root {self._CLIENT_KEYTAB_PATH}",
             raise_on_error=False,
         )
 
         ldap.client.setdefault("ldap_krb5_keytab", self._CLIENT_KEYTAB_PATH)
+
+    @staticmethod
+    def _ldapmodify(ldap: LDAPHost, ldif: str) -> None:
+        """
+        Apply an LDIF, tolerating entries that a previous setup already created.
+
+        Everything else is an error. Letting all failures pass turns a broken setup,
+        a wrong bind or a stopped directory server into an opaque "Invalid
+        credentials" much later, when the GSSAPI bind is attempted.
+
+        :param ldap: LDAP host.
+        :type ldap: LDAPHost
+        :param ldif: LDIF to feed to ldapmodify.
+        :type ldif: str
+        :raises RuntimeError: If ldapmodify fails for any other reason.
+        """
+        result = ldap.conn.run(
+            f"ldapmodify -x -D '{ldap.binddn}' -w '{ldap.bindpw}' -H ldap://localhost",
+            input=ldif,
+            raise_on_error=False,
+        )
+        if result.rc == 0:
+            return
+
+        output = f"{result.stdout or ''}\n{result.stderr or ''}"
+        if "already exists" in output.lower():
+            return
+
+        raise RuntimeError(f"ldapmodify failed with {result.rc}: {result.stderr or result.stdout}")
+
+    def _enable_ldap_gssapi(self, ldap: LDAPHost, kdc: KDCHost) -> None:
+        """
+        Make the directory server usable as a SASL GSSAPI target.
+
+        Four things are needed and all of them are required, a missing one shows up as
+        an unhelpful "Invalid credentials" on the bind:
+
+        * ``ldap/<fqdn>`` in the KDC, otherwise the client cannot get a service ticket
+        * the matching keytab on the directory server, readable by it
+        * ``keytab`` in the Cyrus SASL application config, the GSSAPI plugin does not
+          look at ``KRB5_KTNAME`` on its own
+        * a SASL identity mapping onto an entry that really exists, the bind identity
+          ``cn=Directory Manager`` is not searchable and cannot be used as a target
+
+        :param ldap: LDAP host.
+        :type ldap: LDAPHost
+        :param kdc: KDC host.
+        :type kdc: KDCHost
+        """
+        principal = f"ldap/{ldap.hostname}"
+        keytab = self._LDAP_KEYTAB_PATH
+        service = ldap._ldap_service_name
+        instance = service.partition("@")[2].removesuffix(".service")
+        self.logger.info(f"Enabling SASL GSSAPI on {ldap.hostname} for {principal}")
+
+        self._export_keytab(kdc, principal, self._LDAP_KEYTAB_STAGING, ldap, keytab)
+        ldap.fs.chown(keytab, user="dirsrv", group="dirsrv")
+        ldap.fs.chmod("600", keytab)
+        # Only relevant with SELinux, the ownership and mode above must not depend on it.
+        ldap.conn.run(f"restorecon -F {keytab}", raise_on_error=False)
+
+        # dirsrv@.service reads this as an optional EnvironmentFile for the instance.
+        envfile = f"/etc/sysconfig/dirsrv-{instance}" if instance else "/etc/sysconfig/dirsrv"
+        ldap.conn.run(f"echo 'KRB5_KTNAME={keytab}' > {envfile}")
+
+        # The SASL plugin is looked up by application name, ns-slapd uses both of these.
+        ldap.conn.run(
+            f"mkdir -p /etc/sasl2 && "
+            f"printf 'mech_list: GSSAPI EXTERNAL PLAIN LOGIN\\nkeytab: {keytab}\\n' "
+            f"> /etc/sasl2/slapd.conf && cp /etc/sasl2/slapd.conf /etc/sasl2/ns-slapd.conf"
+        )
+
+        # The principal SSSD binds with has to map onto an entry that really exists.
+        # Keep it out of the suffixes the tests populate so it cannot be mistaken for
+        # test data.
+        proxy_dn = f"cn={self._LDAP_SASL_PROXY_CN},{ldap.naming_context}"
+        self._ldapmodify(
+            ldap,
+            f"dn: {proxy_dn}\n"
+            "changetype: add\n"
+            "objectClass: top\n"
+            "objectClass: organizationalRole\n"
+            f"cn: {self._LDAP_SASL_PROXY_CN}\n"
+            "description: SASL GSSAPI mapping target owned by the test framework\n",
+        )
+        self._ldapmodify(
+            ldap,
+            "dn: cn=SSSD service principals,cn=mapping,cn=sasl,cn=config\n"
+            "changetype: add\n"
+            "objectClass: top\n"
+            "objectClass: nsSaslMapping\n"
+            "cn: SSSD service principals\n"
+            "nsSaslMapRegexString: ^host/.*$\n"
+            f"nsSaslMapBaseDNTemplate: {proxy_dn}\n"
+            "nsSaslMapFilterTemplate: (objectclass=*)\n"
+            "nsSaslMapPriority: 10\n",
+        )
+
+        ldap.svc.restart(service)
 
     @BackupTopologyController.restore_vanilla_on_error
     def topology_setup(
@@ -230,6 +353,7 @@ class LDAPKRB5TopologyController(LDAPTopologyController):
             return
 
         self._provision_client_host_keytab(client, ldap, kdc)
+        self._enable_ldap_gssapi(ldap, kdc)
         super().topology_setup()
 
 
