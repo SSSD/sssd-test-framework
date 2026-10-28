@@ -10,6 +10,10 @@ from typing import Any, Generic, TypeAlias, TypeVar, cast
 import ldap
 import ldap.ldapobject
 
+# Imported directly because the ldap parameter of enable_gssapi shadows the module.
+from ldap import ALREADY_EXISTS
+
+from ..hosts.kdc import KDCHost
 from ..hosts.ldap import LDAPHost
 from ..misc import attrs_include_value, to_list_without_none
 from ..utils.ldap import LDAPRecordAttributes, LDAPUtils
@@ -33,6 +37,7 @@ from .generic import (
     SudoRuleRunAsUserField,
     SudoRuleUserField,
 )
+from .kdc import KDC
 from .nfs import NFSExport
 
 __all__ = [
@@ -43,6 +48,7 @@ __all__ = [
     "LDAP",
     "LDAPObject",
     "LDAPACI",
+    "LDAPSASLMapping",
     "LDAPOrganizationalUnit",
     "LDAPUser",
     "LDAPGroup",
@@ -177,6 +183,68 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
                     },
                 }
         """
+
+    _GSSAPI_KEYTAB_PATH = "/etc/dirsrv/ds.keytab"
+    _GSSAPI_PROXY_CN = "sssd-gssapi"
+    _GSSAPI_MAPPING_CN = "SSSD service principals"
+
+    @staticmethod
+    def enable_gssapi(ldap: LDAPHost, kdc: KDCHost) -> None:
+        """
+        Make the directory server usable as a SASL GSSAPI target.
+
+        :param ldap: LDAP host.
+        :type ldap: LDAPHost
+        :param kdc: KDC host.
+        :type kdc: KDCHost
+        """
+        principal = f"ldap/{ldap.hostname}"
+        keytab = LDAP._GSSAPI_KEYTAB_PATH
+        service = ldap._ldap_service_name
+        instance = service.partition("@")[2].removesuffix(".service")
+        ldap.logger.info(f"Enabling SASL GSSAPI on {ldap.hostname} for {principal}")
+
+        KDC.create_keytab(kdc, principal, ldap, keytab)
+        ldap.fs.chown(keytab, user="dirsrv", group="dirsrv")
+        ldap.fs.chmod("600", keytab)
+        # Only relevant with SELinux, the ownership and mode above must not depend on it.
+        ldap.conn.run(f"restorecon -F {keytab}", raise_on_error=False)
+
+        # dirsrv@.service reads this as an optional EnvironmentFile for the instance.
+        envfile = f"/etc/sysconfig/dirsrv-{instance}" if instance else "/etc/sysconfig/dirsrv"
+        ldap.conn.run(f"echo 'KRB5_KTNAME={keytab}' > {envfile}")
+
+        # The SASL plugin is looked up by application name, ns-slapd uses both of these.
+        ldap.conn.run(
+            f"mkdir -p /etc/sasl2 && "
+            f"printf 'mech_list: GSSAPI EXTERNAL PLAIN LOGIN\\nkeytab: {keytab}\\n' "
+            f"> /etc/sasl2/slapd.conf && cp /etc/sasl2/slapd.conf /etc/sasl2/ns-slapd.conf"
+        )
+
+        # The principal SSSD binds with has to map onto an entry that really exists.
+        # Keep it out of the suffixes the tests populate so it cannot be mistaken for
+        # test data.
+        directory = LDAPUtils(ldap)
+        proxy_dn = f"cn={LDAP._GSSAPI_PROXY_CN},{ldap.naming_context}"
+        try:
+            directory.add(
+                proxy_dn,
+                {
+                    "objectClass": ["top", "organizationalRole"],
+                    "cn": LDAP._GSSAPI_PROXY_CN,
+                    "description": "SASL GSSAPI mapping target owned by the test framework",
+                },
+            )
+        except ALREADY_EXISTS:
+            pass
+
+        mapping = LDAPSASLMapping(ldap, LDAP._GSSAPI_MAPPING_CN)
+        try:
+            mapping.add(regex="^host/.*$", base_dn=proxy_dn)
+        except ALREADY_EXISTS:
+            pass
+
+        ldap.svc.restart(service)
 
     @property
     def password_policy(self) -> LDAPPasswordPolicy:
@@ -497,6 +565,17 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
         """
         return LDAPServices(self, name, basedn, rdn_attr)
 
+    def saslmapping(self, name: str) -> LDAPSASLMapping:
+        """
+        Get SASL mapping object.
+
+        :param name: Mapping name.
+        :type name: str
+        :return: New SASL mapping object.
+        :rtype: LDAPSASLMapping
+        """
+        return LDAPSASLMapping(self.host, name)
+
 
 class LDAPObject(BaseObject[HostType, LDAPRoleType]):
     """
@@ -758,6 +837,72 @@ class LDAPACI(object):
         :type value: str
         """
         self.ldap.modify(self.dn, delete={"aci": value})
+
+
+class LDAPSASLMapping(object):
+    """
+    LDAP SASL mapping management.
+
+    SASL mappings are stored under ``cn=mapping,cn=sasl,cn=config`` and they
+    translate the authentication identity into a directory entry.
+
+    .. code-block:: python
+        :caption: Creating SASL mapping
+
+        @pytest.mark.topology(KnownTopology.LDAP)
+        def test_example(ldap: LDAP):
+            ldap.saslmapping('my-mapping').add(regex='^uid=.*', base_dn='ou=users')
+    """
+
+    def __init__(self, host: LDAPHost, name: str) -> None:
+        """
+        :param host: LDAP host.
+        :type host: LDAPHost
+        :param name: Mapping name.
+        :type name: str
+        """
+        self.host: LDAPHost = host
+        self.ldap: LDAPUtils = LDAPUtils(host)
+        self.name: str = name
+        self.dn: str = f"cn={name},cn=mapping,cn=sasl,cn=config"
+
+    def add(
+        self,
+        regex: str,
+        base_dn: str,
+        filter: str = "(objectclass=*)",
+        priority: int = 10,
+    ) -> LDAPSASLMapping:
+        """
+        Create new SASL mapping.
+
+        :param regex: Regular expression matched against the authentication identity.
+        :type regex: str
+        :param base_dn: Base DN template of the mapped entry.
+        :type base_dn: str
+        :param filter: Filter template of the mapped entry, defaults to ``(objectclass=*)``
+        :type filter: str, optional
+        :param priority: Mapping priority, defaults to 10
+        :type priority: int, optional
+        :return: Self.
+        :rtype: LDAPSASLMapping
+        """
+        attrs: LDAPRecordAttributes = {
+            "objectClass": ["top", "nsSaslMapping"],
+            "cn": self.name,
+            "nsSaslMapRegexString": regex,
+            "nsSaslMapBaseDNTemplate": base_dn,
+            "nsSaslMapFilterTemplate": filter,
+            "nsSaslMapPriority": priority,
+        }
+        self.ldap.add(self.dn, attrs)
+        return self
+
+    def delete(self) -> None:
+        """
+        Delete SASL mapping.
+        """
+        self.ldap.delete(self.dn)
 
 
 class LDAPOrganizationalUnit(LDAPObject[HostType, LDAPRoleType], GenericOrganizationalUnit):

@@ -123,6 +123,7 @@ class ClientHost(BaseHost, BaseLinuxHost):
             backup /etc/sssd "$path/config"
             backup /var/log/sssd "$path/logs"
             backup /var/lib/sss "$path/lib"
+            backup /var/enrollment "$path/enrollment"
             backup /home "$path/home"
 
             echo $path
@@ -165,6 +166,7 @@ class ClientHost(BaseHost, BaseLinuxHost):
             restore "{backup_path}/config" /etc/sssd
             restore "{backup_path}/logs" /var/log/sssd
             restore "{backup_path}/lib" /var/lib/sss
+            restore "{backup_path}/enrollment" /var/enrollment
             cp --force --archive "{backup_path}/home/*" /home/ || :
             """,
             log_level=ProcessLogLevel.Error,
