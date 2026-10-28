@@ -43,6 +43,7 @@ __all__ = [
     "LDAP",
     "LDAPObject",
     "LDAPACI",
+    "LDAPSASLMapping",
     "LDAPOrganizationalUnit",
     "LDAPUser",
     "LDAPGroup",
@@ -503,6 +504,17 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
         """
         return LDAPServices(self, name, basedn, rdn_attr)
 
+    def saslmapping(self, name: str) -> LDAPSASLMapping:
+        """
+        Get SASL mapping object.
+
+        :param name: Mapping name.
+        :type name: str
+        :return: New SASL mapping object.
+        :rtype: LDAPSASLMapping
+        """
+        return LDAPSASLMapping(self.host, name)
+
 
 class LDAPObject(BaseObject[HostType, LDAPRoleType]):
     """
@@ -764,6 +776,72 @@ class LDAPACI(object):
         :type value: str
         """
         self.ldap.modify(self.dn, delete={"aci": value})
+
+
+class LDAPSASLMapping(object):
+    """
+    LDAP SASL mapping management.
+
+    SASL mappings are stored under ``cn=mapping,cn=sasl,cn=config`` and they
+    translate the authentication identity into a directory entry.
+
+    .. code-block:: python
+        :caption: Creating SASL mapping
+
+        @pytest.mark.topology(KnownTopology.LDAP)
+        def test_example(ldap: LDAP):
+            ldap.saslmapping('my-mapping').add(regex='^uid=.*', base_dn='ou=users')
+    """
+
+    def __init__(self, host: LDAPHost, name: str) -> None:
+        """
+        :param host: LDAP host.
+        :type host: LDAPHost
+        :param name: Mapping name.
+        :type name: str
+        """
+        self.host: LDAPHost = host
+        self.ldap: LDAPUtils = LDAPUtils(host)
+        self.name: str = name
+        self.dn: str = f"cn={name},cn=mapping,cn=sasl,cn=config"
+
+    def add(
+        self,
+        regex: str,
+        base_dn: str,
+        filter: str = "(objectclass=*)",
+        priority: int = 10,
+    ) -> LDAPSASLMapping:
+        """
+        Create new SASL mapping.
+
+        :param regex: Regular expression matched against the authentication identity.
+        :type regex: str
+        :param base_dn: Base DN template of the mapped entry.
+        :type base_dn: str
+        :param filter: Filter template of the mapped entry, defaults to ``(objectclass=*)``
+        :type filter: str, optional
+        :param priority: Mapping priority, defaults to 10
+        :type priority: int, optional
+        :return: Self.
+        :rtype: LDAPSASLMapping
+        """
+        attrs: LDAPRecordAttributes = {
+            "objectClass": ["top", "nsSaslMapping"],
+            "cn": self.name,
+            "nsSaslMapRegexString": regex,
+            "nsSaslMapBaseDNTemplate": base_dn,
+            "nsSaslMapFilterTemplate": filter,
+            "nsSaslMapPriority": priority,
+        }
+        self.ldap.add(self.dn, attrs)
+        return self
+
+    def delete(self) -> None:
+        """
+        Delete SASL mapping.
+        """
+        self.ldap.delete(self.dn)
 
 
 class LDAPOrganizationalUnit(LDAPObject[HostType, LDAPRoleType], GenericOrganizationalUnit):

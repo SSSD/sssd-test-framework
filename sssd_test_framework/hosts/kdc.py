@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import PurePosixPath
 from typing import Any
 
-from pytest_mh.conn import ProcessLogLevel
+from pytest_mh.conn import ProcessLogLevel, ProcessResult
 
 from .base import BaseDomainHost, BaseLinuxHost
 
@@ -52,6 +53,57 @@ class KDCHost(BaseDomainHost, BaseLinuxHost):
 
     def stop(self) -> None:
         self.svc.stop("krb5kdc.service")
+
+    def create_keytab(self, principal: str, host: BaseLinuxHost, path: str) -> None:
+        """
+        Create a keytab for a principal and place it on a host.
+
+        :param principal: Principal to export, without the realm.
+        :type principal: str
+        :param host: Host that receives the keytab.
+        :type host: BaseLinuxHost
+        :param path: Destination path of the keytab.
+        :type path: str
+        """
+        self._ensure_principal(principal)
+
+        # The staging path is unique for the target host, so that concurrent
+        # calls cannot remove each other's staging file.
+        staging = f"/tmp/sssd-test-framework-{host.hostname}.keytab"
+        self.conn.run(f"rm -f {staging}", raise_on_error=False)
+        self._kadmin_local(f'ktadd -k {staging} -norandkey "{principal}"')
+
+        with tempfile.NamedTemporaryFile() as tmp:
+            self.fs.download(staging, tmp.name)
+            host.fs.upload(tmp.name, path)
+
+        self.conn.run(f"rm -f {staging}", raise_on_error=False)
+
+    def _kadmin_local(self, command: str) -> ProcessResult:
+        result = self.conn.exec(["kadmin.local", "-q", command])
+        # Drop the "Authenticating as principal ..." line from the output.
+        if len(result.stdout_lines) > 1:
+            result.stdout_lines = result.stdout_lines[1:]
+            result.stdout = "\n".join(result.stdout_lines)
+        return result
+
+    def principal_exists(self, principal: str) -> bool:
+        """
+        Check if a principal exists in the Kerberos database.
+
+        :param principal: Principal name.
+        :type principal: str
+        :return: True if the principal exists.
+        :rtype: bool
+        """
+        result = self._kadmin_local(f'getprinc "{principal}"')
+        # kadmin.local exits with zero even when the principal is missing.
+        output = f"{result.stdout or ''}\n{result.stderr or ''}".lower()
+        return result.rc == 0 and "does not exist" not in output
+
+    def _ensure_principal(self, principal: str) -> None:
+        if not self.principal_exists(principal):
+            self._kadmin_local(f'addprinc -randkey "{principal}"')
 
     def backup(self) -> Any:
         """

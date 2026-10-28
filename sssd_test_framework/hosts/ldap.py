@@ -8,7 +8,9 @@ from typing import Any
 import ldap
 from pytest_mh.conn import ProcessLogLevel
 
+from ..utils.ldap import LDAPUtils
 from .base import BaseLDAPDomainHost, BaseLinuxHost
+from .kdc import KDCHost
 
 __all__ = [
     "LDAPHost",
@@ -288,6 +290,87 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
 
     def stop(self) -> None:
         self.svc.stop(self._ldap_service_name)
+
+    def enable_gssapi(
+        self,
+        kdc: KDCHost,
+        keytab_path: str = "/etc/dirsrv/ds.keytab",
+        proxy_cn: str = "sssd-gssapi",
+        mapping_cn: str = "SSSD service principals",
+    ) -> None:
+        """
+        Make the directory server a SASL GSSAPI target.
+
+        :param kdc: KDC host that holds the service principal.
+        :type kdc: KDCHost
+        :param keytab_path: Path of the directory server keytab, defaults to '/etc/dirsrv/ds.keytab'
+        :type keytab_path: str
+        :param proxy_cn: CN of the proxy entry the service principals are mapped to, defaults to 'sssd-gssapi'
+        :type proxy_cn: str
+        :param mapping_cn: CN of the SASL mapping, defaults to 'SSSD service principals'
+        :type mapping_cn: str
+        """
+        from ..roles.ldap import LDAPSASLMapping
+
+        directory = LDAPUtils(self)
+        mapping = LDAPSASLMapping(self, mapping_cn)
+        principal = f"ldap/{self.hostname}"
+
+        # The KDC database is restored to its original state at the end of a
+        # test session, which drops the service principal, while the changes
+        # on the directory server persist. Everything is set up again unless
+        # both the principal and the SASL mapping are in place.
+        try:
+            directory.conn.search_s(mapping.dn, ldap.SCOPE_BASE)
+            mapping_exists = True
+        except ldap.NO_SUCH_OBJECT:
+            mapping_exists = False
+
+        if mapping_exists and kdc.principal_exists(principal):
+            self.logger.info(f"SASL GSSAPI is already enabled on {self.hostname}")
+            return
+
+        service = self._ldap_service_name
+        instance = service.partition("@")[2].removesuffix(".service")
+        self.logger.info(f"Enabling SASL GSSAPI on {self.hostname} for {principal}")
+
+        kdc.create_keytab(principal, self, keytab_path)
+        self.fs.chown(keytab_path, user="dirsrv", group="dirsrv")
+        self.fs.chmod("600", keytab_path)
+        self.conn.run(f"restorecon -F {keytab_path}", raise_on_error=False)
+
+        # Optional EnvironmentFile read by dirsrv@.service.
+        envfile = f"/etc/sysconfig/dirsrv-{instance}" if instance else "/etc/sysconfig/dirsrv"
+        self.conn.run(f"echo 'KRB5_KTNAME={keytab_path}' > {envfile}")
+
+        # ns-slapd looks the SASL plugin up by application name, both names are needed.
+        self.conn.run(
+            f"mkdir -p /etc/sasl2 && "
+            f"printf 'mech_list: GSSAPI EXTERNAL PLAIN LOGIN\\nkeytab: {keytab_path}\\n' "
+            f"> /etc/sasl2/slapd.conf && cp /etc/sasl2/slapd.conf /etc/sasl2/ns-slapd.conf"
+        )
+
+        # The bind principal is mapped to a proxy entry that is kept out of the
+        # suffixes the tests populate.
+        proxy_dn = f"cn={proxy_cn},{self.naming_context}"
+        try:
+            directory.add(
+                proxy_dn,
+                {
+                    "objectClass": ["top", "organizationalRole"],
+                    "cn": proxy_cn,
+                    "description": "SASL GSSAPI mapping target owned by the test framework",
+                },
+            )
+        except ldap.ALREADY_EXISTS:
+            pass
+
+        try:
+            mapping.add(regex="^host/.*$", base_dn=proxy_dn)
+        except ldap.ALREADY_EXISTS:
+            pass
+
+        self.svc.restart(service)
 
     def backup(self) -> Any:
         """
