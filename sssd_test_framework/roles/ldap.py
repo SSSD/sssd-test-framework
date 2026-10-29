@@ -253,10 +253,23 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
 
     def setup(self) -> None:
         """
-        Add ACI granting users the access to change their passwords..
+        Enable anonymous access and ACI granting users the access to change their passwords.
         """
         super().setup()
 
+        # Enable anonymous access globally (389 2.x+ defaults to off).
+        self.ldap.modify("cn=config", replace={"nsslapd-allow-anonymous-access": "on"})
+
+        try:
+            self.aci.add(
+                '(targetattr!="userPassword || aci")'
+                '(version 3.0; acl "Enable anonymous access";'
+                ' allow (read, search, compare) userdn="ldap:///anyone";)'
+            )
+        except ldap.TYPE_OR_VALUE_EXISTS:
+            pass
+
+        # Allow users to change their own passwords.
         try:
             self.aci.add(
                 '(targetattr="userpassword")(version 3.0; acl "pwp test"; allow (all) userdn="ldap:///self";)'
