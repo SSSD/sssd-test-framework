@@ -94,34 +94,28 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         """
         Backup all directory server data.
 
-        Full backup of ``cn=config`` and default naming context is performed.
-        This is done by simple LDAP search on given base dn and remembering the
+        Full backup of ``cn=config``, every naming context (including any extra
+        suffixes), mapping-tree entries, and backend instances is performed.
+        This is done by simple LDAP search on given base dns and remembering the
         contents. The operation is usually very fast.
 
         :return: Backup data.
         :rtype: Any
         """
         self.logger.info("Creating backup of LDAP server")
-
-        data = self.ldap_conn.search_s(self.naming_context, ldap.SCOPE_SUBTREE)
-        config = self.ldap_conn.search_s("cn=config", ldap.SCOPE_BASE)
-        nc = self.ldap_conn.search_s(self.naming_context, ldap.SCOPE_BASE, attrlist=["aci"])
-
-        dct = self.ldap_result_to_dict(data)
-        dct.update(self.ldap_result_to_dict(config))
-        dct.update(self.ldap_result_to_dict(nc))
-
-        return dct
+        return self._ldap_state()
 
     def restore(self, backup_data: Any | None) -> None:
         """
         Restore directory server data.
 
-        Current directory server content in ``cn=config`` and default naming
-        context is modified to its original data. This is done by computing a
-        difference between original data obtained by :func:`backup` and then
-        calling add, delete and modify operations to convert current state to
-        the original state. This operation is usually very fast.
+        Current directory server content in ``cn=config``, naming contexts,
+        mapping trees, and backends is modified to its original data. This is
+        done by computing a difference between original data obtained by
+        :func:`backup` and then calling add, delete and modify operations to
+        convert current state to the original state. Extra naming contexts
+        created during a test are removed because they are absent from the
+        backup. This operation is usually very fast.
 
         :return: Backup data.
         :rtype: Any
@@ -134,18 +128,7 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         if not isinstance(backup_data, dict):
             raise TypeError(f"Expected dict, got {type(backup_data)}")
 
-        # Extra backends/suffixes are outside the default naming-context backup
-        # scope. Tear them down so later tests are not polluted.
-        self._cleanup_extra_naming_contexts()
-
-        data = self.ldap_conn.search_s(self.naming_context, ldap.SCOPE_SUBTREE)
-        config = self.ldap_conn.search_s("cn=config", ldap.SCOPE_BASE)
-        nc = self.ldap_conn.search_s(self.naming_context, ldap.SCOPE_BASE, attrlist=["aci"])
-
-        # Convert list of tuples to dictionary for better lookup
-        data = self.ldap_result_to_dict(data)
-        data.update(self.ldap_result_to_dict(config))
-        data.update(self.ldap_result_to_dict(nc))
+        data = self._ldap_state()
 
         for dn, attrs in reversed(data.items()):
             # Restore records that were modified
@@ -156,16 +139,87 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
                 if modlist:
                     self.ldap_conn.modify_s(dn, modlist)
 
-        for dn, attrs in reversed(data.items()):
-            # Delete records that were added
-            if dn not in backup_data:
+        # Delete records that were added (deepest entries first; drop suffix
+        # data before mapping-tree/backend config that references it).
+        to_delete = [dn for dn in data if dn not in backup_data]
+        to_delete.sort(key=self._restore_delete_key)
+        for dn in to_delete:
+            try:
                 self.ldap_conn.delete_s(dn)
+            except ldap.NO_SUCH_OBJECT:
                 continue
 
         for dn, attrs in backup_data.items():
             # Add back records that were deleted
             if dn not in data:
                 self.ldap_conn.add_s(dn, list(attrs.items()))
+
+        self.extra_naming_contexts.clear()
+
+    def _backup_naming_contexts(self) -> set[str]:
+        """Naming contexts included in backup/restore (default, tracked, rootDSE)."""
+        contexts = {self.naming_context, *self.extra_naming_contexts}
+        try:
+            result = self.ldap_conn.search_s("", ldap.SCOPE_BASE, attrlist=["namingContexts"])
+        except ldap.LDAPError:
+            return contexts
+
+        if not result:
+            return contexts
+
+        _, attrs = result[0]
+        for key, values in attrs.items():
+            if key.lower() == "namingcontexts":
+                contexts.update(v.decode("utf-8") for v in values)
+        return contexts
+
+    def _ldap_state(self) -> dict[str, dict[str, list[bytes]]]:
+        """
+        Snapshot LDAP entries covered by backup/restore.
+
+        Includes every naming context, ``cn=config``, mapping-tree children, and
+        backend instances so extra suffixes created during a test are visible to
+        restore and removed when absent from the backup.
+        """
+        dct: dict[str, dict[str, list[bytes]]] = {}
+
+        for nc in self._backup_naming_contexts():
+            try:
+                data = self.ldap_conn.search_s(nc, ldap.SCOPE_SUBTREE)
+                dct.update(self.ldap_result_to_dict(data))
+                nc_aci = self.ldap_conn.search_s(nc, ldap.SCOPE_BASE, attrlist=["aci"])
+                dct.update(self.ldap_result_to_dict(nc_aci))
+            except ldap.NO_SUCH_OBJECT:
+                continue
+
+        config = self.ldap_conn.search_s("cn=config", ldap.SCOPE_BASE)
+        dct.update(self.ldap_result_to_dict(config))
+
+        for base, scope in (
+            ("cn=mapping tree,cn=config", ldap.SCOPE_ONELEVEL),
+            ("cn=ldbm database,cn=plugins,cn=config", ldap.SCOPE_SUBTREE),
+        ):
+            try:
+                entries = self.ldap_conn.search_s(base, scope)
+                dct.update(self.ldap_result_to_dict(entries))
+            except ldap.NO_SUCH_OBJECT:
+                continue
+
+        return dct
+
+    @staticmethod
+    def _restore_delete_key(dn: str) -> tuple[int, int, str]:
+        """Sort key: suffix data, then mapping tree, then backends; deeper first."""
+        dn_l = dn.lower()
+        if "cn=mapping tree,cn=config" in dn_l:
+            phase = 1
+        elif "cn=ldbm database,cn=plugins,cn=config" in dn_l:
+            phase = 2
+        elif dn_l == "cn=config" or dn_l.endswith(",cn=config"):
+            phase = 3
+        else:
+            phase = 0
+        return (phase, -dn.count(","), dn)
 
     def __filter_modlist(self, dn: str, modlist: list) -> list:
         """
@@ -190,34 +244,3 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
             result.append((op, attr, value))
 
         return result
-
-    def _cleanup_extra_naming_contexts(self) -> None:
-        """
-        Remove extra backends/suffixes created by tests.
-
-        Backup/restore only covers the primary naming context and ``cn=config``
-        base, so leftover ``dc=other,dc=test`` mapping trees otherwise survive
-        between tests and break the next ``backend create``.
-        """
-        bind = f'-D "{self.binddn}" -w "{self.bindpw}"'
-        suffixes = set(self.extra_naming_contexts) | {"dc=other,dc=test"}
-        be_names = {"otherRoot"}
-
-        for suffix in suffixes:
-            mapping_dn = f'cn="{suffix}",cn=mapping tree,cn=config'
-            self.conn.run(
-                f"ldapdelete -x {bind} -H ldap://localhost -r '{suffix}' || true\n"
-                f"ldapdelete -x {bind} -H ldap://localhost '{mapping_dn}' || true\n",
-                raise_on_error=False,
-            )
-
-        for be_name in be_names:
-            backend_dn = f"cn={be_name},cn=ldbm database,cn=plugins,cn=config"
-            self.conn.run(
-                f"ldapdelete -x {bind} -H ldap://localhost '{backend_dn}' || true\n"
-                f'dsconf -j -D "{self.binddn}" -w "{self.bindpw}" ldap://localhost '
-                f'backend delete "{be_name}" --do-it || true\n',
-                raise_on_error=False,
-            )
-
-        self.extra_naming_contexts.clear()
