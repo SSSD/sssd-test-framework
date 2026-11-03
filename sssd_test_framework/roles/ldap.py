@@ -193,6 +193,12 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
 
                 # Set 3 login attempts and 30 lockout duration
                 ldap.password_policy.lockout(attempts=3, duration=30)
+
+                # Expire passwords after 1 second with no grace logins
+                ldap.password_policy.expiration(max_age=1, grace_limit=0)
+
+                # Disable password expiration without changing max age or grace limit
+                ldap.password_policy.expiration(enable=False)
         """
         return self._password_policy
 
