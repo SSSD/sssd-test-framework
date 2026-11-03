@@ -193,6 +193,12 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
 
                 # Set 3 login attempts and 30 lockout duration
                 ldap.password_policy.lockout(attempts=3, duration=30)
+
+                # Expire passwords after 1 second with no grace logins
+                ldap.password_policy.expiration(max_age=1, grace_limit=0)
+
+                # Disable password expiration without changing max age or grace limit
+                ldap.password_policy.expiration(enable=False)
         """
         return self._password_policy
 
@@ -2351,4 +2357,40 @@ class LDAPPasswordPolicy(GenericPasswordPolicy):
                 "passwordLockoutDuration": str(duration),
             }
         )
+        return self
+
+    def expiration(
+        self,
+        enable: bool = True,
+        max_age: int | None = None,
+        warning_time: int | None = None,
+        grace_limit: int | None = None,
+    ) -> LDAPPasswordPolicy:
+        """
+        Enable or disable password expiration and set the given parameters.
+
+        :param enable: Enable or disable password expiration (``passwordExp``), defaults to True
+        :type enable: bool, optional
+        :param max_age: Password lifetime in seconds (``passwordMaxAge``), defaults to None
+        :type max_age: int | None, optional
+        :param warning_time: Seconds of warning before expiration (``passwordWarning``), defaults to None
+        :type warning_time: int | None, optional
+        :param grace_limit: Grace logins allowed after expiration (``passwordGraceLimit``), defaults to None
+        :type grace_limit: int | None, optional
+        :return: LDAPPasswordPolicy object.
+        :rtype: LDAPPasswordPolicy
+        """
+        policy = {
+            "passwordExp": "on" if enable else "off",
+        }
+
+        for attribute, value in [
+            ("passwordMaxAge", max_age),
+            ("passwordWarning", warning_time),
+            ("passwordGraceLimit", grace_limit),
+        ]:
+            if value is not None:
+                policy[attribute] = str(value)
+
+        self._set(policy)
         return self
