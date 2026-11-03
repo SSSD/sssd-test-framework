@@ -121,6 +121,11 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         calling add, delete and modify operations to convert current state to
         the original state. This operation is usually very fast.
 
+        Unmodifiable attributes may raise
+        ``ldap.UNWILLING_TO_PERFORM`` (``'desc': 'Server is unwilling to perform'``).
+        Those are skipped so deletes still run; otherwise leftover users cause
+        ``ldap.ALREADY_EXISTS`` (``'desc': 'Already exists'``) on the next test.
+
         :return: Backup data.
         :rtype: Any
         """
@@ -147,14 +152,20 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
                 original_attrs = backup_data[dn]
                 modlist = ldap.modlist.modifyModlist(attrs, original_attrs)
                 modlist = self.__filter_modlist(dn, modlist)
-                if modlist:
+                if not modlist:
+                    continue
+                try:
                     self.ldap_conn.modify_s(dn, modlist)
+                except ldap.UNWILLING_TO_PERFORM as exc:
+                    self.logger.warning(f"Skipping unmodifiable LDAP restore for '{dn}': {exc}")
 
         for dn, attrs in reversed(data.items()):
             # Delete records that were added
             if dn not in backup_data:
-                self.ldap_conn.delete_s(dn)
-                continue
+                try:
+                    self.ldap_conn.delete_s(dn)
+                except ldap.NO_SUCH_OBJECT:
+                    continue
 
         for dn, attrs in backup_data.items():
             # Add back records that were deleted
@@ -165,6 +176,11 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         """
         Remove special items that can not be modified from ``modlist``.
 
+        Filters ``nsslapd-*`` on every ``cn=config`` subtree entry (not only
+        the root). Otherwise restore can hit ``UNWILLING_TO_PERFORM``
+        (``'Server is unwilling to perform'``) and abort before deletes,
+        leaving users that fail later with ``ALREADY_EXISTS``.
+
         :param dn: Object's DN.
         :type dn: str
         :param modlist: LDAP modlist.
@@ -172,13 +188,14 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         :return: Filtered modlist.
         :rtype: list
         """
-        if dn != "cn=config":
+        dn_l = dn.lower()
+        if dn_l != "cn=config" and not dn_l.endswith(",cn=config"):
             return modlist
 
         result = []
         for op, attr, value in modlist:
             # We are not allowed to touch these
-            if attr.startswith("nsslapd"):
+            if attr.lower().startswith("nsslapd"):
                 continue
 
             result.append((op, attr, value))
