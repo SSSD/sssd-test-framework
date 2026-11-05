@@ -387,14 +387,21 @@ Linux-based roles has access to Coredumpd utility that automatically collects
 any core files generated during a test. If any core file is produced, it can
 optionally fail the test if required conditions are met.
 
-It is possible to set the core file detection mode to one of ``fail`` (test is
-marked as failed if core file is generated), ``warn`` (result of a test is used
-but the test is marked as ``COREDUMP`` if core file is detected) or ``ignore``
-(auto-detection is turned off, default).
+The ``filter`` classifies core dumps by the executable path that produced them.
+A core dump that matches the ``fail`` filter always fails the test and one that
+matches the ``ignore`` filter is always ignored (it is still collected as an
+artifact). Each filter takes a list of patterns, where a pattern is one of:
 
-It is also possible to set regular expression that is used to filter the core
-files names in order to fail only if the core file was produced by certain
-process. This expression is evaluated on each name of generated core file.
+* a bare binary name (no ``/``): a shell-style glob matched against the base name
+  of the executable, e.g. ``sssd_be`` or ``sssd*``,
+* a full path (contains a ``/``): a shell-style glob matched against the full
+  executable path, e.g. ``/usr/sbin/sssd`` or ``/usr/libexec/sssd/*``,
+* a regular expression prefixed with ``re:``, e.g. ``re:/usr/lib/.*``.
+
+A core dump that matches neither filter (an unexpected core dump in a random
+binary) is handled according to ``mode``: ``fail`` (the test is marked as failed),
+``warn`` (the test outcome is kept but it is marked as ``COREDUMP``) or ``ignore``
+(the core dump does not affect the test, default).
 
 .. code-block:: yaml
     :caption: Config example
@@ -404,4 +411,9 @@ process. This expression is evaluated on each name of generated core file.
       config:
         coredumpd:
           mode: fail|warn|ignore
-          filter: <regex>
+          filter:
+            fail:
+              - sssd*
+              - /usr/libexec/sssd/*
+            ignore:
+              - re:/usr/lib/.*
