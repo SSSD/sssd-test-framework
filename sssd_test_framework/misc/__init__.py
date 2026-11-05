@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import itertools
+import re
 from functools import wraps
 from time import sleep
 from typing import Any, Callable, ParamSpec, TypeVar
@@ -379,3 +380,34 @@ def attrs_ad_parse(output: str) -> dict[str, list[str]]:
     """
     lines = [line.strip() for line in (output or "").splitlines() if line.strip()]
     return attrs_parse(lines)
+
+
+def parse_package_version(version: str) -> dict[str, Any]:
+    """
+    Parse a ``VERSION-RELEASE`` style string into the dict used by
+    :meth:`sssd_test_framework.hosts.base.BaseLinuxHost.compare_package_version`.
+
+    Examples: ``"2.13.1-3"``, ``"2.13.1-2.el10"``, ``"2.9.9"``.
+
+    :param version: Version string to parse.
+    :type version: str
+    :return: Dictionary with major, minor, patch, prerelease, update, release.
+    :rtype: dict[str, Any]
+    :raises ValueError: If the version string cannot be parsed.
+    """
+    match = re.match(
+        r"([0-9]+)(?:\.)?([0-9]+)?(?:\.)?([0-9]+)?(?:~)?([a-z0-9]+)?[\.-]?([0-9]+)?(?:\.)?(.*)?",
+        version,
+        re.IGNORECASE,
+    )
+    if match is None:
+        raise ValueError(f"Invalid package version string: {version!r}")
+
+    return {
+        "major": int(match.group(1)),
+        "minor": int(match.group(2)) if match.group(2) else 0,
+        "patch": int(match.group(3)) if match.group(3) else 0,
+        "prerelease": match.group(4) if match.group(4) else "",
+        "update": int(match.group(5)) if match.group(5) else 0,
+        "release": match.group(6) if match.group(6) else "",
+    }
