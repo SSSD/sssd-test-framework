@@ -107,6 +107,9 @@ class KnownTopology(KnownTopologyBase):
         ),
     )
     """
+    Like :attr:`~sssd_test_framework.topology.KnownTopology.BareLDAP` plus NFS
+    and a KDC.
+
     .. topology-mark:: KnownTopology.LDAP
     """
 
@@ -119,9 +122,7 @@ class KnownTopology(KnownTopologyBase):
     )
     """
     Like :attr:`~sssd_test_framework.topology.KnownTopology.BareLDAP` plus a KDC
-    (no NFS): client host keytab pre-provisioned for
-    GSSAPI (see
-    :class:`~sssd_test_framework.topology_controllers.LDAPKRB5TopologyController`).
+    (no NFS), the client image ships the host keytab for the SASL GSSAPI bind.
 
     .. topology-mark:: KnownTopology.LDAP_KRB5
     """
