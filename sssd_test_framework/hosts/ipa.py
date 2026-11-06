@@ -144,13 +144,15 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
                     fi
                 }
 
-                set -e
-
                 path=`mktemp -d`
-
                 systemctl stop dirsrv.target
-                backup /etc/dirsrv "$path/dirsrv-etc"
-                backup /var/lib/dirsrv "$path/dirsrv-lib"
+                while pgrep -a ns-slapd > /dev/null; do sleep 1;done
+
+                set -e
+                # backup /etc/dirsrv "$path/dirsrv-etc"
+                # backup /var/lib/dirsrv "$path/dirsrv-lib"
+                ds_inst=`dsctl -l|sed 's/^slapd-//'`
+                dsctl $ds_inst db2bak $path.db2bak
                 systemctl start dirsrv.target
 
                 backup /etc/krb5.conf "$path/krb5.conf"
@@ -194,11 +196,15 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
                     fi
                 }}
 
-                set -e
 
                 systemctl stop dirsrv.target
-                restore "{backup_path}/dirsrv-etc" /etc/dirsrv
-                restore "{backup_path}/dirsrv-lib" /var/lib/dirsrv
+                while pgrep -a ns-slapd > /dev/null; do sleep 1;done
+
+                set -e
+                # restore "{backup_path}/dirsrv-etc" /etc/dirsrv
+                # restore "{backup_path}/dirsrv-lib" /var/lib/dirsrv
+                ds_inst=`dsctl -l|sed 's/^slapd-//'`
+                dsctl $ds_inst bak2db {backup_path}.db2bak
                 systemctl start dirsrv.target
 
                 rm --force --recursive /etc/sssd /var/lib/sss /var/log/sssd
