@@ -21,6 +21,7 @@ from .utils.tools import OpenSSLUtils
 __all__ = [
     "LDAPTopologyController",
     "LDAPKRB5TopologyController",
+    "MultiLDAPTopologyController",
     "BigLDAPTopologyController",
     "IPATopologyController",
     "ADTopologyController",
@@ -505,6 +506,57 @@ class GDMTopologyController(ProvisionedBackupTopologyController):
 
         ipa.kinit()
         ipa.conn.run("ipa idp-del keycloak")
+
+        super().topology_teardown()
+
+
+class MultiLDAPTopologyController(LDAPTopologyController):
+    """
+    LDAP Topology Controller with a second directory server instance.
+
+    The second instance runs on the same host as the first one, under a
+    different name so that SSSD treats the two as distinct servers, and is
+    created and removed with the topology rather than with each test.
+
+    Tests address it as ``ldap://master2.ldap.test:2389``, typically as
+    ``ldap_backup_uri``. The instance starts out empty apart from its suffix
+    entry, exactly like the primary one does, so a test that needs the second
+    server to answer a lookup has to populate it first.
+    """
+
+    instance_name: str = "master2"
+    """Name of the additional instance, also the first label of its hostname."""
+
+    instance_port: int = 2389
+    """LDAP port of the additional instance."""
+
+    instance_secure_port: int = 2636
+    """LDAPS port of the additional instance."""
+
+    @BackupTopologyController.restore_vanilla_on_error
+    def topology_setup(self, client: ClientHost, ldap: LDAPHost) -> None:
+        if not self.provisioned:
+            ldap.create_additional_instance(
+                self.instance_name,
+                hostname=f"{self.instance_name}.{ldap.domain}",
+                port=self.instance_port,
+                secure_port=self.instance_secure_port,
+            )
+
+        super().topology_setup(client, ldap)
+
+    def topology_teardown(self, client: ClientHost, ldap: LDAPHost) -> None:
+        if not self.provisioned:
+            try:
+                ldap.remove_additional_instance(self.instance_name)
+            except Exception:
+                # Leaving the instance behind only costs the next run a skipped
+                # creation, it is not worth failing the teardown over, but it
+                # should not pass unnoticed either.
+                self.logger.warning(
+                    f"Failed to remove 389ds instance '{self.instance_name}', it is left on the host",
+                    exc_info=True,
+                )
 
         super().topology_teardown()
 
