@@ -20,6 +20,7 @@ from .topology_controllers import (
     KeycloakTopologyController,
     LDAPKRB5TopologyController,
     LDAPTopologyController,
+    MultiLDAPTopologyController,
     SambaTopologyController,
 )
 
@@ -253,6 +254,17 @@ class KnownTopology(KnownTopologyBase):
     )
     """
     .. topology-mark:: KnownTopology.Keycloak
+    """
+
+    MultiLDAP = SSSDTopologyMark(
+        name="multi-ldap",
+        topology=Topology(TopologyDomain("sssd", client=1, ldap=1)),
+        controller=MultiLDAPTopologyController(),
+        domains=dict(test="sssd.ldap[0]"),
+        fixtures=dict(client="sssd.client[0]", ldap="sssd.ldap[0]", provider="sssd.ldap[0]"),
+    )
+    """
+    .. topology-mark:: KnownTopology.MultiLDAP
     """
 
     BigLDAP = SSSDTopologyMark(
