@@ -98,22 +98,13 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         The operation is idempotent, an existing instance of the same name is
         left untouched.
 
-        .. code-block:: python
-            :caption: Example usage in a topology controller
-
-            class MultiLDAPTopologyController(ProvisionedBackupTopologyController):
-                def topology_setup(self, client: ClientHost, ldap: LDAPHost) -> None:
-                    ldap.create_additional_instance(
-                        "master2", hostname="master2.ldap.test", port=2389, secure_port=2636
-                    )
-                    super().topology_setup()
-
-                def topology_teardown(self, client: ClientHost, ldap: LDAPHost) -> None:
-                    ldap.remove_additional_instance("master2")
-                    super().topology_teardown()
-
-        The second server is then addressable from a test as
-        ``ldap://master2.ldap.test:2389``, for example as ``ldap_backup_uri``.
+        This is meant to be called from a topology controller, so that the
+        instance is shared by every test in the topology instead of being paid
+        for per test. See
+        :class:`~sssd_test_framework.topology_controllers.MultiLDAPTopologyController`
+        for the implementation used by ``KnownTopology.MultiLDAP``, and
+        subclass it to change the instance name or ports rather than calling
+        this directly.
 
         :param name: Instance name, the resulting unit is ``dirsrv@<name>.service``.
         :type name: str
@@ -230,12 +221,13 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         """
         Stop and remove an instance created by :func:`create_additional_instance`.
 
-        The operation is idempotent, removing a non existent instance is a no-op.
+        Also drops the firewall rule and SELinux port label that
+        :func:`create_additional_instance` added, so the host is left as it was
+        found. The operation is idempotent, removing a non existent instance is
+        a no-op.
 
-        .. code-block:: python
-            :caption: Example usage
-
-            ldap.remove_additional_instance("master2")
+        Called from a topology controller's teardown, see
+        :class:`~sssd_test_framework.topology_controllers.MultiLDAPTopologyController`.
 
         :param name: Instance name.
         :type name: str
