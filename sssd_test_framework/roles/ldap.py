@@ -193,6 +193,12 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
 
                 # Set 3 login attempts and 30 lockout duration
                 ldap.password_policy.lockout(attempts=3, duration=30)
+
+                # Expire passwords after 1 second with no grace logins
+                ldap.password_policy.expiration(max_age=1, grace_limit=0)
+
+                # Disable password expiration without changing max age or grace limit
+                ldap.password_policy.expiration(enable=False)
         """
         return self._password_policy
 
@@ -2351,4 +2357,51 @@ class LDAPPasswordPolicy(GenericPasswordPolicy):
                 "passwordLockoutDuration": str(duration),
             }
         )
+        return self
+
+    def expiration(
+        self,
+        enable: bool = True,
+        max_age: int | None = None,
+        warning_time: int | None = None,
+        grace_limit: int | None = None,
+    ) -> LDAPPasswordPolicy:
+        """
+        Enable or disable password expiration.
+
+        ``max_age``, ``warning_time`` and ``grace_limit`` are changed only when given.
+        When ``max_age`` is set, 389-DS computes ``passwordExpirationTime``
+        from it at the next password change. Set it before setting the user's
+        password, then wait at least that many seconds before authenticating.
+
+        Ranges for ``passwordMaxAge``, ``passwordWarning`` and ``passwordGraceLimit``
+        are documented in the `Red Hat Directory Server 13 configuration reference
+        <https://docs.redhat.com/en/documentation/red_hat_directory_server/13/html-single/configuration_and_schema_reference/index>`_.
+
+        :param enable: Enable or disable password expiration (``passwordExp``), defaults to True
+        :type enable: bool, optional
+        :param max_age: Password lifetime in seconds (``passwordMaxAge``), defaults to None
+        :type max_age: int | None, optional
+        :param warning_time: The number of seconds before expiration after which a warning should be sent
+            (``passwordWarning``), defaults to None
+        :type warning_time: int | None, optional
+        :param grace_limit: Grace logins allowed after expiration (``passwordGraceLimit``).
+            0 allows none. Defaults to None
+        :type grace_limit: int | None, optional
+        :return: LDAPPasswordPolicy object.
+        :rtype: LDAPPasswordPolicy
+        """
+        policy = {
+            "passwordExp": "on" if enable else "off",
+        }
+
+        for attribute, value in [
+            ("passwordMaxAge", max_age),
+            ("passwordWarning", warning_time),
+            ("passwordGraceLimit", grace_limit),
+        ]:
+            if value is not None:
+                policy[attribute] = str(value)
+
+        self._set(policy)
         return self
