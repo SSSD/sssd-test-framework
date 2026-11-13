@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import tempfile
 import textwrap
 
 from pytest_mh import BackupTopologyController
@@ -16,6 +15,7 @@ from .hosts.keycloak import KeycloakHost
 from .hosts.ldap import LDAPHost
 from .hosts.samba import SambaHost
 from .misc.ssh import retry_command
+from .roles.ldap import LDAP
 from .utils.tools import OpenSSLUtils
 
 __all__ = [
@@ -145,10 +145,15 @@ class LDAPTopologyController(ProvisionedBackupTopologyController):
     """
 
     @BackupTopologyController.restore_vanilla_on_error
-    def topology_setup(self, client: ClientHost, ldap: LDAPHost) -> None:
+    def topology_setup(self, client: ClientHost, ldap: LDAPHost, kdc: KDCHost | None = None) -> None:
         if self.provisioned:
             self.logger.info(f"Topology '{self.name}' is already provisioned")
             return
+
+        # Pre-configure the directory server for a SASL GSSAPI bind whenever the
+        # topology provides a KDC; the krb5 tests expect it.
+        if kdc is not None:
+            LDAP.enable_gssapi(ldap, kdc)
 
         # Run authselect select sssd at a minimum
         client.conn.run("authselect select sssd --force --backup multihost.backup")
@@ -160,62 +165,7 @@ class LDAPTopologyController(ProvisionedBackupTopologyController):
 class LDAPKRB5TopologyController(LDAPTopologyController):
     """
     Bare LDAP + KDC topology (client + LDAP + KDC, **no NFS**).
-
-    Central place for **LDAP + Kerberos** multihost setup beyond what
-    :class:`LDAPTopologyController` does. Today this provisions the client's host
-    principal keytab for GSSAPI; additional steps can be added here as LDAP/KRB5
-    tests grow.
-
-    Current setup:
-
-    * Ensure ``host/<client fqdn>`` exists in the KDC database
-    * Export it to a keytab on the KDC, copy to the client as ``/etc/krb5.keytab``
-    * Set ``ldap_krb5_keytab`` on the LDAP provider client defaults (unless already set)
-
     """
-
-    _KDC_KEYTAB_STAGING = "/root/.sssd-test-framework-host.keytab"
-    _CLIENT_KEYTAB_PATH = "/etc/krb5.keytab"
-
-    @staticmethod
-    def _kadmin_local(kdc: KDCHost, command: str) -> ProcessResult:
-        result = kdc.conn.exec(["kadmin.local", "-q", command])
-        if len(result.stdout_lines) > 1:
-            result.stdout_lines = result.stdout_lines[1:]
-            result.stdout = "\n".join(result.stdout_lines)
-        return result
-
-    def _ensure_host_principal(self, kdc: KDCHost, principal: str) -> None:
-        getp = self._kadmin_local(kdc, f'getprinc "{principal}"')
-        # kadmin.local often returns exit code 0 even when the principal is missing
-        # (error text only on stderr); do not rely on rc alone.
-        combined = ((getp.stdout or "") + (getp.stderr or "")).lower()
-        if "does not exist" in combined:
-            self._kadmin_local(kdc, f'addprinc -randkey "{principal}"')
-            return
-        if getp.rc != 0:
-            self._kadmin_local(kdc, f'addprinc -randkey "{principal}"')
-
-    def _provision_client_host_keytab(self, client: ClientHost, ldap: LDAPHost, kdc: KDCHost) -> None:
-        principal = f"host/{client.hostname}"
-        self.logger.info(f"Provisioning host keytab for {principal} -> {self._CLIENT_KEYTAB_PATH}")
-
-        self._ensure_host_principal(kdc, principal)
-
-        kdc.conn.run(f"rm -f {self._KDC_KEYTAB_STAGING}", raise_on_error=False)
-        self._kadmin_local(kdc, f'ktadd -k {self._KDC_KEYTAB_STAGING} -norandkey "{principal}"')
-
-        with tempfile.NamedTemporaryFile() as tmp:
-            kdc.fs.download(self._KDC_KEYTAB_STAGING, tmp.name)
-            client.fs.upload(tmp.name, self._CLIENT_KEYTAB_PATH)
-
-        kdc.conn.run(f"rm -f {self._KDC_KEYTAB_STAGING}", raise_on_error=False)
-        client.conn.run(
-            f"chmod 600 {self._CLIENT_KEYTAB_PATH} && chown root:root {self._CLIENT_KEYTAB_PATH}",
-            raise_on_error=False,
-        )
-
-        ldap.client.setdefault("ldap_krb5_keytab", self._CLIENT_KEYTAB_PATH)
 
     @BackupTopologyController.restore_vanilla_on_error
     def topology_setup(
@@ -229,7 +179,10 @@ class LDAPKRB5TopologyController(LDAPTopologyController):
             self.logger.info(f"Topology '{self.name}' is already provisioned")
             return
 
-        self._provision_client_host_keytab(client, ldap, kdc)
+        # The client image ships the host keytab for the SASL GSSAPI bind,
+        # point the LDAP provider at it.
+        ldap.client.setdefault("ldap_krb5_keytab", f"/var/enrollment/{kdc.domain}.keytab")
+
         super().topology_setup()
 
 

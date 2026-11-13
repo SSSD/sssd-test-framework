@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import tempfile
 import textwrap
 
 from pytest_mh.conn import ProcessResult
 
+from ..hosts.base import BaseLinuxHost
 from ..hosts.kdc import KDCHost
 from .base import BaseLinuxRole, BaseObject
 
@@ -43,6 +45,9 @@ class KDC(BaseLinuxRole[KDCHost]):
 
         self.tgt: str = f"krbtgt/{self.realm}@{self.realm}"
         """Full name of Ticket Granting Ticket (e.g. krbtgt/REALM@REALM."""
+
+    _KEYTAB_STAGING = "/root/.sssd-test-framework.keytab"
+    """Path used for a keytab on the KDC before it is copied to its destination."""
 
     def qualify(self, name: str) -> str:
         """
@@ -109,6 +114,51 @@ class KDC(BaseLinuxRole[KDCHost]):
         :rtype: KDCPrincipal
         """
         return KDCPrincipal(self, name)
+
+    @staticmethod
+    def create_keytab(kdc: KDCHost, principal: str, host: BaseLinuxHost, path: str) -> None:
+        """
+        Create a keytab for a principal and place it on a host.
+
+        :param kdc: KDC host.
+        :type kdc: KDCHost
+        :param principal: Principal to export, without the realm.
+        :type principal: str
+        :param host: Host that receives the keytab.
+        :type host: BaseLinuxHost
+        :param path: Destination path of the keytab.
+        :type path: str
+        """
+        KDC._ensure_principal(kdc, principal)
+
+        kdc.conn.run(f"rm -f {KDC._KEYTAB_STAGING}", raise_on_error=False)
+        KDC._kadmin_local(kdc, f'ktadd -k {KDC._KEYTAB_STAGING} -norandkey "{principal}"')
+
+        with tempfile.NamedTemporaryFile() as tmp:
+            kdc.fs.download(KDC._KEYTAB_STAGING, tmp.name)
+            host.fs.upload(tmp.name, path)
+
+        kdc.conn.run(f"rm -f {KDC._KEYTAB_STAGING}", raise_on_error=False)
+
+    @staticmethod
+    def _kadmin_local(kdc: KDCHost, command: str) -> ProcessResult:
+        result = kdc.conn.exec(["kadmin.local", "-q", command])
+        if len(result.stdout_lines) > 1:
+            result.stdout_lines = result.stdout_lines[1:]
+            result.stdout = "\n".join(result.stdout_lines)
+        return result
+
+    @staticmethod
+    def _ensure_principal(kdc: KDCHost, principal: str) -> None:
+        getp = KDC._kadmin_local(kdc, f'getprinc "{principal}"')
+        # kadmin.local often returns exit code 0 even when the principal is missing
+        # (error text only on stderr); do not rely on rc alone.
+        combined = ((getp.stdout or "") + (getp.stderr or "")).lower()
+        if "does not exist" in combined:
+            KDC._kadmin_local(kdc, f'addprinc -randkey "{principal}"')
+            return
+        if getp.rc != 0:
+            KDC._kadmin_local(kdc, f'addprinc -randkey "{principal}"')
 
     def config(self) -> str:
         """
