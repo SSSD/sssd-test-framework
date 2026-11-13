@@ -149,6 +149,17 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
                 path=`mktemp -d`
 
                 systemctl stop dirsrv.target
+                set +e
+                count=0
+                while pgrep -a ns-slapd > /dev/null; do
+                    if [ "$count" -ge "60" ]; then
+                        echo "Directory server failed to stop in 60 seconds"
+                        exit 1
+                    fi
+                done
+                set -e
+                #ds_inst=`dsctl -l|sed 's/^slapd-//'`
+                #dsctl $ds_inst db2bak $path.db2bak
                 backup /etc/dirsrv "$path/dirsrv-etc"
                 backup /var/lib/dirsrv "$path/dirsrv-lib"
                 systemctl start dirsrv.target
@@ -197,6 +208,17 @@ class IPAHost(BaseDomainHost, BaseLinuxHost):
                 set -e
 
                 systemctl stop dirsrv.target
+                set +e
+                count=0
+                while pgrep -a ns-slapd > /dev/null; do
+                    if [ "$count" -ge "60" ]; then
+                        echo "Directory server failed to stop in 60 seconds"
+                        exit 1
+                    fi
+                done
+                set -e
+                #ds_inst=`dsctl -l|sed 's/^slapd-//'`
+                #dsctl $ds_inst bak2db {backup_path}.db2bak
                 restore "{backup_path}/dirsrv-etc" /etc/dirsrv
                 restore "{backup_path}/dirsrv-lib" /var/lib/dirsrv
                 systemctl start dirsrv.target
