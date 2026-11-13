@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import partial
+from typing import Callable
 
 import pytest
 from pytest_mh import MultihostItemData, Topology
@@ -23,6 +24,62 @@ def pytest_configure(config: pytest.Config):
         "markers",
         "builtwith(feature): Run test only if SSSD was built with given feature",
     )
+
+
+def require_package_version(
+    version: str,
+    package: str = "sssd",
+    *,
+    distro_ids: tuple[str, ...] | list[str] | None = ("rhel",),
+) -> Callable[..., bool]:
+    """
+    Build a condition for ``@pytest.mark.require``.
+
+    Skips the test when the client's installed ``package`` is older than
+    ``version``.
+
+    By default the check applies only on RHEL (``/etc/os-release`` ``ID=rhel``):
+    downstream gating, nightlies, and signoff. Upstream PRCI on CentOS, Fedora,
+    and other distros are not skipped. Pass ``distro_ids=None`` to compare on
+    every distro.
+
+    Example (from ``test_sudo__search_base_set_by_provider_no_warning``)::
+
+        from sssd_test_framework.markers import require_package_version
+
+        @pytest.mark.require(
+            require_package_version("2.13.1-3", distro_ids=("rhel",)),
+            "Needs sssd >= 2.13.1-3 on RHEL for ldap_sudo_search_base warning "
+            "suppression (RHEL-248164 / gh-9030)",
+        )
+        def test_sudo__search_base_set_by_provider_no_warning(client, provider):
+            ...
+
+        # Gate on a non-sssd package when needed:
+        # require_package_version("1.9.15", "sudo", distro_ids=("rhel",))
+    """
+
+    def _check(client) -> bool:
+        return client.host.package_version_at_least(
+            version,
+            package=package,
+            distro_ids=distro_ids,
+        )
+
+    return _check
+
+
+def require_sssd_version(
+    version: str,
+    *,
+    distro_ids: tuple[str, ...] | list[str] | None = ("rhel",),
+) -> Callable[..., bool]:
+    """
+    Convenience wrapper for ``require_package_version(..., package="sssd")``.
+
+    Prefer :func:`require_package_version` when gating on other packages.
+    """
+    return require_package_version(version, package="sssd", distro_ids=distro_ids)
 
 
 def builtwith(item: pytest.Function, requirements: dict[str, str], **kwargs: BaseRole):
