@@ -310,10 +310,8 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         :param mapping_cn: CN of the SASL mapping, defaults to 'SSSD service principals'
         :type mapping_cn: str
         """
-        from ..roles.ldap import LDAPSASLMapping
-
         directory = LDAPUtils(self)
-        mapping = LDAPSASLMapping(self, mapping_cn)
+        mapping_dn = f"cn={mapping_cn},cn=mapping,cn=sasl,cn=config"
         principal = f"ldap/{self.hostname}"
 
         # The KDC database is restored to its original state at the end of a
@@ -321,7 +319,7 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         # on the directory server persist. Everything is set up again unless
         # both the principal and the SASL mapping are in place.
         try:
-            directory.conn.search_s(mapping.dn, ldap.SCOPE_BASE)
+            directory.conn.search_s(mapping_dn, ldap.SCOPE_BASE)
             mapping_exists = True
         except ldap.NO_SUCH_OBJECT:
             mapping_exists = False
@@ -366,7 +364,17 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
             pass
 
         try:
-            mapping.add(regex="^host/.*$", base_dn=proxy_dn)
+            directory.add(
+                mapping_dn,
+                {
+                    "objectClass": ["top", "nsSaslMapping"],
+                    "cn": mapping_cn,
+                    "nsSaslMapRegexString": "^host/.*$",
+                    "nsSaslMapBaseDNTemplate": proxy_dn,
+                    "nsSaslMapFilterTemplate": "(objectclass=*)",
+                    "nsSaslMapPriority": 10,
+                },
+            )
         except ldap.ALREADY_EXISTS:
             pass
 

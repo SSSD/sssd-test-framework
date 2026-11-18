@@ -9,6 +9,7 @@ from typing import Any, Generic, TypeAlias, TypeVar, cast
 
 import ldap
 import ldap.ldapobject
+from ldap.filter import escape_filter_chars
 
 from ..hosts.ldap import LDAPHost
 from ..misc import attrs_include_value, to_list_without_none
@@ -504,17 +505,6 @@ class LDAP(BaseLinuxLDAPRole[LDAPHost]):
         """
         return LDAPServices(self, name, basedn, rdn_attr)
 
-    def saslmapping(self, name: str) -> LDAPSASLMapping:
-        """
-        Get SASL mapping object.
-
-        :param name: Mapping name.
-        :type name: str
-        :return: New SASL mapping object.
-        :rtype: LDAPSASLMapping
-        """
-        return LDAPSASLMapping(self.host, name)
-
 
 class LDAPObject(BaseObject[HostType, LDAPRoleType]):
     """
@@ -780,68 +770,68 @@ class LDAPACI(object):
 
 class LDAPSASLMapping(object):
     """
-    LDAP SASL mapping management.
+    SASL mapping management of an LDAP user.
 
-    SASL mappings are stored under ``cn=mapping,cn=sasl,cn=config`` and they
-    translate the authentication identity into a directory entry.
-
-    .. code-block:: python
-        :caption: Creating SASL mapping
-
-        @pytest.mark.topology(KnownTopology.LDAP)
-        def test_example(ldap: LDAP):
-            ldap.saslmapping('my-mapping').add(regex='^uid=.*', base_dn='ou=users')
+    The mapping makes the directory server accept a SASL GSSAPI bind with
+    the user's Kerberos principal.
     """
 
-    def __init__(self, host: LDAPHost, name: str) -> None:
-        """
-        :param host: LDAP host.
-        :type host: LDAPHost
-        :param name: Mapping name.
-        :type name: str
-        """
-        self.host: LDAPHost = host
-        self.ldap: LDAPUtils = LDAPUtils(host)
-        self.name: str = name
-        self.dn: str = f"cn={name},cn=mapping,cn=sasl,cn=config"
+    MAPPING_BASE = "cn=mapping,cn=sasl,cn=config"
+    """Base dn of the SASL mappings."""
 
-    def add(
-        self,
-        regex: str,
-        base_dn: str,
-        filter: str = "(objectclass=*)",
-        priority: int = 10,
-    ) -> LDAPSASLMapping:
+    def __init__(self, user: LDAPUser) -> None:
         """
-        Create new SASL mapping.
+        :param user: LDAP user object.
+        :type user: LDAPUser
+        """
+        self.user: LDAPUser = user
 
-        :param regex: Regular expression matched against the authentication identity.
-        :type regex: str
-        :param base_dn: Base DN template of the mapped entry.
-        :type base_dn: str
-        :param filter: Filter template of the mapped entry, defaults to ``(objectclass=*)``
-        :type filter: str, optional
-        :param priority: Mapping priority, defaults to 10
-        :type priority: int, optional
+    def add(self, regex: str | list[str] | None = None) -> LDAPSASLMapping:
+        """
+        Map the user's principal to the user entry.
+
+        A single regular expression or a list of them can be given, one
+        mapping is created for each. Existing mappings are replaced.
+
+        :param regex: Regular expression(s) matched against the
+            authentication identity, defaults to ``^<user name>@.*$``
+        :type regex: str | list[str] | None, optional
         :return: Self.
         :rtype: LDAPSASLMapping
         """
-        attrs: LDAPRecordAttributes = {
-            "objectClass": ["top", "nsSaslMapping"],
-            "cn": self.name,
-            "nsSaslMapRegexString": regex,
-            "nsSaslMapBaseDNTemplate": base_dn,
-            "nsSaslMapFilterTemplate": filter,
-            "nsSaslMapPriority": priority,
-        }
-        self.ldap.add(self.dn, attrs)
+        rdn, base_dn = self.user.dn.split(",", maxsplit=1)
+        if regex is None:
+            regex = [f"^{self.user.name}@.*$"]
+        elif isinstance(regex, str):
+            regex = [regex]
+
+        self.delete()
+
+        for index, expr in enumerate(regex):
+            cn = self.user.name if index == 0 else f"{self.user.name}-{index + 1}"
+            self.user.role.ldap.add(
+                f"cn={cn},{self.MAPPING_BASE}",
+                {
+                    "objectClass": ["top", "nsSaslMapping"],
+                    "cn": cn,
+                    "nsSaslMapRegexString": expr,
+                    "nsSaslMapBaseDNTemplate": base_dn,
+                    "nsSaslMapFilterTemplate": f"({rdn})",
+                    "nsSaslMapPriority": 10,
+                },
+            )
         return self
 
     def delete(self) -> None:
         """
-        Delete SASL mapping.
+        Delete the SASL mappings of the user, if any exist.
         """
-        self.ldap.delete(self.dn)
+        rdn, _ = self.user.dn.split(",", maxsplit=1)
+        result = self.user.role.ldap.conn.search_s(
+            self.MAPPING_BASE, ldap.SCOPE_ONELEVEL, f"(nsSaslMapFilterTemplate={escape_filter_chars(f'({rdn})')})"
+        )
+        for dn, _ in result:
+            self.user.role.ldap.delete(dn)
 
 
 class LDAPOrganizationalUnit(LDAPObject[HostType, LDAPRoleType], GenericOrganizationalUnit):
@@ -990,7 +980,7 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP], GenericUser):
         :param mail: mail LDAP attribute, defaults to None
         :type mail: str | None, optional
         :param email: mail LDAP attribute, defaults to None
-        :type mail: str | None, optional
+        :type email: str | None, optional
         :return: Self.
         :rtype: LDAPUser
         """
@@ -1031,6 +1021,29 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP], GenericUser):
 
         self._add(attrs)
         return self
+
+    @property
+    def saslmapping(self) -> LDAPSASLMapping:
+        """
+        SASL mapping management.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.LDAP_KRB5)
+            def test_example(ldap: LDAP, kdc: KDC):
+                kdc.principal('tuser').add()
+                user = ldap.user('tuser').add()
+                user.saslmapping.add()
+        """
+        return LDAPSASLMapping(self)
+
+    def delete(self) -> None:
+        """
+        Delete the user and its SASL mapping.
+        """
+        self.saslmapping.delete()
+        super().delete()
 
     def modify(
         self,
