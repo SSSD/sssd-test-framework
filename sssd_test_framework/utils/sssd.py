@@ -916,6 +916,31 @@ class SSSDCommonConfiguration(object):
         self.sssd.merge_domain(domain, kdc)
         self.sssd.fs.write("/etc/krb5.conf", kdc.config(), user="root", group="root", mode="0644")
 
+    def sasl_gssapi(self, kdc: KDC, domain: str | None = None) -> None:
+        """
+        Configure krb5 authentication and the LDAP provider for a SASL GSSAPI bind.
+
+        #. Call :meth:`krb5_auth`
+        #. Set ``ldap_sasl_mech`` to ``GSSAPI`` and ``ldap_sasl_authid`` to the client's host principal
+
+        :param kdc: KDC role object.
+        :type kdc: KDC
+        :param domain: Existing domain name, defaults to None (= default domain)
+        :type domain: str | None, optional
+        :raises ValueError: if invalid domain is given.
+        """
+        if domain is None:
+            domain = self.sssd.default_domain
+
+        if domain is None:
+            raise ValueError("No domain specified!")
+
+        self.krb5_auth(kdc, domain)
+        self.sssd.dom(domain).update(
+            ldap_sasl_mech="GSSAPI",
+            ldap_sasl_authid=f"host/{self.sssd.host.hostname}@{kdc.realm}",
+        )
+
     def kcm(self, kdc: KDC, *, local_domain: bool = True) -> None:
         """
         Configure Kerberos to allow KCM tests.
