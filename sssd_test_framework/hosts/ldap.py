@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import textwrap
+from pathlib import PurePosixPath
 from typing import Any
 
-import ldap
 from pytest_mh.conn import ProcessLogLevel
 
 from .base import BaseLDAPDomainHost, BaseLinuxHost
@@ -23,7 +23,7 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
 
     .. note::
 
-        Full backup and restore is supported.
+        Full backup and restore is supported via ``dsctl db2bak`` / ``bak2db``.
     """
 
     def __init__(self, *args, **kwargs) -> None:
@@ -280,8 +280,16 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         :param backup_data: Backup data.
         :type backup_data: Any | None
         """
-        # Nothing to do since we store backup in memory
-        pass
+        if backup_data is None:
+            return
+
+        if not isinstance(backup_data, PurePosixPath):
+            raise TypeError(f"Expected PurePosixPath, got {type(backup_data)}")
+
+        self.conn.run(
+            f'rm --force --recursive "{backup_data}" "{backup_data}.db2bak"',
+            log_level=ProcessLogLevel.Error,
+        )
 
     def start(self) -> None:
         self.svc.start(self._ldap_service_name)
@@ -293,34 +301,63 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         """
         Backup all directory server data.
 
-        Full backup of ``cn=config`` and default naming context is performed.
-        This is done by simple LDAP search on given base dn and remembering the
-        contents. The operation is usually very fast.
+        Stop 389-ds, wait for ``ns-slapd`` to exit, then take a binary database
+        backup with ``dsctl db2bak`` (same approach as sssd-ci-containers LDAP
+        image and IPA PR #298). Plain filesystem copies of ``/var/lib/dirsrv``
+        leave the instance unable to answer LDAP after restart on RHEL.
 
         :return: Backup data.
         :rtype: Any
         """
         self.logger.info("Creating backup of LDAP server")
+        self.disconnect()
 
-        data = self.ldap_conn.search_s(self.naming_context, ldap.SCOPE_SUBTREE)
-        config = self.ldap_conn.search_s("cn=config", ldap.SCOPE_BASE)
-        nc = self.ldap_conn.search_s(self.naming_context, ldap.SCOPE_BASE, attrlist=["aci"])
+        result = self.conn.run(
+            """
+            set -x
+            set -e
 
-        dct = self.ldap_result_to_dict(data)
-        dct.update(self.ldap_result_to_dict(config))
-        dct.update(self.ldap_result_to_dict(nc))
+            path=`mktemp -d`
 
-        return dct
+            systemctl stop dirsrv@localhost.service || systemctl stop dirsrv.target
+            set +e
+            count=0
+            while pgrep -a ns-slapd > /dev/null; do
+                if [ "$count" -ge "60" ]; then
+                    echo "Directory server failed to stop in 60 seconds"
+                    exit 1
+                fi
+                count=$((count + 1))
+                sleep 1
+            done
+            set -e
+
+            ds_inst=`dsctl -l | sed 's/^slapd-//' | head -n1`
+            dsctl "$ds_inst" db2bak "$path.db2bak"
+
+            systemctl start dirsrv@localhost.service || systemctl start dirsrv.target
+
+            for _ in $(seq 60); do
+                ldapsearch -x -H 'ldap://127.0.0.1' -b '' -s base > /dev/null 2>&1 && break
+                sleep 1
+            done
+            ldapsearch -x -H 'ldap://127.0.0.1' -b '' -s base > /dev/null
+
+            echo $path
+            """,
+            log_level=ProcessLogLevel.Error,
+        )
+
+        return PurePosixPath(result.stdout_lines[-1].strip())
 
     def restore(self, backup_data: Any | None) -> None:
         """
         Restore directory server data.
 
-        Current directory server content in ``cn=config`` and default naming
-        context is modified to its original data. This is done by computing a
-        difference between original data obtained by :func:`backup` and then
-        calling add, delete and modify operations to convert current state to
-        the original state. This operation is usually very fast.
+        Stop 389-ds, wait for ``ns-slapd`` to exit, restore the binary backup
+        created by :meth:`backup` with ``dsctl bak2db``, then start and wait
+        until LDAP answers. This restores the full database state (including
+        test users and extra naming contexts).
 
         :return: Backup data.
         :rtype: Any
@@ -328,60 +365,41 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         if backup_data is None:
             return
 
-        self.logger.info("Restoring LDAP server from memory")
+        if not isinstance(backup_data, PurePosixPath):
+            raise TypeError(f"Expected PurePosixPath, got {type(backup_data)}")
 
-        if not isinstance(backup_data, dict):
-            raise TypeError(f"Expected dict, got {type(backup_data)}")
+        backup_path = str(backup_data)
+        self.logger.info(f"Restoring LDAP server from {backup_path}")
 
-        data = self.ldap_conn.search_s(self.naming_context, ldap.SCOPE_SUBTREE)
-        config = self.ldap_conn.search_s("cn=config", ldap.SCOPE_BASE)
-        nc = self.ldap_conn.search_s(self.naming_context, ldap.SCOPE_BASE, attrlist=["aci"])
+        self.disconnect()
+        self.conn.run(
+            f"""
+            set -x
+            set -e
 
-        # Convert list of tuples to dictionary for better lookup
-        data = self.ldap_result_to_dict(data)
-        data.update(self.ldap_result_to_dict(config))
-        data.update(self.ldap_result_to_dict(nc))
+            systemctl stop dirsrv@localhost.service || systemctl stop dirsrv.target
+            set +e
+            count=0
+            while pgrep -a ns-slapd > /dev/null; do
+                if [ "$count" -ge "60" ]; then
+                    echo "Directory server failed to stop in 60 seconds"
+                    exit 1
+                fi
+                count=$((count + 1))
+                sleep 1
+            done
+            set -e
 
-        for dn, attrs in reversed(data.items()):
-            # Restore records that were modified
-            if dn in backup_data:
-                original_attrs = backup_data[dn]
-                modlist = ldap.modlist.modifyModlist(attrs, original_attrs)
-                modlist = self.__filter_modlist(dn, modlist)
-                if modlist:
-                    self.ldap_conn.modify_s(dn, modlist)
+            ds_inst=`dsctl -l | sed 's/^slapd-//' | head -n1`
+            dsctl "$ds_inst" bak2db "{backup_path}.db2bak"
 
-        for dn, attrs in reversed(data.items()):
-            # Delete records that were added
-            if dn not in backup_data:
-                self.ldap_conn.delete_s(dn)
-                continue
+            systemctl start dirsrv@localhost.service || systemctl start dirsrv.target
 
-        for dn, attrs in backup_data.items():
-            # Add back records that were deleted
-            if dn not in data:
-                self.ldap_conn.add_s(dn, list(attrs.items()))
-
-    def __filter_modlist(self, dn: str, modlist: list) -> list:
-        """
-        Remove special items that can not be modified from ``modlist``.
-
-        :param dn: Object's DN.
-        :type dn: str
-        :param modlist: LDAP modlist.
-        :type modlist: list
-        :return: Filtered modlist.
-        :rtype: list
-        """
-        if dn != "cn=config":
-            return modlist
-
-        result = []
-        for op, attr, value in modlist:
-            # We are not allowed to touch these
-            if attr.startswith("nsslapd"):
-                continue
-
-            result.append((op, attr, value))
-
-        return result
+            for _ in $(seq 60); do
+                ldapsearch -x -H 'ldap://127.0.0.1' -b '' -s base > /dev/null 2>&1 && break
+                sleep 1
+            done
+            ldapsearch -x -H 'ldap://127.0.0.1' -b '' -s base > /dev/null
+            """,
+            log_level=ProcessLogLevel.Error,
+        )
