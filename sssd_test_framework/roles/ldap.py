@@ -9,6 +9,7 @@ from typing import Any, Generic, TypeAlias, TypeVar, cast
 
 import ldap
 import ldap.ldapobject
+from ldap.filter import escape_filter_chars
 
 from ..hosts.ldap import LDAPHost
 from ..misc import attrs_include_value, to_list_without_none
@@ -43,6 +44,7 @@ __all__ = [
     "LDAP",
     "LDAPObject",
     "LDAPACI",
+    "LDAPSASLMapping",
     "LDAPOrganizationalUnit",
     "LDAPUser",
     "LDAPGroup",
@@ -766,6 +768,72 @@ class LDAPACI(object):
         self.ldap.modify(self.dn, delete={"aci": value})
 
 
+class LDAPSASLMapping(object):
+    """
+    SASL mapping management of an LDAP user.
+
+    The mapping makes the directory server accept a SASL GSSAPI bind with
+    the user's Kerberos principal.
+    """
+
+    MAPPING_BASE = "cn=mapping,cn=sasl,cn=config"
+    """Base dn of the SASL mappings."""
+
+    def __init__(self, user: LDAPUser) -> None:
+        """
+        :param user: LDAP user object.
+        :type user: LDAPUser
+        """
+        self.user: LDAPUser = user
+
+    def add(self, regex: str | list[str] | None = None) -> LDAPSASLMapping:
+        """
+        Map the user's principal to the user entry.
+
+        A single regular expression or a list of them can be given, one
+        mapping is created for each. Existing mappings are replaced.
+
+        :param regex: Regular expression(s) matched against the
+            authentication identity, defaults to ``^<user name>@.*$``
+        :type regex: str | list[str] | None, optional
+        :return: Self.
+        :rtype: LDAPSASLMapping
+        """
+        rdn, base_dn = self.user.dn.split(",", maxsplit=1)
+        if regex is None:
+            regex = [f"^{self.user.name}@.*$"]
+        elif isinstance(regex, str):
+            regex = [regex]
+
+        self.delete()
+
+        for index, expr in enumerate(regex):
+            cn = self.user.name if index == 0 else f"{self.user.name}-{index + 1}"
+            self.user.role.ldap.add(
+                f"cn={cn},{self.MAPPING_BASE}",
+                {
+                    "objectClass": ["top", "nsSaslMapping"],
+                    "cn": cn,
+                    "nsSaslMapRegexString": expr,
+                    "nsSaslMapBaseDNTemplate": base_dn,
+                    "nsSaslMapFilterTemplate": f"({rdn})",
+                    "nsSaslMapPriority": 10,
+                },
+            )
+        return self
+
+    def delete(self) -> None:
+        """
+        Delete the SASL mappings of the user, if any exist.
+        """
+        rdn, _ = self.user.dn.split(",", maxsplit=1)
+        result = self.user.role.ldap.conn.search_s(
+            self.MAPPING_BASE, ldap.SCOPE_ONELEVEL, f"(nsSaslMapFilterTemplate={escape_filter_chars(f'({rdn})')})"
+        )
+        for dn, _ in result:
+            self.user.role.ldap.delete(dn)
+
+
 class LDAPOrganizationalUnit(LDAPObject[HostType, LDAPRoleType], GenericOrganizationalUnit):
     """
     LDAP organizational unit management.
@@ -912,7 +980,7 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP], GenericUser):
         :param mail: mail LDAP attribute, defaults to None
         :type mail: str | None, optional
         :param email: mail LDAP attribute, defaults to None
-        :type mail: str | None, optional
+        :type email: str | None, optional
         :return: Self.
         :rtype: LDAPUser
         """
@@ -953,6 +1021,29 @@ class LDAPUser(LDAPObject[LDAPHost, LDAP], GenericUser):
 
         self._add(attrs)
         return self
+
+    @property
+    def saslmapping(self) -> LDAPSASLMapping:
+        """
+        SASL mapping management.
+
+        .. code-block:: python
+            :caption: Example usage
+
+            @pytest.mark.topology(KnownTopology.LDAP_KRB5)
+            def test_example(ldap: LDAP, kdc: KDC):
+                kdc.principal('tuser').add()
+                user = ldap.user('tuser').add()
+                user.saslmapping.add()
+        """
+        return LDAPSASLMapping(self)
+
+    def delete(self) -> None:
+        """
+        Delete the user and its SASL mapping.
+        """
+        self.saslmapping.delete()
+        super().delete()
 
     def modify(
         self,
