@@ -168,6 +168,7 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         check_config: bool = True,
         debug_level: str | None = "0xfff0",
         clean: bool = False,
+        disable_out: bool = False,
     ) -> ProcessResult:
         """
         Start the SSSD and KCM services. The call will wait until the operation is finished.
@@ -186,13 +187,15 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         :type debug_level:  str | None, optional
         :param clean: Does a clean restart, clearing the cache, defaults to False
         :type clean: bool, defaults to False
+        :param disable_out: Disable dumping file contents to output/logs, defaults to False
+        :type disable_out: bool, optional
         :return: SSH process result.
         :rtype: ProcessResult
         """
         self.set_service_user(service_user)
 
         if apply_config:
-            self.config_apply(check_config=check_config, debug_level=debug_level)
+            self.config_apply(check_config=check_config, debug_level=debug_level, disable_out=disable_out)
 
         # Also stop kcm so that it is started when first used.
         if service == "sssd":
@@ -497,7 +500,9 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         self.config.clear()
         self.config.read_string(result.stdout)
 
-    def config_apply(self, check_config: bool = True, debug_level: str | None = "0xfff0") -> None:
+    def config_apply(
+        self, check_config: bool = True, debug_level: str | None = "0xfff0", disable_out: bool = False
+    ) -> None:
         """
         Apply current configuration on remote host.
 
@@ -505,13 +510,22 @@ class SSSDUtils(MultihostUtility[MultihostHost]):
         :type check_config: bool, optional
         :param debug_level: Automatically set debug level to the given value, defaults to 0xfff0
         :type debug_level:  str | None, optional
+        :param disable_out: Disable dumping file contents to output/logs, defaults to False
+        :type disable_out: bool, optional
         """
         cfg = self.__set_debug_level(debug_level)
         service_user = self.svc.get_property("sssd", "User")
         if service_user == "":
             service_user = "root"
         contents = self.__config_dumps(cfg)
-        self.fs.write("/etc/sssd/sssd.conf", contents, mode="0600", user=service_user, group=service_user)
+        self.fs.write(
+            "/etc/sssd/sssd.conf",
+            contents,
+            mode="0600",
+            user=service_user,
+            group=service_user,
+            disable_out=disable_out,
+        )
 
         if check_config:
             self.host.conn.run("sssctl config-check")
