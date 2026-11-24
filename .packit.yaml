@@ -1,0 +1,11 @@
+---
+upstream_project_url: https://github.com/SSSD/sssd-test-framework
+
+jobs:
+  - job: tests
+    trigger: pull_request
+    packages:
+      - upstream
+    targets: [fedora-stable]
+    skip_install: True
+    identifier: system
