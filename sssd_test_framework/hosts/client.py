@@ -53,6 +53,8 @@ class ClientHost(BaseHost, BaseLinuxHost):
             [ -f "/usr/libexec/sssd/passkey_child" ] && echo "passkey" || :
             [ -f "/usr/bin/sss_ssh_knownhosts" ] && echo "knownhosts" || :
             [ -f "/usr/lib64/sssd/libsss_idp.so" ] && echo "idp-provider" || :
+            [ -f "/usr/lib64/sssd/modules/sssd_krb5_idp_plugin.so" ] && \
+            [ -f "/etc/krb5.conf.d/sssd_enable_idp" ] && echo "external-idp" || :
             [ -f /opt/test_venv/bin/scauto ] && /opt/test_venv/bin/scauto gui done 2> /dev/null && echo "gdm" || :
             systemctl cat sssd.service | grep -q "If service configured to be run under" && echo "non-privileged" || :
             strings /usr/lib64/sssd/libsss_ldap_common.so | grep ldap_use_ppolicy && echo "ldap_use_ppolicy" || :
