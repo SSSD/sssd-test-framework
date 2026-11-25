@@ -44,7 +44,7 @@ class GDM(MultihostUtility[MultihostHost]):
             self.host.conn.exec([*self.cmd, "init"])
             self.init_completed = True
 
-    def assert_text(self, word: str) -> bool:
+    def assert_text(self, word: str, fail: bool = False) -> bool:
         """
         Run scauto gui assert-text
 
@@ -56,10 +56,20 @@ class GDM(MultihostUtility[MultihostHost]):
         if not self.init_completed:
             self.init()
 
-        result = self.host.conn.exec([*self.cmd, "assert-text", word], raise_on_error=False)
-        if result.rc != 0:
-            self.logger.warn(f"Unable to find text ({word}) on screen")
-        return result.rc == 0
+        # Pause slightly before running the assert to allow time for the text to appear
+        time.sleep(2)
+
+        rc = 0
+        for count in range(1,4):
+            rc = self.host.conn.exec([*self.cmd, "assert-text", word], raise_on_error=False).rc
+            if rc == 0:
+                break
+            time.sleep(1)
+
+        if fail:
+            assert rc == 0, f"Unable to find te xt ({word}) on screen"
+
+        return rc == 0
 
     @retry(max_retries=3, delay=1, on=AssertionError)
     def click_on(self, word: str) -> None:
@@ -117,11 +127,19 @@ class GDM(MultihostUtility[MultihostHost]):
         :param client: Client role object to read log
         :type client: Client role
         """
-        result = client.journald.journalctl(
-            grep="Opening and taking control of.*card", unit=None, since="5 seconds ago"
-        )
-        if result.rc != 0:
+        result = client.journald.journalctl(grep=None, unit=None, since="5 seconds ago")
+
+        rc = 0
+        checks = ["Opening and taking control of.*card", "Adding device.*card"]
+        for check in checks:
+            if not re.search(check, result.stdout):
+                rc += 1
+
+        if rc >= len(checks):
             raise AssertionError("Unable to see gnome-shell take control of video card")
+        import time
+
+        time.sleep(2)
 
     def check_home_screen(self) -> bool:
         """
