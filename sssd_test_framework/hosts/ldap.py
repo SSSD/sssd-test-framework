@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import textwrap
-from typing import Any
+from typing import Any, NamedTuple
 
 import ldap
+from ldap.ldapobject import ReconnectLDAPObject
 from pytest_mh.conn import ProcessLogLevel
 
 from .base import BaseLDAPDomainHost, BaseLinuxHost
@@ -13,6 +14,16 @@ from .base import BaseLDAPDomainHost, BaseLinuxHost
 __all__ = [
     "LDAPHost",
 ]
+
+
+class AdditionalInstance(NamedTuple):
+    """Connection details of an instance created at runtime."""
+
+    port: int
+    """LDAP port the instance listens on."""
+
+    suffix: str
+    """Naming context the instance was created with."""
 
 
 class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
@@ -23,8 +34,12 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
 
     .. note::
 
-        Full backup and restore is supported.
+        Full backup and restore is supported, including any additional
+        instances created with :func:`create_additional_instance`.
     """
+
+    DEFAULT_INSTANCE: str = "localhost"
+    """Key used for the instance that the host was provisioned with."""
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -32,6 +47,8 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         self._features: dict[str, bool] | None = None
         self._ldap_service_name = self.config.get("ldap_service_name", "dirsrv@localhost.service")
         self._ldap_cert_dir = self.config.get("ldap_cert_dir", "/var/data/certs")
+        self._additional_instances: dict[str, AdditionalInstance] = {}
+        self.__additional_conns: dict[str, ReconnectLDAPObject] = {}
 
         # Additional client configuration
         self.client.setdefault("id_provider", "ldap")
@@ -198,15 +215,28 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
             log_level=ProcessLogLevel.Error,
         )
 
-        # Match the primary instance, which grants anonymous read access.
+        self._additional_instances[name] = AdditionalInstance(port=port, suffix=suffix)
+
+        # Match the primary instance, which grants anonymous read access, and
+        # the aci added by the LDAP role's setup, which only ever reaches the
+        # default instance over its own connection.
+        # Sent as two separate modifies under -c, rather than one modify with
+        # two values, so that an aci that is already present does not abort the
+        # request and leave the other one unapplied.
         result = self.conn.run(
-            f"""ldapmodify -D '{self.binddn}' -w '{self.bindpw}' -H 'ldap://localhost:{port}' -x""",
+            f"""ldapmodify -c -D '{self.binddn}' -w '{self.bindpw}' -H 'ldap://localhost:{port}' -x""",
             input=(
                 f"dn: {suffix}\n"
                 "changetype: modify\n"
                 "add: aci\n"
                 'aci: (targetattr=*)(version 3.0; acl "Enable anyone read"; '
                 'allow (read, search, compare)(userdn="ldap:///anyone");)\n'
+                "\n"
+                f"dn: {suffix}\n"
+                "changetype: modify\n"
+                "add: aci\n"
+                'aci: (targetattr="userpassword")(version 3.0; acl "pwp test"; '
+                'allow (all) userdn="ldap:///self";)\n'
             ),
             log_level=ProcessLogLevel.Error,
             raise_on_error=False,
@@ -233,6 +263,9 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         :type name: str
         """
         self.logger.info(f"Removing 389ds instance '{name}' from {self.hostname}")
+
+        self._additional_instances.pop(name, None)
+        self.__additional_conns.pop(name, None)
 
         self.conn.run(
             textwrap.dedent(f"""
@@ -285,9 +318,40 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
 
     def start(self) -> None:
         self.svc.start(self._ldap_service_name)
+        self.wait_until_online()
 
     def stop(self) -> None:
         self.svc.stop(self._ldap_service_name)
+
+    def wait_until_online(self, port: int = 389, timeout: int = 30) -> None:
+        """
+        Block until a directory server instance accepts connections.
+
+        ``systemctl start`` returns before 389ds is ready to answer, so
+        anything that restarts an instance has to wait for it, otherwise the
+        next operation, including this host's own :func:`restore`, can race
+        against startup.
+
+        :param port: Port to probe, defaults to 389.
+        :type port: int, optional
+        :param timeout: How long to wait in seconds, defaults to 30.
+        :type timeout: int, optional
+        :raises TimeoutError: If the instance is not available in time.
+        """
+        result = self.conn.run(
+            f"""
+            for _ in $(seq {timeout}); do
+                ldapsearch -x -H 'ldap://localhost:{port}' -b '' -s base > /dev/null 2>&1 && exit 0
+                sleep 1
+            done
+            exit 1
+            """,
+            log_level=ProcessLogLevel.Error,
+            raise_on_error=False,
+        )
+
+        if result.rc != 0:
+            raise TimeoutError(f"Directory server on port {port} did not come up within {timeout} seconds")
 
     def backup(self) -> Any:
         """
@@ -302,9 +366,48 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         """
         self.logger.info("Creating backup of LDAP server")
 
-        data = self.ldap_conn.search_s(self.naming_context, ldap.SCOPE_SUBTREE)
-        config = self.ldap_conn.search_s("cn=config", ldap.SCOPE_BASE)
-        nc = self.ldap_conn.search_s(self.naming_context, ldap.SCOPE_BASE, attrlist=["aci"])
+        backup: dict[str, dict] = {self.DEFAULT_INSTANCE: self.__backup_conn(self.ldap_conn, self.naming_context)}
+        for name, instance in self._additional_instances.items():
+            backup[name] = self.__backup_conn(self.instance_conn(name), instance.suffix)
+
+        return backup
+
+    def instance_conn(self, name: str) -> ReconnectLDAPObject:
+        """
+        Get a bound connection to an instance created by
+        :func:`create_additional_instance`.
+
+        :param name: Instance name.
+        :type name: str
+        :raises ValueError: If the instance is not known to this host.
+        :return: Bound connection to the instance.
+        :rtype: ReconnectLDAPObject
+        """
+        if name not in self._additional_instances:
+            raise ValueError(f"Unknown additional instance: {name}")
+
+        if name not in self.__additional_conns:
+            host = getattr(self.conn, "host", self.hostname)
+            instance = self._additional_instances[name]
+            self.__additional_conns[name] = self.open_ldap_conn(f"ldap://{host}:{instance.port}")
+
+        return self.__additional_conns[name]
+
+    def __backup_conn(self, conn: ReconnectLDAPObject, suffix: str) -> dict:
+        """
+        Read the state of a single instance over the given connection.
+
+        :param conn: Connection to the instance.
+        :type conn: ReconnectLDAPObject
+        :param suffix: Naming context of that instance, which is not
+            necessarily the one the host was provisioned with.
+        :type suffix: str
+        :return: Backup data for that instance.
+        :rtype: dict
+        """
+        data = conn.search_s(suffix, ldap.SCOPE_SUBTREE)
+        config = conn.search_s("cn=config", ldap.SCOPE_BASE)
+        nc = conn.search_s(suffix, ldap.SCOPE_BASE, attrlist=["aci"])
 
         dct = self.ldap_result_to_dict(data)
         dct.update(self.ldap_result_to_dict(config))
@@ -333,9 +436,28 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
         if not isinstance(backup_data, dict):
             raise TypeError(f"Expected dict, got {type(backup_data)}")
 
-        data = self.ldap_conn.search_s(self.naming_context, ldap.SCOPE_SUBTREE)
-        config = self.ldap_conn.search_s("cn=config", ldap.SCOPE_BASE)
-        nc = self.ldap_conn.search_s(self.naming_context, ldap.SCOPE_BASE, attrlist=["aci"])
+        for name, instance_backup in backup_data.items():
+            if name == self.DEFAULT_INSTANCE:
+                self.__restore_conn(self.ldap_conn, instance_backup, self.naming_context)
+                continue
+
+            instance = self._additional_instances[name]
+            self.__restore_conn(self.instance_conn(name), instance_backup, instance.suffix)
+
+    def __restore_conn(self, conn: ReconnectLDAPObject, backup_data: dict, suffix: str) -> None:
+        """
+        Restore a single instance to the state captured by :func:`backup`.
+
+        :param conn: Connection to the instance.
+        :type conn: ReconnectLDAPObject
+        :param backup_data: Backup data for that instance.
+        :type backup_data: dict
+        :param suffix: Naming context of that instance.
+        :type suffix: str
+        """
+        data = conn.search_s(suffix, ldap.SCOPE_SUBTREE)
+        config = conn.search_s("cn=config", ldap.SCOPE_BASE)
+        nc = conn.search_s(suffix, ldap.SCOPE_BASE, attrlist=["aci"])
 
         # Convert list of tuples to dictionary for better lookup
         data = self.ldap_result_to_dict(data)
@@ -349,18 +471,18 @@ class LDAPHost(BaseLDAPDomainHost, BaseLinuxHost):
                 modlist = ldap.modlist.modifyModlist(attrs, original_attrs)
                 modlist = self.__filter_modlist(dn, modlist)
                 if modlist:
-                    self.ldap_conn.modify_s(dn, modlist)
+                    conn.modify_s(dn, modlist)
 
         for dn, attrs in reversed(data.items()):
             # Delete records that were added
             if dn not in backup_data:
-                self.ldap_conn.delete_s(dn)
+                conn.delete_s(dn)
                 continue
 
         for dn, attrs in backup_data.items():
             # Add back records that were deleted
             if dn not in data:
-                self.ldap_conn.add_s(dn, list(attrs.items()))
+                conn.add_s(dn, list(attrs.items()))
 
     def __filter_modlist(self, dn: str, modlist: list) -> list:
         """

@@ -133,20 +133,34 @@ class BaseLDAPDomainHost(BaseDomainHost):
         if not self.__ldap_conn:
             # Use host from SSH if possible, otherwise fallback to hostname
             host = getattr(self.conn, "host", self.hostname)
-
-            newconn = ReconnectLDAPObject(f"ldap://{host}")
-            newconn.protocol_version = ldap.VERSION3
-            newconn.set_option(ldap.OPT_REFERRALS, 0)
-
-            if self.tls:
-                newconn.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_NEVER)
-                newconn.set_option(ldap.OPT_X_TLS_NEWCTX, 0)
-                newconn.start_tls_s()
-
-            newconn.simple_bind_s(self.binddn, self.bindpw)
-            self.__ldap_conn = newconn
+            self.__ldap_conn = self.open_ldap_conn(f"ldap://{host}")
 
         return self.__ldap_conn
+
+    def open_ldap_conn(self, uri: str) -> ReconnectLDAPObject:
+        """
+        Open a new bound LDAP connection to an arbitrary URI on this host.
+
+        Used by :attr:`ldap_conn` for the default instance, and by hosts that
+        run more than one directory server to reach the additional ones.
+
+        :param uri: LDAP URI to connect to.
+        :type uri: str
+        :return: Bound connection.
+        :rtype: ReconnectLDAPObject
+        """
+        newconn = ReconnectLDAPObject(uri)
+        newconn.protocol_version = ldap.VERSION3
+        newconn.set_option(ldap.OPT_REFERRALS, 0)
+
+        if self.tls:
+            newconn.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_NEVER)
+            newconn.set_option(ldap.OPT_X_TLS_NEWCTX, 0)
+            newconn.start_tls_s()
+
+        newconn.simple_bind_s(self.binddn, self.bindpw)
+
+        return newconn
 
     @property
     def naming_context(self) -> str:
